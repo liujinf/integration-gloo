@@ -4,13 +4,13 @@ import (
 	"context"
 	"sort"
 
-	"github.com/rotisserie/eris"
-	extauth "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/enterprise/options/extauth/v1"
-	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/enterprise/options/ratelimit"
+	rltypes "github.com/solo-io/solo-apis/pkg/api/ratelimit.solo.io/v1alpha1"
 
 	"github.com/hashicorp/consul/api"
 	vaultapi "github.com/hashicorp/vault/api"
+	"github.com/rotisserie/eris"
 	printTypes "github.com/solo-io/gloo/projects/gloo/cli/pkg/printers"
+	extauth "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/enterprise/options/extauth/v1"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 )
 
@@ -27,12 +27,15 @@ type Options struct {
 	Route     Route
 	Get       Get
 	Add       Add
+	Istio     Istio
 	Remove    Remove
+	Cluster   Cluster
 }
 
 type Top struct {
 	Interactive            bool
 	File                   string
+	CheckName              []string
 	Output                 printTypes.OutputType
 	Ctx                    context.Context
 	Verbose                bool   // currently only used by install and uninstall, sends kubectl command output to terminal
@@ -44,17 +47,23 @@ type Top struct {
 	Consul                 Consul // use consul as config backend
 }
 
-type Install struct {
-	DryRun                  bool
+type HelmInstall struct {
 	CreateNamespace         bool
 	Namespace               string
 	HelmChartOverride       string
 	HelmChartValueFileNames []string
 	HelmReleaseName         string
-	Version                 string
-	Knative                 Knative
-	LicenseKey              string
-	WithUi                  bool
+}
+
+type Install struct {
+	Gloo        HelmInstall
+	Federation  HelmInstall
+	Knative     Knative
+	WithUi      bool
+	LicenseKey  string
+	WithGlooFed bool
+	DryRun      bool
+	Version     string
 }
 
 type Knative struct {
@@ -66,12 +75,17 @@ type Knative struct {
 	InstallKnativeEventingVersion string `json:"eventingVersion"`
 }
 
-type Uninstall struct {
+type HelmUninstall struct {
 	Namespace       string
 	HelmReleaseName string
 	DeleteCrds      bool
 	DeleteNamespace bool
 	DeleteAll       bool
+}
+
+type Uninstall struct {
+	GlooUninstall HelmUninstall
+	FedUninstall  HelmUninstall
 }
 
 type Proxy struct {
@@ -137,6 +151,14 @@ type RouteMatchers struct {
 type Add struct {
 	Route  InputRoute
 	DryRun bool // print resource as a kubernetes style yaml and exit without writing to storage
+}
+
+type Istio struct {
+	Upstream           string // upstream for which we are changing the istio mTLS settings
+	IncludeUpstreams   bool   // whether or not to modify upstreams when uninstalling mTLS
+	Namespace          string // namespace in which istio is installed
+	IstioMetaMeshId    string // IstioMetaMeshId sets ISTIO_META_MESH_ID env var
+	IstioMetaClusterId string // IstioMetaClusterId sets ISTIO_META_CLUSTER_ID env var
 }
 
 type InputRoute struct {
@@ -351,7 +373,7 @@ type ExtraOptions struct {
 
 var RateLimit_TimeUnits = func() []string {
 	var vals []string
-	for _, name := range ratelimit.RateLimit_Unit_name {
+	for _, name := range rltypes.RateLimit_Unit_name {
 		vals = append(vals, name)
 	}
 	sort.Strings(vals)
@@ -395,4 +417,18 @@ type OpaAuth struct {
 
 	Query   string
 	Modules []string
+}
+
+type Cluster struct {
+	FederationNamespace string
+	Register            Register
+	Deregister          Register
+}
+
+type Register struct {
+	RemoteKubeConfig           string
+	RemoteContext              string
+	ClusterName                string
+	LocalClusterDomainOverride string
+	RemoteNamespace            string
 }

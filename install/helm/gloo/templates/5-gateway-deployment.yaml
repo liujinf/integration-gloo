@@ -21,13 +21,22 @@ spec:
     metadata:
       labels:
         gloo: gateway
+        {{- if .Values.gateway.deployment.extraGatewayLabels }}
+        {{- range $key, $value := .Values.gateway.deployment.extraGatewayLabels }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
       {{- if $statsConfig.enabled }}
       annotations:
         prometheus.io/path: /metrics
         prometheus.io/port: "9091"
         prometheus.io/scrape: "true"
+        {{- if .Values.global.istioIntegration.disableAutoinjection }}
+        sidecar.istio.io/inject: "false"
+        {{- end }}
       {{- end}}
     spec:
+      {{- include "gloo.pullSecret" $image | nindent 6 }}
       serviceAccountName: gateway
       containers:
       - image: {{template "gloo.image" $image}}
@@ -50,7 +59,7 @@ spec:
           allowPrivilegeEscalation: false
           runAsNonRoot: true
           {{- if not .Values.gateway.deployment.floatingUserId }}
-          runAsUser: {{ printf "%.0f" .Values.gateway.deployment.runAsUser -}}
+          runAsUser: {{ printf "%.0f" (float64 .Values.gateway.deployment.runAsUser) -}}
           {{- end }}
           capabilities:
             drop:
@@ -70,6 +79,10 @@ spec:
         {{- if .Values.gateway.validation.enabled }}
           - name: VALIDATION_MUST_START
             value: "true"
+        {{- end}}
+        {{- if .Values.gateway.logLevel }}
+          - name: LOG_LEVEL
+            value: {{ .Values.gateway.logLevel }}
         {{- end}}
 
 {{- if .Values.gateway.validation.enabled }}

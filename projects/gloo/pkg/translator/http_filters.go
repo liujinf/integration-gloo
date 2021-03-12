@@ -3,17 +3,16 @@ package translator
 import (
 	"sort"
 
+	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoy_config_listener_v3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	envoyhttp "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"github.com/golang/protobuf/ptypes/wrappers"
-	validationapi "github.com/solo-io/gloo/projects/gloo/pkg/api/grpc/validation"
-	"github.com/solo-io/gloo/projects/gloo/pkg/utils/validation"
-	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/util"
-
-	envoycore "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
-	envoylistener "github.com/envoyproxy/go-control-plane/envoy/api/v2/listener"
-	envoyhttp "github.com/envoyproxy/go-control-plane/envoy/config/filter/network/http_connection_manager/v2"
 	errors "github.com/rotisserie/eris"
+	validationapi "github.com/solo-io/gloo/projects/gloo/pkg/api/grpc/validation"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
+	"github.com/solo-io/gloo/projects/gloo/pkg/utils/validation"
 	"github.com/solo-io/go-utils/contextutils"
 	"github.com/solo-io/go-utils/log"
 )
@@ -22,7 +21,11 @@ const (
 	DefaultHttpStatPrefix = "http"
 )
 
-func NewHttpConnectionManager(listener *v1.HttpListener, httpFilters []*envoyhttp.HttpFilter, rdsName string) *envoyhttp.HttpConnectionManager {
+func NewHttpConnectionManager(
+	listener *v1.HttpListener,
+	httpFilters []*envoyhttp.HttpFilter,
+	rdsName string,
+) *envoyhttp.HttpConnectionManager {
 	statPrefix := listener.GetStatPrefix()
 	if statPrefix == "" {
 		statPrefix = DefaultHttpStatPrefix
@@ -35,9 +38,10 @@ func NewHttpConnectionManager(listener *v1.HttpListener, httpFilters []*envoyhtt
 		},
 		RouteSpecifier: &envoyhttp.HttpConnectionManager_Rds{
 			Rds: &envoyhttp.Rds{
-				ConfigSource: &envoycore.ConfigSource{
-					ConfigSourceSpecifier: &envoycore.ConfigSource_Ads{
-						Ads: &envoycore.AggregatedConfigSource{},
+				ConfigSource: &envoy_config_core_v3.ConfigSource{
+					ResourceApiVersion: envoy_config_core_v3.ApiVersion_V3,
+					ConfigSourceSpecifier: &envoy_config_core_v3.ConfigSource_Ads{
+						Ads: &envoy_config_core_v3.AggregatedConfigSource{},
 					},
 				},
 				RouteConfigName: rdsName,
@@ -47,13 +51,18 @@ func NewHttpConnectionManager(listener *v1.HttpListener, httpFilters []*envoyhtt
 	}
 }
 
-func (t *translatorInstance) computeHttpConnectionManagerFilter(params plugins.Params, listener *v1.HttpListener, rdsName string, httpListenerReport *validationapi.HttpListenerReport) *envoylistener.Filter {
+func (t *translatorInstance) computeHttpConnectionManagerFilter(
+	params plugins.Params,
+	listener *v1.HttpListener,
+	rdsName string,
+	httpListenerReport *validationapi.HttpListenerReport,
+) *envoy_config_listener_v3.Filter {
 	httpFilters := t.computeHttpFilters(params, listener, httpListenerReport)
 	params.Ctx = contextutils.WithLogger(params.Ctx, "compute_http_connection_manager")
 
 	httpConnMgr := NewHttpConnectionManager(listener, httpFilters, rdsName)
 
-	hcmFilter, err := NewFilterWithConfig(util.HTTPConnectionManager, httpConnMgr)
+	hcmFilter, err := NewFilterWithTypedConfig(wellknown.HTTPConnectionManager, httpConnMgr)
 	if err != nil {
 		panic(errors.Wrap(err, "failed to convert proto message to struct"))
 	}
@@ -83,7 +92,7 @@ func (t *translatorInstance) computeHttpFilters(params plugins.Params, listener 
 
 	// sort filters by stage
 	envoyHttpFilters := sortFilters(httpFilters)
-	envoyHttpFilters = append(envoyHttpFilters, &envoyhttp.HttpFilter{Name: util.Router})
+	envoyHttpFilters = append(envoyHttpFilters, &envoyhttp.HttpFilter{Name: wellknown.Router})
 	return envoyHttpFilters
 }
 

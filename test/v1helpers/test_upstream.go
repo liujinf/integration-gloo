@@ -9,14 +9,18 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/ptypes/wrappers"
+
+	"github.com/golang/protobuf/proto"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	static_plugin_gloo "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/static"
+	"github.com/solo-io/gloo/test/helpers"
 	testgrpcservice "github.com/solo-io/gloo/test/v1helpers/test_grpc_service"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 	"google.golang.org/grpc"
@@ -26,6 +30,7 @@ import (
 
 type ReceivedRequest struct {
 	Method      string
+	URL         *url.URL
 	Body        []byte
 	Host        string
 	GRPCRequest proto.Message
@@ -33,12 +38,17 @@ type ReceivedRequest struct {
 }
 
 func NewTestHttpUpstream(ctx context.Context, addr string) *TestUpstream {
-	backendPort, responses := runTestServer(ctx, "")
+	backendPort, responses := runTestServer(ctx, "", false)
 	return newTestUpstream(addr, []uint32{backendPort}, responses)
 }
 
 func NewTestHttpUpstreamWithReply(ctx context.Context, addr, reply string) *TestUpstream {
-	backendPort, responses := runTestServer(ctx, reply)
+	backendPort, responses := runTestServer(ctx, reply, false)
+	return newTestUpstream(addr, []uint32{backendPort}, responses)
+}
+
+func NewTestHttpsUpstreamWithReply(ctx context.Context, addr, reply string) *TestUpstream {
+	backendPort, responses := runTestServer(ctx, reply, true)
 	return newTestUpstream(addr, []uint32{backendPort}, responses)
 }
 
@@ -63,6 +73,7 @@ func NewTestGRPCUpstream(ctx context.Context, addr string, replicas int) *TestUp
 	}
 
 	us := newTestUpstream(addr, ports, received)
+	us.Upstream.UseHttp2 = &wrappers.BoolValue{Value: true}
 	us.GrpcServers = grpcServices
 	return us
 }
@@ -94,7 +105,7 @@ func newTestUpstream(addr string, ports []uint32, responses <-chan *ReceivedRequ
 		}
 	}
 	u := &gloov1.Upstream{
-		Metadata: core.Metadata{
+		Metadata: &core.Metadata{
 			Name:      fmt.Sprintf("local-%d", id),
 			Namespace: "default",
 		},
@@ -112,7 +123,7 @@ func newTestUpstream(addr string, ports []uint32, responses <-chan *ReceivedRequ
 	}
 }
 
-func runTestServer(ctx context.Context, reply string) (uint32, <-chan *ReceivedRequest) {
+func runTestServer(ctx context.Context, reply string, serveTls bool) (uint32, <-chan *ReceivedRequest) {
 	bodyChan := make(chan *ReceivedRequest, 100)
 	handlerFunc := func(rw http.ResponseWriter, r *http.Request) {
 		var rr ReceivedRequest
@@ -129,6 +140,7 @@ func runTestServer(ctx context.Context, reply string) (uint32, <-chan *ReceivedR
 		}
 
 		rr.Host = r.Host
+		rr.URL = r.URL
 
 		bodyChan <- &rr
 	}
@@ -158,6 +170,16 @@ func runTestServer(ctx context.Context, reply string) (uint32, <-chan *ReceivedR
 	go func() {
 		defer GinkgoRecover()
 		h := &http.Server{Handler: mux}
+		if serveTls {
+			certs, err := tls.X509KeyPair([]byte(helpers.Certificate()), []byte(helpers.PrivateKey()))
+			if err != nil {
+				Expect(err).NotTo(HaveOccurred())
+			}
+			listener = tls.NewListener(listener, &tls.Config{
+				Certificates: []tls.Certificate{certs},
+			})
+		}
+
 		go func() {
 			defer GinkgoRecover()
 			if err := h.Serve(listener); err != nil {
@@ -178,6 +200,10 @@ func runTestServer(ctx context.Context, reply string) (uint32, <-chan *ReceivedR
 }
 
 func TestUpstreamReachable(envoyPort uint32, tu *TestUpstream, rootca *string) {
+	TestUpstreamReachableWithOffset(2, envoyPort, tu, rootca)
+}
+
+func TestUpstreamReachableWithOffset(offset int, envoyPort uint32, tu *TestUpstream, rootca *string) {
 	body := []byte("solo.io test")
 
 	ExpectHttpOK(body, rootca, envoyPort, "")
@@ -202,6 +228,10 @@ func TestUpstreamReachable(envoyPort uint32, tu *TestUpstream, rootca *string) {
 }
 
 func ExpectHttpOK(body []byte, rootca *string, envoyPort uint32, response string) {
+	ExpectHttpOKWithOffset(1, body, rootca, envoyPort, response)
+}
+
+func ExpectHttpOKWithOffset(offset int, body []byte, rootca *string, envoyPort uint32, response string) {
 
 	var res *http.Response
 	EventuallyWithOffset(2, func() error {

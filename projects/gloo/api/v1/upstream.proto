@@ -3,28 +3,28 @@ syntax = "proto3";
 package gloo.solo.io;
 option go_package = "github.com/solo-io/gloo/projects/gloo/pkg/api/v1";
 
-import "gogoproto/gogo.proto";
-option (gogoproto.equal_all) = true;
 import "extproto/ext.proto";
+option (extproto.equal_all) = true;
 option (extproto.hash_all) = true;
 
-import "solo-kit/api/v1/metadata.proto";
-import "gloo/projects/gloo/api/v1/ssl.proto";
-import "gloo/projects/gloo/api/v1/circuit_breaker.proto";
-import "gloo/projects/gloo/api/v1/load_balancer.proto";
-import "gloo/projects/gloo/api/v1/connection.proto";
-import "gloo/projects/gloo/api/external/envoy/api/v2/core/health_check.proto";
-import "solo-kit/api/v1/status.proto";
-import "gloo/projects/gloo/api/external/envoy/api/v2/cluster/outlier_detection.proto";
-import "solo-kit/api/v1/solo-kit.proto";
-import "gloo/projects/gloo/api/v1/options/static/static.proto";
-import "gloo/projects/gloo/api/v1/options/pipe/pipe.proto";
-import "gloo/projects/gloo/api/v1/options/kubernetes/kubernetes.proto";
-import "gloo/projects/gloo/api/v1/options/aws/aws.proto";
-import "gloo/projects/gloo/api/v1/options/azure/azure.proto";
-import "gloo/projects/gloo/api/v1/options/consul/consul.proto";
-import "gloo/projects/gloo/api/v1/options/aws/ec2/aws_ec2.proto";
-import "gloo/projects/gloo/api/v1/options.proto";
+import "github.com/solo-io/solo-kit/api/v1/metadata.proto";
+import "github.com/solo-io/gloo/projects/gloo/api/v1/ssl.proto";
+import "github.com/solo-io/gloo/projects/gloo/api/v1/circuit_breaker.proto";
+import "github.com/solo-io/gloo/projects/gloo/api/v1/load_balancer.proto";
+import "github.com/solo-io/gloo/projects/gloo/api/v1/connection.proto";
+import "github.com/solo-io/gloo/projects/gloo/api/external/envoy/api/v2/core/health_check.proto";
+import "github.com/solo-io/solo-kit/api/v1/status.proto";
+import "github.com/solo-io/gloo/projects/gloo/api/external/envoy/api/v2/cluster/outlier_detection.proto";
+import "github.com/solo-io/solo-kit/api/v1/solo-kit.proto";
+import "github.com/solo-io/gloo/projects/gloo/api/v1/options/static/static.proto";
+import "github.com/solo-io/gloo/projects/gloo/api/v1/options/pipe/pipe.proto";
+import "github.com/solo-io/gloo/projects/gloo/api/v1/options/kubernetes/kubernetes.proto";
+import "github.com/solo-io/gloo/projects/gloo/api/v1/options/aws/aws.proto";
+import "github.com/solo-io/gloo/projects/gloo/api/v1/options/azure/azure.proto";
+import "github.com/solo-io/gloo/projects/gloo/api/v1/options/consul/consul.proto";
+import "github.com/solo-io/gloo/projects/gloo/api/v1/options/aws/ec2/aws_ec2.proto";
+import "github.com/solo-io/gloo/projects/gloo/api/v1/failover.proto";
+import "google/protobuf/wrappers.proto";
 
 
 /*
@@ -39,16 +39,16 @@ message Upstream {
     option (core.solo.io.resource).plural_name = "upstreams";
 
     // Status indicates the validation status of the resource. Status is read-only by clients, and set by gloo during validation
-    core.solo.io.Status status = 1 [(gogoproto.nullable) = false, (gogoproto.moretags) = "testdiff:\"ignore\"", (extproto.skip_hashing) = true];
+    core.solo.io.Status status = 1 [(extproto.skip_hashing) = true];
 
     // Metadata contains the object metadata for this resource
-    core.solo.io.Metadata metadata = 2 [(gogoproto.nullable) = false];
+    core.solo.io.Metadata metadata = 2;
 
     // Upstreams and their configuration can be automatically by Gloo Discovery
     // if this upstream is created or modified by Discovery, metadata about the operation will be placed here.
     DiscoveryMetadata discovery_metadata = 3;
 
-
+    // SslConfig contains the options necessary to configure an upstream to use TLS origination
     UpstreamSslConfig ssl_config = 4;
 
     // Circuit breakers for this upstream. if not set, the defaults ones from the Gloo settings will be used.
@@ -57,13 +57,13 @@ message Upstream {
     CircuitBreakerConfig circuit_breakers = 5;
     LoadBalancerConfig load_balancer_config = 6;
     ConnectionConfig connection_config = 7;
-    repeated envoy.api.v2.core.HealthCheck health_checks = 8;
-    envoy.api.v2.cluster.OutlierDetection outlier_detection = 9;
+    repeated .solo.io.envoy.api.v2.core.HealthCheck health_checks = 8;
+    .solo.io.envoy.api.v2.cluster.OutlierDetection outlier_detection = 9;
 
     // Use http2 when communicating with this upstream
     // this field is evaluated `true` for upstreams
     // with a grpc service spec. otherwise defaults to `false`
-    bool use_http2 = 10;
+    google.protobuf.BoolValue use_http2 = 10;
 
     // Note to developers: new Upstream plugins must be added to this oneof field
     // to be usable by Gloo. (plugins currently need to be compiled into Gloo)
@@ -76,9 +76,44 @@ message Upstream {
         consul.options.gloo.solo.io.UpstreamSpec consul = 16;
         aws_ec2.options.gloo.solo.io.UpstreamSpec aws_ec2 = 17;
     }
+
+    // Failover endpoints for this upstream. If omitted (the default) no failovers will be applied.
+    gloo.solo.io.Failover failover = 18;
+
+    // (UInt32Value) Initial stream-level flow-control window size.
+    // Valid values range from 65535 (2^16 - 1, HTTP/2 default) to 2147483647 (2^31 - 1, HTTP/2 maximum)
+    // and defaults to 268435456 (256 * 1024 * 1024).
+    // NOTE: 65535 is the initial window size from HTTP/2 spec.
+    // We only support increasing the default window size now, so it’s also the minimum.
+    // This field also acts as a soft limit on the number of bytes Envoy will buffer per-stream
+    // in the HTTP/2 codec buffers. Once the buffer reaches this pointer,
+    // watermark callbacks will fire to stop the flow of data to the codec buffers.
+    // Requires UseHttp2 to be true to be acknowledged.
+    google.protobuf.UInt32Value initial_stream_window_size = 19;
+    // (UInt32Value) Similar to initial_stream_window_size, but for connection-level flow-control window.
+    // Currently, this has the same minimum/maximum/default as initial_stream_window_size.
+    // Requires UseHttp2 to be true to be acknowledged.
+    google.protobuf.UInt32Value initial_connection_window_size = 20;
+
+    // Tells envoy that the upstream is an HTTP proxy (e.g., another proxy in a DMZ) that supports HTTP Connect.
+    // This configuration sets the hostname used as part of the HTTP Connect request.
+    // For example, setting to: host.com:443 and making a request routed to the upstream such as `curl <envoy>:<port>/v1`
+    // would result in the following request:
+    //
+    //    CONNECT host.com:443 HTTP/1.1
+    //    host: host.com:443
+    //
+    //    GET /v1 HTTP/1.1
+    //    host: <envoy>:<port>
+    //    user-agent: curl/7.64.1
+    //    accept: */*
+    //
+    // Note: if setting this field to a hostname rather than IP:PORT, you may want to also set `host_rewrite` on the route
+    google.protobuf.StringValue http_proxy_hostname = 21;
 }
 
 // created by discovery services
 message DiscoveryMetadata {
-    
+    // Labels inherited from the original upstream (e.g. Kubernetes labels)
+    map<string, string> labels = 1;
 }

@@ -16,18 +16,18 @@ import (
 
 func NewUpstream(namespace, name string) *Upstream {
 	upstream := &Upstream{}
-	upstream.SetMetadata(core.Metadata{
+	upstream.SetMetadata(&core.Metadata{
 		Name:      name,
 		Namespace: namespace,
 	})
 	return upstream
 }
 
-func (r *Upstream) SetMetadata(meta core.Metadata) {
+func (r *Upstream) SetMetadata(meta *core.Metadata) {
 	r.Metadata = meta
 }
 
-func (r *Upstream) SetStatus(status core.Status) {
+func (r *Upstream) SetStatus(status *core.Status) {
 	r.Status = status
 }
 
@@ -45,13 +45,10 @@ func (r *Upstream) GroupVersionKind() schema.GroupVersionKind {
 
 type UpstreamList []*Upstream
 
-// namespace is optional, if left empty, names can collide if the list contains more than one with the same name
 func (list UpstreamList) Find(namespace, name string) (*Upstream, error) {
 	for _, upstream := range list {
-		if upstream.GetMetadata().Name == name {
-			if namespace == "" || upstream.GetMetadata().Namespace == namespace {
-				return upstream, nil
-			}
+		if upstream.GetMetadata().Name == name && upstream.GetMetadata().Namespace == namespace {
+			return upstream, nil
 		}
 	}
 	return nil, errors.Errorf("list did not find upstream %v.%v", namespace, name)
@@ -150,12 +147,6 @@ var (
 		false,
 		&Upstream{})
 )
-
-func init() {
-	if err := crd.AddCrd(UpstreamCrd); err != nil {
-		log.Fatalf("could not add crd to global registry")
-	}
-}
 
 var (
 	UpstreamGVK = schema.GroupVersionKind{

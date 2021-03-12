@@ -1,12 +1,12 @@
 ---
 title: Tracing Setup
 weight: 4
-description: Configure Gloo for tracing
+description: Configure Gloo Edge for tracing
 ---
 
 ## Tracing
 
-Gloo makes it easy to implement tracing on your system through [Envoy's tracing capabilities](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/observability/tracing.html).
+Gloo Edge makes it easy to implement tracing on your system through [Envoy's tracing capabilities](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/observability/tracing.html).
 
 #### Usage
 
@@ -19,37 +19,25 @@ Gloo makes it easy to implement tracing on your system through [Envoy's tracing 
 
 #### Configuration
 
-There are two steps to make tracing available through Gloo:
-1. Specify a trace provider in the bootstrap config
-1. Enable tracing on the listener
+There are a few steps to make tracing available through Gloo Edge:
+1. Configure a tracing cluster
+1. Configure a tracing provider
 1. (Optional) Annotate routes with descriptors
 
-##### 1. Specify a tracing provider in the bootstrap config
+##### 1. Configure a tracing cluster
 
-The bootstrap config is the portion of Envoy's config that is applied when an Envoy process in intialized.
+Tracing requires a cluster that will collect the traces. For example, Zipkin requires a `collector_cluster` to be specified in the bootstrap config. If your provider requires a cluster to be specified, you can provide it in the config, as shown below.
+
+The bootstrap config is the portion of Envoy's config that is applied when an Envoy process is initialized.
 That means that you must either apply this configuration through Helm values during installation or that you must edit the proxy's config map and restart the pod.
 We describe both methods below.
 
-Several tracing providers are supported.
-You can choose any that is supported by Envoy.
-For a list of supported tracing providers and the configuration that they expect, please see Envoy's documentation on [trace provider configuration](https://www.envoyproxy.io/docs/envoy/v1.13.1/api-v2/config/trace/v2/trace.proto#config-trace-v2-tracing-http).
-For demonstration purposes, we show how to specify the helm values for a *zipkin* trace provider below.
+**Option 1: Set the tracing cluster through helm values:**
 
-Note: some tracing providers, such as Zipkin, require a `collector_cluster` (the cluster which collects the traces) to be specified in the bootstrap config. If your provider requires a cluster to be specified, you can provide it in the config, as shown below. If your provider does not require a cluster you should omit that field. 
-
-**Option 1: Set the trace provider through helm values:**
-
-{{< highlight yaml "hl_lines=3-23" >}}
+{{< highlight yaml "hl_lines=4-16" >}}
 gatewayProxies:
   gatewayProxy:
     tracing:
-      provider:
-        name: envoy.zipkin
-        typed_config:
-          "@type": "type.googleapis.com/envoy.config.trace.v2.ZipkinConfig"
-          collector_cluster: zipkin
-          collector_endpoint: "/api/v1/spans"
-          collector_endpoint_version: HTTP_JSON
       cluster:
         - name: zipkin
           connect_timeout: 1s
@@ -65,37 +53,28 @@ gatewayProxies:
                       port_value: 1234
 {{< /highlight >}}
 
-When you install Gloo using these Helm values, Envoy will be configured with the tracing provider you specified.
+When you install Gloo Edge using these Helm values, Envoy will be configured with the tracing cluster you specified.
 
-**Option 2: Set the trace provider by editing the config map:**
+**Option 2: Set the tracing cluster by editing the config map:**
 
 First, edit the config map pertaining to your proxy. This should be `gateway-proxy-envoy-config` in the `gloo-system` namespace.
 
 ```bash
 kubectl edit configmap -n gloo-system gateway-proxy-envoy-config
 ```
-Apply the tracing provider changes. A sample Zipkin configuration is shown below.
+Apply the tracing cluster changes. A sample Zipkin configuration is shown below.
 
-{{< highlight yaml "hl_lines=5-12 34-46">}}
+{{< highlight yaml "hl_lines=25-36">}}
 apiVersion: v1
 kind: ConfigMap
 data:
   envoy.yaml:
-    tracing:
-      http:
-        name: envoy.zipkin
-        typed_config:
-          "@type": "type.googleapis.com/envoy.config.trace.v2.ZipkinConfig"
-          collector_cluster: zipkin
-          collector_endpoint: "/api/v1/spans"
-          collector_endpoint_version: HTTP_JSON
     node:
       cluster: gateway
       id: "{{.PodName}}{{.PodNamespace}}"
       metadata:
         role: "{{.PodNamespace}}~gateway-proxy"
     static_resources:
-      listeners: # collapsed for brevity
       clusters:
         - name: xds_cluster
           connect_timeout: 5.000s
@@ -124,18 +103,79 @@ data:
                       port_value: 1234
 {{< /highlight >}}
 
-
-To apply the bootstrap config to Envoy we need to restart the process. An easy way to do this is with `kubectl delete pod`.
+To apply the bootstrap config to Envoy we need to restart the process. An easy way to do this is with `kubectl rollout restart`.
 
 ```bash
-kubectl delete pod -n gloo-system gateway-proxy-[suffix]
+kubectl rollout restart deployment [deployment_name]
+```
+
+When the `gateway-proxy` pod restarts it should have the new trace cluster config.
+
+##### 2. Configure a tracing provider
+
+For a list of supported tracing providers, and the configuration that they expect, please see Envoy's documentation on [trace provider configuration](https://www.envoyproxy.io/docs/envoy/v1.13.1/api-v2/config/trace/v2/trace.proto#config-trace-v2-tracing-http).
+For demonstration purposes, we show how to configure a *zipkin* trace provider below.
+
+**Option 1 (Preferred): Set the tracing provider on a dynamic listener:**
+
+You can enable tracing on a listener-by-listener basis. Please see [the tracing listener docs]({{% versioned_link_path fromRoot="/guides/traffic_management/listener_configuration/http_connection_manager/#tracing" %}}) for details on how to enable tracing on a listener.
+
+**Option 2: Set the tracing provider by editing the config map:**
+
+First, edit the config map pertaining to your proxy. This should be `gateway-proxy-envoy-config` in the `gloo-system` namespace.
+
+```bash
+kubectl edit configmap -n gloo-system gateway-proxy-envoy-config
+```
+Apply the tracing provider changes. A sample Zipkin configuration is shown below.
+
+{{< highlight yaml "hl_lines=27-34">}}
+apiVersion: v1
+kind: ConfigMap
+data:
+  envoy.yaml:
+    node:
+      cluster: gateway
+      id: "{{.PodName}}{{.PodNamespace}}"
+      metadata:
+        role: "{{.PodNamespace}}~gateway-proxy"
+    static_resources:
+      listeners:
+        - name: prometheus_listener
+          address:
+            socket_address:
+              address: 0.0.0.0
+              port_value: 8081
+          filter_chains:
+            - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    codec_type: AUTO
+                    stat_prefix: prometheus
+                    route_config: # collapsed for brevity
+                    http_filters:
+                      - name: envoy.filters.http.router
+                    tracing:
+                      provider:
+                        name: envoy.tracers.zipkin
+                        typed_config:
+                          "@type": "type.googleapis.com/envoy.config.trace.v2.ZipkinConfig"
+                          collector_cluster: zipkin
+                          collector_endpoint: "/api/v2/spans"
+                          collector_endpoint_version: HTTP_JSON
+{{< /highlight >}}
+
+
+To apply the bootstrap config to Envoy we need to restart the process. An easy way to do this is with `kubectl rollout restart`.
+
+```bash
+kubectl rollout restart deployment [deployment_name]
 ```
 
 When the `gateway-proxy` pod restarts it should have the new trace provider config.
 
-##### 2. Enable tracing on the listener
-
-After you have installed Gloo with a tracing provider, you can enable tracing on a listener-by-listener basis. Gloo exposes this feature through a listener plugin. Please see [the tracing listener plugin docs]({{% versioned_link_path fromRoot="/guides/traffic_management/listener_configuration/http_connection_manager/#tracing" %}}) for details on how to enable tracing on a listener.
+Note: This provider configuration will only be applied to the static listeners that are defined in the bootstrap config. If you need to support tracing on dynamically created listeners, follow the steps outlined in Option 1.
 
 ##### 3. (Optional) Annotate routes with descriptors
 

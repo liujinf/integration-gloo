@@ -22,7 +22,8 @@ func azureCmd(opts *options.Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "azure",
 		Short: `Create an Azure secret with the given name`,
-		Long:  `Create an Azure secret with the given name`,
+		Long: "Create an Azure secret with the given name. The format of the secret data is: " +
+			"`{\"azure\" : [api-keys]}`",
 		RunE: func(c *cobra.Command, args []string) error {
 			if err := argsutils.MetadataArgsParse(opts, args); err != nil {
 				return err
@@ -34,7 +35,7 @@ func azureCmd(opts *options.Options) *cobra.Command {
 				}
 			}
 			// create the secret
-			if err := createAzureSecret(opts.Top.Ctx, opts.Metadata, *input, opts.Create.DryRun, opts.Top.Output); err != nil {
+			if err := createAzureSecret(opts.Top.Ctx, &opts.Metadata, *input, opts.Create.DryRun, opts.Top.Output); err != nil {
 				return err
 			}
 			return nil
@@ -58,7 +59,7 @@ func AzureSecretArgsInteractive(input *options.AzureSecret) error {
 	return nil
 }
 
-func createAzureSecret(ctx context.Context, meta core.Metadata, input options.AzureSecret, dryRun bool, outputType printers.OutputType) error {
+func createAzureSecret(ctx context.Context, meta *core.Metadata, input options.AzureSecret, dryRun bool, outputType printers.OutputType) error {
 	if input.ApiKeys.Entries == nil {
 		return errors.Errorf("must provide azure api keys")
 	}
@@ -73,7 +74,7 @@ func createAzureSecret(ctx context.Context, meta core.Metadata, input options.Az
 
 	if !dryRun {
 		var err error
-		secretClient := helpers.MustSecretClient()
+		secretClient := helpers.MustSecretClient(ctx)
 		if secret, err = secretClient.Write(secret, clients.WriteOpts{Ctx: ctx}); err != nil {
 			return err
 		}

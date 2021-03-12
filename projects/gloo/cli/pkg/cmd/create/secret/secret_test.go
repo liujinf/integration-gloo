@@ -1,6 +1,7 @@
 package secret_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -21,12 +22,19 @@ import (
 
 var _ = Describe("Secret", func() {
 
+	var (
+		ctx    context.Context
+		cancel context.CancelFunc
+	)
+
 	BeforeEach(func() {
 		helpers.UseMemoryClients()
+		ctx, cancel = context.WithCancel(context.Background())
 	})
 
 	AfterEach(func() {
 		helpers.UseDefaultClients()
+		cancel()
 	})
 
 	Context("Empty args and flags", func() {
@@ -48,7 +56,7 @@ var _ = Describe("Secret", func() {
 			err := testutils.Glooctl(command)
 			Expect(err).NotTo(HaveOccurred())
 
-			secret, err := helpers.MustSecretClient().Read(namespace, "test", clients.ReadOpts{})
+			secret, err := helpers.MustSecretClient(ctx).Read(namespace, "test", clients.ReadOpts{})
 			Expect(err).NotTo(HaveOccurred())
 
 			aws := v1.AwsSecret{
@@ -66,13 +74,28 @@ var _ = Describe("Secret", func() {
 			out, err := testutils.GlooctlOut("create secret aws --dry-run --name test --access-key foo --secret-key bar")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(out).To(Equal(`data:
-  aws: YWNjZXNzS2V5OiBmb28Kc2VjcmV0S2V5OiBiYXIK
+  aws_access_key_id: Zm9v
+  aws_secret_access_key: YmFy
 metadata:
-  annotations:
-    resource_kind: '*v1.Secret'
   creationTimestamp: null
   name: test
   namespace: gloo-system
+type: Opaque
+`))
+		})
+
+		It("can print the kube yaml as dry run with token", func() {
+			out, err := testutils.GlooctlOut("create secret aws --dry-run --name test --access-key foo --secret-key bar --session-token waz")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(Equal(`data:
+  aws_access_key_id: Zm9v
+  aws_secret_access_key: YmFy
+  aws_session_token: d2F6
+metadata:
+  creationTimestamp: null
+  name: test
+  namespace: gloo-system
+type: Opaque
 `))
 		})
 
@@ -96,7 +119,7 @@ metadata:
 			err := testutils.Glooctl(command)
 			Expect(err).NotTo(HaveOccurred())
 
-			secret, err := helpers.MustSecretClient().Read(namespace, "test", clients.ReadOpts{})
+			secret, err := helpers.MustSecretClient(ctx).Read(namespace, "test", clients.ReadOpts{})
 			Expect(err).NotTo(HaveOccurred())
 
 			azure := v1.AzureSecret{
@@ -135,11 +158,47 @@ metadata:
 		})
 	})
 
+	Context("Header", func() {
+		shouldWork := func(command, namespace string) {
+			err := testutils.Glooctl(command)
+			Expect(err).NotTo(HaveOccurred())
+
+			secret, err := helpers.MustSecretClient(ctx).Read(namespace, "test", clients.ReadOpts{})
+			Expect(err).NotTo(HaveOccurred())
+
+			header := v1.HeaderSecret{
+				Headers: map[string]string{
+					"foo": "bar",
+					"bat": "=b=a=z=",
+				},
+			}
+			Expect(*secret.GetHeader()).To(Equal(header))
+		}
+
+		It("should work", func() {
+			shouldWork("create secret header --name test --headers foo=bar,bat==b=a=z=", "gloo-system")
+		})
+	})
+
 	Context("TLS", func() {
 		It("should error if no name provided", func() {
 			err := testutils.Glooctl("create secret tls")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(Equal(argsutils.NameError))
+		})
+
+		It("should work as with just root ca", func() {
+
+			rootca := mustWriteTestFile("foo")
+			err := testutils.Glooctl("create secret tls valid --namespace gloo-system --rootca " + rootca)
+			Expect(err).NotTo(HaveOccurred())
+			tls := v1.TlsSecret{
+				RootCa: "foo",
+			}
+
+			secret, err := helpers.MustSecretClient(ctx).Read("gloo-system", "valid", clients.ReadOpts{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(*secret.GetTls()).To(Equal(tls))
 		})
 
 		It("should work as expected with valid and invalid input", func() {
@@ -180,14 +239,14 @@ metadata:
 						err := testutils.Glooctl(args)
 						Expect(err).NotTo(HaveOccurred())
 
-						secret, err := helpers.MustSecretClient().Read("gloo-system", kp.resourceName, clients.ReadOpts{})
+						secret, err := helpers.MustSecretClient(ctx).Read("gloo-system", kp.resourceName, clients.ReadOpts{})
 						Expect(err).NotTo(HaveOccurred())
 						Expect(*secret.GetTls()).To(Equal(tls))
 					} else {
 						err := testutils.Glooctl(args)
 						Expect(err).To(HaveOccurred())
 
-						_, err = helpers.MustSecretClient().Read("gloo-system", kp.resourceName, clients.ReadOpts{})
+						_, err = helpers.MustSecretClient(ctx).Read("gloo-system", kp.resourceName, clients.ReadOpts{})
 						Expect(err).To(HaveOccurred())
 					}
 

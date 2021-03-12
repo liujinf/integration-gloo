@@ -21,7 +21,17 @@ spec:
     metadata:
       labels:
         gloo: clusteringress-proxy
+        {{- if .Values.settings.integrations.knative.proxy.extraClusterIngressProxyLabels }}
+        {{- range $key, $value := .Values.settings.integrations.knative.proxy.extraClusterIngressProxyLabels }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
+      {{- if .Values.global.istioIntegration.disableAutoinjection }}
+      annotations:
+        sidecar.istio.io/inject: "false"
+    {{- end }}
     spec:
+      {{- include "gloo.pullSecret" $image | nindent 6 }}
       containers:
       - args: ["--disable-hot-restart"]
         env:

@@ -36,14 +36,18 @@ See here for additional information about configuring tracing with Gloo: https:/
 "requestHeadersForTags": []string
 "verbose": bool
 "tracePercentages": .tracing.options.gloo.solo.io.TracePercentages
+"zipkinConfig": .solo.io.envoy.config.trace.v3.ZipkinConfig
+"datadogConfig": .solo.io.envoy.config.trace.v3.DatadogConfig
 
 ```
 
-| Field | Type | Description | Default |
-| ----- | ---- | ----------- |----------- | 
-| `requestHeadersForTags` | `[]string` | Optional. If specified, Envoy will include the headers and header values for any matching request headers. |  |
-| `verbose` | `bool` | Optional. If true, Envoy will include logs for streaming events. Default: false. |  |
-| `tracePercentages` | [.tracing.options.gloo.solo.io.TracePercentages](../tracing.proto.sk/#tracepercentages) | Requests can produce traces by random sampling or when the `x-client-trace-id` header is provided. TracePercentages defines the limits for random, forced, and overall tracing percentages. |  |
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
+| `requestHeadersForTags` | `[]string` | Optional. If specified, Envoy will include the headers and header values for any matching request headers. |
+| `verbose` | `bool` | Optional. If true, Envoy will include logs for streaming events. Default: false. |
+| `tracePercentages` | [.tracing.options.gloo.solo.io.TracePercentages](../tracing.proto.sk/#tracepercentages) | Requests can produce traces by random sampling or when the `x-client-trace-id` header is provided. TracePercentages defines the limits for random, forced, and overall tracing percentages. |
+| `zipkinConfig` | [.solo.io.envoy.config.trace.v3.ZipkinConfig](../../../../external/envoy/config/trace/v3/zipkin.proto.sk/#zipkinconfig) |  Only one of `zipkinConfig` or `datadogConfig` can be set. |
+| `datadogConfig` | [.solo.io.envoy.config.trace.v3.DatadogConfig](../../../../external/envoy/config/trace/v3/datadog.proto.sk/#datadogconfig) |  Only one of `datadogConfig` or `zipkinConfig` can be set. |
 
 
 
@@ -60,13 +64,15 @@ See here for additional information about configuring tracing with Gloo: https:/
 ```yaml
 "routeDescriptor": string
 "tracePercentages": .tracing.options.gloo.solo.io.TracePercentages
+"propagate": .google.protobuf.BoolValue
 
 ```
 
-| Field | Type | Description | Default |
-| ----- | ---- | ----------- |----------- | 
-| `routeDescriptor` | `string` | Optional. If set, will be used to identify the route that produced the trace. Note that this value will be overridden if the "x-envoy-decorator-operation" header is passed. |  |
-| `tracePercentages` | [.tracing.options.gloo.solo.io.TracePercentages](../tracing.proto.sk/#tracepercentages) | Requests can produce traces by random sampling or when the `x-client-trace-id` header is provided. TracePercentages defines the limits for random, forced, and overall tracing percentages. |  |
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
+| `routeDescriptor` | `string` | Optional. If set, will be used to identify the route that produced the trace. Note that this value will be overridden if the "x-envoy-decorator-operation" header is passed. |
+| `tracePercentages` | [.tracing.options.gloo.solo.io.TracePercentages](../tracing.proto.sk/#tracepercentages) | Requests can produce traces by random sampling or when the `x-client-trace-id` header is provided. TracePercentages defines the limits for random, forced, and overall tracing percentages. |
+| `propagate` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | Optional. Default is true, If set to false, the tracing headers will not propagate to the upstream. |
 
 
 
@@ -85,11 +91,11 @@ TracePercentages defines the limits for random, forced, and overall tracing perc
 
 ```
 
-| Field | Type | Description | Default |
-| ----- | ---- | ----------- |----------- | 
-| `clientSamplePercentage` | [.google.protobuf.FloatValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/float-value) | Percentage of requests that should produce traces when the `x-client-trace-id` header is provided. optional, defaults to 100.0 This should be a value between 0.0 and 100.0, with up to 6 significant digits. |  |
-| `randomSamplePercentage` | [.google.protobuf.FloatValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/float-value) | Percentage of requests that should produce traces by random sampling. optional, defaults to 100.0 This should be a value between 0.0 and 100.0, with up to 6 significant digits. |  |
-| `overallSamplePercentage` | [.google.protobuf.FloatValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/float-value) | Overall percentage of requests that should produce traces. optional, defaults to 100.0 This should be a value between 0.0 and 100.0, with up to 6 significant digits. |  |
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
+| `clientSamplePercentage` | [.google.protobuf.FloatValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/float-value) | Percentage of requests that should produce traces when the `x-client-trace-id` header is provided. optional, defaults to 100.0 This should be a value between 0.0 and 100.0, with up to 6 significant digits. |
+| `randomSamplePercentage` | [.google.protobuf.FloatValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/float-value) | Percentage of requests that should produce traces by random sampling. optional, defaults to 100.0 This should be a value between 0.0 and 100.0, with up to 6 significant digits. |
+| `overallSamplePercentage` | [.google.protobuf.FloatValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/float-value) | Overall percentage of requests that should produce traces. optional, defaults to 100.0 This should be a value between 0.0 and 100.0, with up to 6 significant digits. |
 
 
 

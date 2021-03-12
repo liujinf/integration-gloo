@@ -1,6 +1,7 @@
 {{- if and .Values.gateway.enabled .Values.accessLogger.enabled }}
 {{- $image := .Values.accessLogger.image }}
-{{- if .Values.global  }}
+{{- $statsConfig := coalesce .Values.accessLogger.stats .Values.global.glooStats -}}
+{{- if .Values.global }}
 {{- $image = merge .Values.accessLogger.image .Values.global.image }}
 {{- end }}
 
@@ -23,8 +24,28 @@ spec:
       labels:
         app: gloo
         gloo: gateway-proxy-access-logger
+        {{- if .Values.accessLogger.extraAccessLoggerLabels }}
+        {{- range $key, $value := .Values.accessLogger.extraAccessLoggerLabels }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
+      {{- if $statsConfig.enabled }}
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9091"
+        prometheus.io/scrape: "true"
+        {{- if .Values.global.istioIntegration.disableAutoinjection }}
+        sidecar.istio.io/inject: "false"
+        {{- end }}
+      {{- end }}
     spec:
+      {{- include "gloo.pullSecret" $image | nindent 6 }}
       serviceAccountName: gateway-proxy
+      securityContext:
+        runAsNonRoot: true
+        {{- if not .Values.accessLogger.floatingUserId }}
+        runAsUser: {{ printf "%.0f" (float64 .Values.accessLogger.runAsUser) -}}
+        {{- end }}
       containers:
         - image: {{ template "gloo.image" $image }}
           imagePullPolicy: {{ $image.pullPolicy }}
@@ -48,7 +69,7 @@ spec:
 {{- if .Values.accessLogger.serviceName }}
           - name: SERVICE_NAME
             value: {{.Values.accessLogger.serviceName}}
-{{- end }} # if .Values.accessLogger.serviceName
+{{- end }} {{/* if .Values.accessLogger.serviceName */}}
           - name: SERVER_PORT
             value: "{{ .Values.accessLogger.port }}"
           ports:

@@ -16,18 +16,18 @@ import (
 
 func NewUpstreamGroup(namespace, name string) *UpstreamGroup {
 	upstreamgroup := &UpstreamGroup{}
-	upstreamgroup.SetMetadata(core.Metadata{
+	upstreamgroup.SetMetadata(&core.Metadata{
 		Name:      name,
 		Namespace: namespace,
 	})
 	return upstreamgroup
 }
 
-func (r *UpstreamGroup) SetMetadata(meta core.Metadata) {
+func (r *UpstreamGroup) SetMetadata(meta *core.Metadata) {
 	r.Metadata = meta
 }
 
-func (r *UpstreamGroup) SetStatus(status core.Status) {
+func (r *UpstreamGroup) SetStatus(status *core.Status) {
 	r.Status = status
 }
 
@@ -45,13 +45,10 @@ func (r *UpstreamGroup) GroupVersionKind() schema.GroupVersionKind {
 
 type UpstreamGroupList []*UpstreamGroup
 
-// namespace is optional, if left empty, names can collide if the list contains more than one with the same name
 func (list UpstreamGroupList) Find(namespace, name string) (*UpstreamGroup, error) {
 	for _, upstreamGroup := range list {
-		if upstreamGroup.GetMetadata().Name == name {
-			if namespace == "" || upstreamGroup.GetMetadata().Namespace == namespace {
-				return upstreamGroup, nil
-			}
+		if upstreamGroup.GetMetadata().Name == name && upstreamGroup.GetMetadata().Namespace == namespace {
+			return upstreamGroup, nil
 		}
 	}
 	return nil, errors.Errorf("list did not find upstreamGroup %v.%v", namespace, name)
@@ -150,12 +147,6 @@ var (
 		false,
 		&UpstreamGroup{})
 )
-
-func init() {
-	if err := crd.AddCrd(UpstreamGroupCrd); err != nil {
-		log.Fatalf("could not add crd to global registry")
-	}
-}
 
 var (
 	UpstreamGroupGVK = schema.GroupVersionKind{

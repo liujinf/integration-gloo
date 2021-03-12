@@ -8,7 +8,7 @@ Create a secret
 
 ### Synopsis
 
-Create a secret
+Create a secret. Note that for TLS, OAuth and ApiKey secrets, glooctl adds the annotation `resource_kind: '*v1.Secret'` so that Gloo can find the secret.
 
 ```
 glooctl create secret [flags]
@@ -54,6 +54,7 @@ glooctl create secret [flags]
 * [glooctl create secret apikey](../glooctl_create_secret_apikey)	 - Create an ApiKey secret with the given name (Enterprise)
 * [glooctl create secret aws](../glooctl_create_secret_aws)	 - Create an AWS secret with the given name
 * [glooctl create secret azure](../glooctl_create_secret_azure)	 - Create an Azure secret with the given name
+* [glooctl create secret header](../glooctl_create_secret_header)	 - Create a header secret with the given name
 * [glooctl create secret oauth](../glooctl_create_secret_oauth)	 - Create an OAuth secret with the given name (Enterprise)
 * [glooctl create secret tls](../glooctl_create_secret_tls)	 - Create a secret with the given name
 

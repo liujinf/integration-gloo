@@ -18,9 +18,9 @@ In this guide, we're going to take a closer look at each matching type by creati
 
 {{< readfile file="/static/content/setup_notes" markdown="true">}}
 
-If you have not yet deployed Gloo, you can start by following the directions contained within the guide [Installing Gloo Gateway on Kubernetes]({{% versioned_link_path fromRoot="/installation/gateway/kubernetes/" %}}).
+If you have not yet deployed Gloo Edge, you can start by following the directions contained within the guide [Installing Gloo Edge on Kubernetes]({{% versioned_link_path fromRoot="/installation/gateway/kubernetes/" %}}).
 
-This guide also assumes that you are running Gloo Gateway in a Kubernetes cluster. Each example can be adapted to alternative deployments, such as using the HashiCorp stack of Nomad, Consul, and Vault.
+This guide also assumes that you are running Gloo Edge in a Kubernetes cluster. Each example can be adapted to alternative deployments, such as using the HashiCorp stack of Nomad, Consul, and Vault.
 
 ---
 
@@ -262,6 +262,11 @@ glooctl delete vs --name test-exact-2
 
 Regex matching provides the most flexibility when using path matching, but it also adds complexity. Be sure to fully test your regex expressions before using them in production. Let's create a route that uses a regex matcher to match any path of five characters in the set `[a-z]`.
 
+{{% notice note %}}
+The complexity of the regex is constrained by the regex engine's "program size" setting. If your regex is too complex, you may need to adjust the `regexMaxProgramSize` field
+in the [GlooOptions section of your Settings resource]({{% versioned_link_path fromRoot="/reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/settings.proto.sk/#gloooptions" %}}).
+{{% /notice %}}
+
 <video controls loop>
   <source src="https://solo-docs.s3.us-east-2.amazonaws.com/gloo/videos/pathmatch_regexcreate.mp4"  type="video/mp4">
 </video>
@@ -374,11 +379,15 @@ glooctl delete vs --name test-regex
 {{< /tab >}}
 {{< /tabs >}}
 
+{{% notice note %}}
+Envoy uses the [Google RE2](https://github.com/google/re2) regular expression engine internally.  A more complete description of the grammar available to Gloo Edge `regex` matchers is provided [here](https://github.com/google/re2/wiki/Syntax).
+{{% /notice %}}
+
 ---
 
 ## Summary
 
-In this tutorial, we created a static Upstream and added a route on a Virtual Service to point to it. We learned how to use all 3 types of matchers allowed by Gloo when determining if a route configuration matches a request path: prefix, exact, and regex. 
+In this tutorial, we created a static Upstream and added a route on a Virtual Service to point to it. We learned how to use all 3 types of matchers allowed by Gloo Edge when determining if a route configuration matches a request path: prefix, exact, and regex. 
 
 Let's cleanup the test Upstream we used.
 

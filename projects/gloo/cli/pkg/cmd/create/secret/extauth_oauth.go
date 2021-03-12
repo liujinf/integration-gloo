@@ -24,7 +24,10 @@ func ExtAuthOathCmd(opts *options.Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "oauth",
 		Short: `Create an OAuth secret with the given name (Enterprise)`,
-		Long:  `Create an OAuth secret with the given name. The OAuth secrets contains the client_secret as defined in RFC 6749. This is an enterprise-only feature.`,
+		Long: "Create an OAuth secret with the given name. The OAuth secret contains the client_secret as defined in [RFC 6749](https://tools.ietf.org/html/rfc6749). " +
+			"This is an enterprise-only feature. The format of the secret data is: `{\"oauth\" : [client-secret string]}`. " +
+			"Note that the annotation `resource_kind: '*v1.Secret'` is added in order for Gloo to find this secret. " +
+			"If you're creating a secret through another means, you'll need to add that annotation manually.",
 		RunE: func(c *cobra.Command, args []string) error {
 			err := argsutils.MetadataArgsParse(opts, args)
 			if err != nil {
@@ -33,12 +36,12 @@ func ExtAuthOathCmd(opts *options.Options) *cobra.Command {
 
 			if opts.Top.Interactive {
 				// and gather any missing args that are available through interactive mode
-				if err := oauthSecretArgsInteractive(meta, &input); err != nil {
+				if err := oauthSecretArgsInteractive(opts.Top.Ctx, meta, &input); err != nil {
 					return err
 				}
 			}
 			// create the secret
-			if err := createOauthSecret(opts.Top.Ctx, *meta, input, opts.Create.DryRun, opts.Top.Output); err != nil {
+			if err := createOauthSecret(opts.Top.Ctx, meta, input, opts.Create.DryRun, opts.Top.Output); err != nil {
 				return err
 			}
 
@@ -52,8 +55,8 @@ func ExtAuthOathCmd(opts *options.Options) *cobra.Command {
 	return cmd
 }
 
-func oauthSecretArgsInteractive(meta *core.Metadata, input *extauth.OauthSecret) error {
-	if err := surveyutils.InteractiveNamespace(&meta.Namespace); err != nil {
+func oauthSecretArgsInteractive(ctx context.Context, meta *core.Metadata, input *extauth.OauthSecret) error {
+	if err := surveyutils.InteractiveNamespace(ctx, &meta.Namespace); err != nil {
 		return err
 	}
 
@@ -68,7 +71,7 @@ func oauthSecretArgsInteractive(meta *core.Metadata, input *extauth.OauthSecret)
 	return nil
 }
 
-func createOauthSecret(ctx context.Context, meta core.Metadata, input extauth.OauthSecret, dryRun bool, outputType printers.OutputType) error {
+func createOauthSecret(ctx context.Context, meta *core.Metadata, input extauth.OauthSecret, dryRun bool, outputType printers.OutputType) error {
 	if input.ClientSecret == "" {
 		return fmt.Errorf("client-secret not provided")
 	}
@@ -81,7 +84,7 @@ func createOauthSecret(ctx context.Context, meta core.Metadata, input extauth.Oa
 	}
 
 	if !dryRun {
-		secretClient := helpers.MustSecretClient()
+		secretClient := helpers.MustSecretClient(ctx)
 		var err error
 		if secret, err = secretClient.Write(secret, clients.WriteOpts{Ctx: ctx}); err != nil {
 			return err

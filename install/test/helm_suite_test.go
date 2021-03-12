@@ -1,42 +1,38 @@
 package test
 
 import (
+	"bytes"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"path"
 	"testing"
+	"text/template"
 
-	"github.com/solo-io/go-utils/versionutils/git"
-
-	glooVersion "github.com/solo-io/gloo/pkg/version"
-
-	"github.com/solo-io/gloo/projects/gloo/cli/pkg/cmd/install"
-
-	"helm.sh/helm/v3/pkg/release"
-
-	"github.com/solo-io/gloo/projects/gloo/cli/pkg/constants"
-	helm2chartutil "k8s.io/helm/pkg/chartutil"
-	helm2renderutil "k8s.io/helm/pkg/renderutil"
-
-	"github.com/solo-io/gloo/pkg/cliutil/helm"
-
+	envoy_config_bootstrap_v3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	"github.com/ghodss/yaml"
-	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
-	"helm.sh/helm/v3/pkg/action"
-	"helm.sh/helm/v3/pkg/chart/loader"
-	"helm.sh/helm/v3/pkg/strvals"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
-	helm2chartapi "k8s.io/helm/pkg/proto/hapi/chart"
-	k8syamlutil "sigs.k8s.io/yaml"
-
-	"github.com/solo-io/go-utils/testutils"
-	v1 "k8s.io/api/core/v1"
-
+	"github.com/golang/protobuf/jsonpb"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	. "github.com/solo-io/go-utils/manifesttestutils"
+	"github.com/solo-io/gloo/pkg/cliutil/helm"
+	glooVersion "github.com/solo-io/gloo/pkg/version"
+	"github.com/solo-io/gloo/projects/gloo/cli/pkg/cmd/install"
+	"github.com/solo-io/gloo/projects/gloo/cli/pkg/constants"
+	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
+	"github.com/solo-io/go-utils/testutils"
+	"github.com/solo-io/go-utils/versionutils/git"
+	. "github.com/solo-io/k8s-utils/manifesttestutils"
+	"helm.sh/helm/v3/pkg/action"
+	"helm.sh/helm/v3/pkg/chart/loader"
+	"helm.sh/helm/v3/pkg/release"
+	"helm.sh/helm/v3/pkg/strvals"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	helm2chartutil "k8s.io/helm/pkg/chartutil"
+	helm2chartapi "k8s.io/helm/pkg/proto/hapi/chart"
+	helm2renderutil "k8s.io/helm/pkg/renderutil"
+	k8syamlutil "sigs.k8s.io/yaml"
 )
 
 func TestHelm(t *testing.T) {
@@ -66,7 +62,6 @@ type renderTestCase struct {
 }
 
 var renderers = []renderTestCase{
-	{"Helm 2", helm2Renderer{chartDir}},
 	{"Helm 3", helm3Renderer{chartDir}},
 }
 
@@ -103,7 +98,7 @@ type helmValues struct {
 }
 
 type ChartRenderer interface {
-	// returns a TestManifest containing all resources NOT marked by our hook-cleanup annotation
+	// returns a TestManifest containing all resources
 	RenderManifest(namespace string, values helmValues) (TestManifest, error)
 }
 
@@ -128,12 +123,11 @@ func (h3 helm3Renderer) RenderManifest(namespace string, values helmValues) (Tes
 	_, err = f.Write([]byte(rel.Manifest))
 	Expect(err).NotTo(HaveOccurred(), "Should be able to write the release manifest to the temp file for the helm unit tests")
 
-	// also need to add in the hooks, which are not included in the release manifest
-	// be sure to skip the resources that we duplicate because of Helm hook weirdness (see the comment on install.GetNonCleanupHooks)
-	nonCleanupHooks, err := helm.GetNonCleanupHooks(rel.Hooks)
-	Expect(err).NotTo(HaveOccurred(), "Should be able to get the non-cleanup hooks in the helm unit test setup")
+	hooks, err := helm.GetHooks(rel.Hooks)
 
-	for _, hook := range nonCleanupHooks {
+	Expect(err).NotTo(HaveOccurred(), "Should be able to get the hooks in the helm unit test setup")
+
+	for _, hook := range hooks {
 		manifest := hook.Manifest
 		_, err = f.Write([]byte("\n---\n" + manifest))
 		Expect(err).NotTo(HaveOccurred(), "Should be able to write the hook manifest to the temp file for the helm unit tests")
@@ -301,8 +295,28 @@ func mergeMaps(a, b map[string]interface{}) map[string]interface{} {
 
 func makeUnstructured(yam string) *unstructured.Unstructured {
 	jsn, err := yaml.YAMLToJSON([]byte(yam))
-	Expect(err).NotTo(HaveOccurred())
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	runtimeObj, err := runtime.Decode(unstructured.UnstructuredJSONScheme, jsn)
-	Expect(err).NotTo(HaveOccurred())
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	return runtimeObj.(*unstructured.Unstructured)
+}
+
+func makeUnstructureFromTemplateFile(fixtureName string, values interface{}) *unstructured.Unstructured {
+	tmpl, err := template.ParseFiles(fixtureName)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	var b bytes.Buffer
+	err = tmpl.Execute(&b, values)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	return makeUnstructured(b.String())
+}
+
+func readEnvoyConfigFromFile(fixtureName string) *envoy_config_bootstrap_v3.Bootstrap {
+	byt, err := ioutil.ReadFile(fixtureName)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	jsn, err := yaml.YAMLToJSON(byt)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	var result envoy_config_bootstrap_v3.Bootstrap
+	err = jsonpb.Unmarshal(bytes.NewBuffer(jsn), &result)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	return &result
 }

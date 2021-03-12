@@ -19,4 +19,6 @@ type Opts struct {
 	KnativeVersion              string
 	DisableKubeIngress          bool
 	RequireIngressClass         bool
+	CustomIngressClass          string
+	IngressProxyLabel           string
 }

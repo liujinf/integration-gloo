@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	v1alpha1 "github.com/solo-io/gloo/projects/gloo/pkg/api/external/solo/ratelimit"
+
 	kubeconverters "github.com/solo-io/gloo/projects/gloo/pkg/api/converters/kube"
 
 	"github.com/hashicorp/consul/api"
@@ -20,8 +22,8 @@ import (
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	extauth "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/enterprise/options/extauth/v1"
 	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
-	"github.com/solo-io/go-utils/kubeutils"
 	"github.com/solo-io/go-utils/log"
+	"github.com/solo-io/k8s-utils/kubeutils"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/factory"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/kube"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/memory"
@@ -128,8 +130,8 @@ func KubeClient() (kubernetes.Interface, error) {
 	return kubernetes.NewForConfig(cfg)
 }
 
-func MustGetNamespaces() []string {
-	ns, err := GetNamespaces()
+func MustGetNamespaces(ctx context.Context) []string {
+	ns, err := GetNamespaces(ctx)
 	if err != nil {
 		log.Fatalf("failed to list namespaces")
 	}
@@ -137,7 +139,7 @@ func MustGetNamespaces() []string {
 }
 
 // Note: requires RBAC permission to list namespaces at the cluster level
-func GetNamespaces() ([]string, error) {
+func GetNamespaces(ctx context.Context) ([]string, error) {
 	customFactory := getConfigClientFactory()
 	if customFactory != nil {
 		return []string{"default", defaults.GlooSystem}, nil
@@ -152,7 +154,7 @@ func GetNamespaces() ([]string, error) {
 		return nil, errors.Wrapf(err, "getting kube client")
 	}
 	var namespaces []string
-	nsList, err := kubeClient.CoreV1().Namespaces().List(metav1.ListOptions{})
+	nsList, err := kubeClient.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -170,8 +172,9 @@ func NewNamespaceLister() listers.NamespaceLister {
 	return namespaceLister{}
 }
 
-func (namespaceLister) List() ([]string, error) {
-	return GetNamespaces()
+// this namespaceLister implementation requires all implementations to have a context input.
+func (namespaceLister) List(ctx context.Context) ([]string, error) {
+	return GetNamespaces(ctx)
 }
 
 type providedNamespaceLister struct {
@@ -182,20 +185,20 @@ func NewProvidedNamespaceLister(namespaces []string) listers.NamespaceLister {
 	return providedNamespaceLister{namespaces: namespaces}
 }
 
-func (l providedNamespaceLister) List() ([]string, error) {
+func (l providedNamespaceLister) List(ctx context.Context) ([]string, error) {
 	return l.namespaces, nil
 }
 
-func MustUpstreamClient() v1.UpstreamClient {
-	return MustNamespacedUpstreamClient(metav1.NamespaceAll) // will require cluster-scoped permissions
+func MustUpstreamClient(ctx context.Context) v1.UpstreamClient {
+	return MustNamespacedUpstreamClient(ctx, metav1.NamespaceAll) // will require cluster-scoped permissions
 }
 
-func MustNamespacedUpstreamClient(ns string) v1.UpstreamClient {
-	return MustMultiNamespacedUpstreamClient([]string{ns})
+func MustNamespacedUpstreamClient(ctx context.Context, ns string) v1.UpstreamClient {
+	return MustMultiNamespacedUpstreamClient(ctx, []string{ns})
 }
 
-func MustMultiNamespacedUpstreamClient(namespaces []string) v1.UpstreamClient {
-	client, err := UpstreamClient(namespaces)
+func MustMultiNamespacedUpstreamClient(ctx context.Context, namespaces []string) v1.UpstreamClient {
+	client, err := UpstreamClient(ctx, namespaces)
 	if err != nil {
 		log.Fatalf("failed to create upstream client: %v", err)
 	}
@@ -203,10 +206,10 @@ func MustMultiNamespacedUpstreamClient(namespaces []string) v1.UpstreamClient {
 }
 
 // provide "" (metav1.NamespaceAll) to get a cluster-scoped upstream client
-func UpstreamClient(namespaces []string) (v1.UpstreamClient, error) {
+func UpstreamClient(ctx context.Context, namespaces []string) (v1.UpstreamClient, error) {
 	customFactory := getConfigClientFactory()
 	if customFactory != nil {
-		return v1.NewUpstreamClient(customFactory)
+		return v1.NewUpstreamClient(ctx, customFactory)
 	}
 
 	cfg, err := kubeutils.GetConfig("", "")
@@ -214,11 +217,10 @@ func UpstreamClient(namespaces []string) (v1.UpstreamClient, error) {
 		return nil, errors.Wrapf(err, "getting kube config")
 	}
 	cache := kube.NewKubeCache(context.TODO())
-	upstreamClient, err := v1.NewUpstreamClient(&factory.KubeResourceClientFactory{
+	upstreamClient, err := v1.NewUpstreamClient(ctx, &factory.KubeResourceClientFactory{
 		Crd:                v1.UpstreamCrd,
 		Cfg:                cfg,
 		SharedCache:        cache,
-		SkipCrdCreation:    true,
 		NamespaceWhitelist: namespaces,
 	})
 	if err != nil {
@@ -230,16 +232,16 @@ func UpstreamClient(namespaces []string) (v1.UpstreamClient, error) {
 	return upstreamClient, nil
 }
 
-func MustUpstreamGroupClient() v1.UpstreamGroupClient {
-	return MustNamespacedUpstreamGroupClient(metav1.NamespaceAll) // will require cluster-scoped permissions
+func MustUpstreamGroupClient(ctx context.Context) v1.UpstreamGroupClient {
+	return MustNamespacedUpstreamGroupClient(ctx, metav1.NamespaceAll) // will require cluster-scoped permissions
 }
 
-func MustNamespacedUpstreamGroupClient(ns string) v1.UpstreamGroupClient {
-	return MustMultiNamespacedUpstreamGroupClient([]string{ns})
+func MustNamespacedUpstreamGroupClient(ctx context.Context, ns string) v1.UpstreamGroupClient {
+	return MustMultiNamespacedUpstreamGroupClient(ctx, []string{ns})
 }
 
-func MustMultiNamespacedUpstreamGroupClient(namespaces []string) v1.UpstreamGroupClient {
-	client, err := UpstreamGroupClient(namespaces)
+func MustMultiNamespacedUpstreamGroupClient(ctx context.Context, namespaces []string) v1.UpstreamGroupClient {
+	client, err := UpstreamGroupClient(ctx, namespaces)
 	if err != nil {
 		log.Fatalf("failed to create upstream group client: %v", err)
 	}
@@ -247,10 +249,10 @@ func MustMultiNamespacedUpstreamGroupClient(namespaces []string) v1.UpstreamGrou
 }
 
 // provide "" (metav1.NamespaceAll) to get a cluster-scoped upstream group client
-func UpstreamGroupClient(namespaces []string) (v1.UpstreamGroupClient, error) {
+func UpstreamGroupClient(ctx context.Context, namespaces []string) (v1.UpstreamGroupClient, error) {
 	customFactory := getConfigClientFactory()
 	if customFactory != nil {
-		return v1.NewUpstreamGroupClient(customFactory)
+		return v1.NewUpstreamGroupClient(ctx, customFactory)
 	}
 
 	cfg, err := kubeutils.GetConfig("", "")
@@ -258,11 +260,10 @@ func UpstreamGroupClient(namespaces []string) (v1.UpstreamGroupClient, error) {
 		return nil, errors.Wrapf(err, "getting kube config")
 	}
 	cache := kube.NewKubeCache(context.TODO())
-	upstreamGroupClient, err := v1.NewUpstreamGroupClient(&factory.KubeResourceClientFactory{
+	upstreamGroupClient, err := v1.NewUpstreamGroupClient(ctx, &factory.KubeResourceClientFactory{
 		Crd:                v1.UpstreamGroupCrd,
 		Cfg:                cfg,
 		SharedCache:        cache,
-		SkipCrdCreation:    true,
 		NamespaceWhitelist: namespaces,
 	})
 	if err != nil {
@@ -274,16 +275,16 @@ func UpstreamGroupClient(namespaces []string) (v1.UpstreamGroupClient, error) {
 	return upstreamGroupClient, nil
 }
 
-func MustProxyClient() v1.ProxyClient {
-	return MustNamespacedProxyClient(metav1.NamespaceAll) // will require cluster-scoped permissions
+func MustProxyClient(ctx context.Context) v1.ProxyClient {
+	return MustNamespacedProxyClient(ctx, metav1.NamespaceAll) // will require cluster-scoped permissions
 }
 
-func MustNamespacedProxyClient(ns string) v1.ProxyClient {
-	return MustMultiNamespacedProxyClient([]string{ns})
+func MustNamespacedProxyClient(ctx context.Context, ns string) v1.ProxyClient {
+	return MustMultiNamespacedProxyClient(ctx, []string{ns})
 }
 
-func MustMultiNamespacedProxyClient(namespaces []string) v1.ProxyClient {
-	client, err := ProxyClient(namespaces)
+func MustMultiNamespacedProxyClient(ctx context.Context, namespaces []string) v1.ProxyClient {
+	client, err := ProxyClient(ctx, namespaces)
 	if err != nil {
 		log.Fatalf("failed to create proxy client: %v", err)
 	}
@@ -291,10 +292,10 @@ func MustMultiNamespacedProxyClient(namespaces []string) v1.ProxyClient {
 }
 
 // provide "" (metav1.NamespaceAll) to get a cluster-scoped proxy client
-func ProxyClient(namespaces []string) (v1.ProxyClient, error) {
+func ProxyClient(ctx context.Context, namespaces []string) (v1.ProxyClient, error) {
 	customFactory := getConfigClientFactory()
 	if customFactory != nil {
-		return v1.NewProxyClient(customFactory)
+		return v1.NewProxyClient(ctx, customFactory)
 	}
 
 	cfg, err := kubeutils.GetConfig("", "")
@@ -302,11 +303,10 @@ func ProxyClient(namespaces []string) (v1.ProxyClient, error) {
 		return nil, errors.Wrapf(err, "getting kube config")
 	}
 	cache := kube.NewKubeCache(context.TODO())
-	proxyClient, err := v1.NewProxyClient(&factory.KubeResourceClientFactory{
+	proxyClient, err := v1.NewProxyClient(ctx, &factory.KubeResourceClientFactory{
 		Crd:                v1.ProxyCrd,
 		Cfg:                cfg,
 		SharedCache:        cache,
-		SkipCrdCreation:    true,
 		NamespaceWhitelist: namespaces,
 	})
 	if err != nil {
@@ -318,16 +318,16 @@ func ProxyClient(namespaces []string) (v1.ProxyClient, error) {
 	return proxyClient, nil
 }
 
-func MustGatewayClient() gatewayv1.GatewayClient {
-	return MustNamespacedGatewayClient(metav1.NamespaceAll) // will require cluster-scoped permissions
+func MustGatewayClient(ctx context.Context) gatewayv1.GatewayClient {
+	return MustNamespacedGatewayClient(ctx, metav1.NamespaceAll) // will require cluster-scoped permissions
 }
 
-func MustNamespacedGatewayClient(ns string) gatewayv1.GatewayClient {
-	return MustMultiNamespacedGatewayClient([]string{ns})
+func MustNamespacedGatewayClient(ctx context.Context, ns string) gatewayv1.GatewayClient {
+	return MustMultiNamespacedGatewayClient(ctx, []string{ns})
 }
 
-func MustMultiNamespacedGatewayClient(namespaces []string) gatewayv1.GatewayClient {
-	client, err := GatewayClient(namespaces)
+func MustMultiNamespacedGatewayClient(ctx context.Context, namespaces []string) gatewayv1.GatewayClient {
+	client, err := GatewayClient(ctx, namespaces)
 	if err != nil {
 		log.Fatalf("failed to create gateway client: %v", err)
 	}
@@ -335,10 +335,10 @@ func MustMultiNamespacedGatewayClient(namespaces []string) gatewayv1.GatewayClie
 }
 
 // provide "" (metav1.NamespaceAll) to get a cluster-scoped gateway client
-func GatewayClient(namespaces []string) (gatewayv1.GatewayClient, error) {
+func GatewayClient(ctx context.Context, namespaces []string) (gatewayv1.GatewayClient, error) {
 	customFactory := getConfigClientFactory()
 	if customFactory != nil {
-		return gatewayv1.NewGatewayClient(customFactory)
+		return gatewayv1.NewGatewayClient(ctx, customFactory)
 	}
 
 	cfg, err := kubeutils.GetConfig("", "")
@@ -346,11 +346,10 @@ func GatewayClient(namespaces []string) (gatewayv1.GatewayClient, error) {
 		return nil, errors.Wrapf(err, "getting kube config")
 	}
 	cache := kube.NewKubeCache(context.TODO())
-	gatewayClient, err := gatewayv1.NewGatewayClient(&factory.KubeResourceClientFactory{
+	gatewayClient, err := gatewayv1.NewGatewayClient(ctx, &factory.KubeResourceClientFactory{
 		Crd:                gatewayv1.GatewayCrd,
 		Cfg:                cfg,
 		SharedCache:        cache,
-		SkipCrdCreation:    true,
 		NamespaceWhitelist: namespaces,
 	})
 	if err != nil {
@@ -362,16 +361,16 @@ func GatewayClient(namespaces []string) (gatewayv1.GatewayClient, error) {
 	return gatewayClient, nil
 }
 
-func MustVirtualServiceClient() gatewayv1.VirtualServiceClient {
-	return MustNamespacedVirtualServiceClient(metav1.NamespaceAll) // will require cluster-scoped permissions
+func MustVirtualServiceClient(ctx context.Context) gatewayv1.VirtualServiceClient {
+	return MustNamespacedVirtualServiceClient(ctx, metav1.NamespaceAll) // will require cluster-scoped permissions
 }
 
-func MustNamespacedVirtualServiceClient(ns string) gatewayv1.VirtualServiceClient {
-	return MustMultiNamespacedVirtualServiceClient([]string{ns})
+func MustNamespacedVirtualServiceClient(ctx context.Context, ns string) gatewayv1.VirtualServiceClient {
+	return MustMultiNamespacedVirtualServiceClient(ctx, []string{ns})
 }
 
-func MustMultiNamespacedVirtualServiceClient(namespaces []string) gatewayv1.VirtualServiceClient {
-	client, err := VirtualServiceClient(namespaces)
+func MustMultiNamespacedVirtualServiceClient(ctx context.Context, namespaces []string) gatewayv1.VirtualServiceClient {
+	client, err := VirtualServiceClient(ctx, namespaces)
 	if err != nil {
 		log.Fatalf("failed to create virtualService client: %v", err)
 	}
@@ -379,10 +378,10 @@ func MustMultiNamespacedVirtualServiceClient(namespaces []string) gatewayv1.Virt
 }
 
 // provide "" (metav1.NamespaceAll) to get a cluster-scoped virtual service client
-func VirtualServiceClient(namespaces []string) (gatewayv1.VirtualServiceClient, error) {
+func VirtualServiceClient(ctx context.Context, namespaces []string) (gatewayv1.VirtualServiceClient, error) {
 	customFactory := getConfigClientFactory()
 	if customFactory != nil {
-		return gatewayv1.NewVirtualServiceClient(customFactory)
+		return gatewayv1.NewVirtualServiceClient(ctx, customFactory)
 	}
 
 	cfg, err := kubeutils.GetConfig("", "")
@@ -390,11 +389,10 @@ func VirtualServiceClient(namespaces []string) (gatewayv1.VirtualServiceClient, 
 		return nil, errors.Wrapf(err, "getting kube config")
 	}
 	cache := kube.NewKubeCache(context.TODO())
-	virtualServiceClient, err := gatewayv1.NewVirtualServiceClient(&factory.KubeResourceClientFactory{
+	virtualServiceClient, err := gatewayv1.NewVirtualServiceClient(ctx, &factory.KubeResourceClientFactory{
 		Crd:                gatewayv1.VirtualServiceCrd,
 		Cfg:                cfg,
 		SharedCache:        cache,
-		SkipCrdCreation:    true,
 		NamespaceWhitelist: namespaces,
 	})
 	if err != nil {
@@ -406,16 +404,16 @@ func VirtualServiceClient(namespaces []string) (gatewayv1.VirtualServiceClient, 
 	return virtualServiceClient, nil
 }
 
-func MustRouteTableClient() gatewayv1.RouteTableClient {
-	return MustNamespacedRouteTableClient(metav1.NamespaceAll) // will require cluster-scoped permissions
+func MustRouteTableClient(ctx context.Context) gatewayv1.RouteTableClient {
+	return MustNamespacedRouteTableClient(ctx, metav1.NamespaceAll) // will require cluster-scoped permissions
 }
 
-func MustNamespacedRouteTableClient(ns string) gatewayv1.RouteTableClient {
-	return MustMultiNamespacedRouteTableClient([]string{ns})
+func MustNamespacedRouteTableClient(ctx context.Context, ns string) gatewayv1.RouteTableClient {
+	return MustMultiNamespacedRouteTableClient(ctx, []string{ns})
 }
 
-func MustMultiNamespacedRouteTableClient(namespaces []string) gatewayv1.RouteTableClient {
-	client, err := RouteTableClient(namespaces)
+func MustMultiNamespacedRouteTableClient(ctx context.Context, namespaces []string) gatewayv1.RouteTableClient {
+	client, err := RouteTableClient(ctx, namespaces)
 	if err != nil {
 		log.Fatalf("failed to create routeTable client: %v", err)
 	}
@@ -423,10 +421,10 @@ func MustMultiNamespacedRouteTableClient(namespaces []string) gatewayv1.RouteTab
 }
 
 // provide "" (metav1.NamespaceAll) to get a cluster-scoped route table client
-func RouteTableClient(namespaces []string) (gatewayv1.RouteTableClient, error) {
+func RouteTableClient(ctx context.Context, namespaces []string) (gatewayv1.RouteTableClient, error) {
 	customFactory := getConfigClientFactory()
 	if customFactory != nil {
-		return gatewayv1.NewRouteTableClient(customFactory)
+		return gatewayv1.NewRouteTableClient(ctx, customFactory)
 	}
 
 	cfg, err := kubeutils.GetConfig("", "")
@@ -434,11 +432,10 @@ func RouteTableClient(namespaces []string) (gatewayv1.RouteTableClient, error) {
 		return nil, errors.Wrapf(err, "getting kube config")
 	}
 	cache := kube.NewKubeCache(context.TODO())
-	routeTableClient, err := gatewayv1.NewRouteTableClient(&factory.KubeResourceClientFactory{
+	routeTableClient, err := gatewayv1.NewRouteTableClient(ctx, &factory.KubeResourceClientFactory{
 		Crd:                gatewayv1.RouteTableCrd,
 		Cfg:                cfg,
 		SharedCache:        cache,
-		SkipCrdCreation:    true,
 		NamespaceWhitelist: namespaces,
 	})
 	if err != nil {
@@ -450,16 +447,16 @@ func RouteTableClient(namespaces []string) (gatewayv1.RouteTableClient, error) {
 	return routeTableClient, nil
 }
 
-func MustSettingsClient() v1.SettingsClient {
-	return MustNamespacedSettingsClient(metav1.NamespaceAll) // will require cluster-scoped permissions
+func MustSettingsClient(ctx context.Context) v1.SettingsClient {
+	return MustNamespacedSettingsClient(ctx, metav1.NamespaceAll) // will require cluster-scoped permissions
 }
 
-func MustNamespacedSettingsClient(ns string) v1.SettingsClient {
-	return MustMultiNamespacedSettingsClient([]string{ns})
+func MustNamespacedSettingsClient(ctx context.Context, ns string) v1.SettingsClient {
+	return MustMultiNamespacedSettingsClient(ctx, []string{ns})
 }
 
-func MustMultiNamespacedSettingsClient(namespaces []string) v1.SettingsClient {
-	client, err := SettingsClient(namespaces)
+func MustMultiNamespacedSettingsClient(ctx context.Context, namespaces []string) v1.SettingsClient {
+	client, err := SettingsClient(ctx, namespaces)
 	if err != nil {
 		log.Fatalf("failed to create settings client: %v", err)
 	}
@@ -467,10 +464,10 @@ func MustMultiNamespacedSettingsClient(namespaces []string) v1.SettingsClient {
 }
 
 // provide "" (metav1.NamespaceAll) to get a cluster-scoped settings client
-func SettingsClient(namespaces []string) (v1.SettingsClient, error) {
+func SettingsClient(ctx context.Context, namespaces []string) (v1.SettingsClient, error) {
 	customFactory := getConfigClientFactory()
 	if customFactory != nil {
-		return v1.NewSettingsClient(customFactory)
+		return v1.NewSettingsClient(ctx, customFactory)
 	}
 
 	cfg, err := kubeutils.GetConfig("", "")
@@ -478,11 +475,10 @@ func SettingsClient(namespaces []string) (v1.SettingsClient, error) {
 		return nil, errors.Wrapf(err, "getting kube config")
 	}
 	cache := kube.NewKubeCache(context.TODO())
-	settingsClient, err := v1.NewSettingsClient(&factory.KubeResourceClientFactory{
+	settingsClient, err := v1.NewSettingsClient(ctx, &factory.KubeResourceClientFactory{
 		Crd:                v1.SettingsCrd,
 		Cfg:                cfg,
 		SharedCache:        cache,
-		SkipCrdCreation:    true,
 		NamespaceWhitelist: namespaces,
 	})
 	if err != nil {
@@ -494,38 +490,37 @@ func SettingsClient(namespaces []string) (v1.SettingsClient, error) {
 	return settingsClient, nil
 }
 
-func MustSecretClient() v1.SecretClient {
-	client, err := secretClient()
+func MustSecretClient(ctx context.Context) v1.SecretClient {
+	return MustSecretClientWithOptions(ctx, 0, nil)
+}
+
+func MustSecretClientWithOptions(ctx context.Context, timeout time.Duration, namespaces []string) v1.SecretClient {
+	client, err := getSecretClient(ctx, timeout, namespaces)
 	if err != nil {
 		log.Fatalf("failed to create Secret client: %v", err)
 	}
 	return client
 }
 
-func secretClient() (v1.SecretClient, error) {
+func getSecretClient(ctx context.Context, timeout time.Duration, namespaces []string) (v1.SecretClient, error) {
 	customFactory := getSecretClientFactory()
 	if customFactory != nil {
-		return v1.NewSecretClient(customFactory)
+		return v1.NewSecretClient(ctx, customFactory)
 	}
 
-	clientset, err := GetKubernetesClient()
+	clientset, err := GetKubernetesClientWithTimeout(timeout)
 	if err != nil {
 		return nil, errors.Wrapf(err, "getting kube config")
 	}
-	coreCache, err := cache.NewKubeCoreCache(context.TODO(), clientset)
+	coreCache, err := cache.NewKubeCoreCacheWithOptions(context.TODO(), clientset, 12*time.Hour, namespaces)
 	if err != nil {
 		return nil, err
 	}
 
-	converterChain := kubeconverters.NewSecretConverterChain(
-		new(kubeconverters.TLSSecretConverter),
-		new(kubeconverters.AwsSecretConverter),
-	)
-
-	secretClient, err := v1.NewSecretClient(&factory.KubeSecretClientFactory{
+	secretClient, err := v1.NewSecretClient(ctx, &factory.KubeSecretClientFactory{
 		Clientset:       clientset,
 		Cache:           coreCache,
-		SecretConverter: converterChain,
+		SecretConverter: kubeconverters.GlooSecretConverterChain,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "creating Secrets client")
@@ -536,11 +531,14 @@ func secretClient() (v1.SecretClient, error) {
 	return secretClient, nil
 }
 
-func GetKubernetesClient() (*kubernetes.Clientset, error) {
+func GetKubernetesClient() (kubernetes.Interface, error) {
 	return GetKubernetesClientWithTimeout(0)
 }
 
-func GetKubernetesClientWithTimeout(timeout time.Duration) (*kubernetes.Clientset, error) {
+func GetKubernetesClientWithTimeout(timeout time.Duration) (kubernetes.Interface, error) {
+	if fakeKubeClientset != nil {
+		return fakeKubeClientset, nil
+	}
 	config, err := getKubernetesConfig(timeout)
 	if err != nil {
 		return nil, err
@@ -577,16 +575,16 @@ func ApiExtsClient() (apiexts.Interface, error) {
 	return apiexts.NewForConfig(cfg)
 }
 
-func MustAuthConfigClient() extauth.AuthConfigClient {
-	return MustNamespacedAuthConfigClient(metav1.NamespaceAll) // will require cluster-scoped permissions
+func MustAuthConfigClient(ctx context.Context) extauth.AuthConfigClient {
+	return MustNamespacedAuthConfigClient(ctx, metav1.NamespaceAll) // will require cluster-scoped permissions
 }
 
-func MustNamespacedAuthConfigClient(ns string) extauth.AuthConfigClient {
-	return MustMultiNamespacedAuthConfigClient([]string{ns})
+func MustNamespacedAuthConfigClient(ctx context.Context, ns string) extauth.AuthConfigClient {
+	return MustMultiNamespacedAuthConfigClient(ctx, []string{ns})
 }
 
-func MustMultiNamespacedAuthConfigClient(namespaces []string) extauth.AuthConfigClient {
-	client, err := AuthConfigClient(namespaces)
+func MustMultiNamespacedAuthConfigClient(ctx context.Context, namespaces []string) extauth.AuthConfigClient {
+	client, err := AuthConfigClient(ctx, namespaces)
 	if err != nil {
 		log.Fatalf("failed to create auth config client: %v", err)
 	}
@@ -594,10 +592,10 @@ func MustMultiNamespacedAuthConfigClient(namespaces []string) extauth.AuthConfig
 }
 
 // provide "" (metav1.NamespaceAll) to get a cluster-scoped authConfig client
-func AuthConfigClient(namespaces []string) (extauth.AuthConfigClient, error) {
+func AuthConfigClient(ctx context.Context, namespaces []string) (extauth.AuthConfigClient, error) {
 	customFactory := getConfigClientFactory()
 	if customFactory != nil {
-		return extauth.NewAuthConfigClient(customFactory)
+		return extauth.NewAuthConfigClient(ctx, customFactory)
 	}
 
 	cfg, err := kubeutils.GetConfig("", "")
@@ -605,11 +603,10 @@ func AuthConfigClient(namespaces []string) (extauth.AuthConfigClient, error) {
 		return nil, errors.Wrapf(err, "getting kube config")
 	}
 	cache := kube.NewKubeCache(context.TODO())
-	authConfigClient, err := extauth.NewAuthConfigClient(&factory.KubeResourceClientFactory{
+	authConfigClient, err := extauth.NewAuthConfigClient(ctx, &factory.KubeResourceClientFactory{
 		Crd:                extauth.AuthConfigCrd,
 		Cfg:                cfg,
 		SharedCache:        cache,
-		SkipCrdCreation:    true,
 		NamespaceWhitelist: namespaces,
 	})
 	if err != nil {
@@ -619,4 +616,43 @@ func AuthConfigClient(namespaces []string) (extauth.AuthConfigClient, error) {
 		return nil, err
 	}
 	return authConfigClient, nil
+}
+
+func MustNamespacedRateLimitConfigClient(ctx context.Context, ns string) v1alpha1.RateLimitConfigClient {
+	return MustMultiNamespacedRateLimitConfigClient(ctx, []string{ns})
+}
+
+func MustMultiNamespacedRateLimitConfigClient(ctx context.Context, namespaces []string) v1alpha1.RateLimitConfigClient {
+	client, err := RateLimitConfigClient(ctx, namespaces)
+	if err != nil {
+		log.Fatalf("failed to create rate limit config client: %v", err)
+	}
+	return client
+}
+
+// provide "" (metav1.NamespaceAll) to get a cluster-scoped client
+func RateLimitConfigClient(ctx context.Context, namespaces []string) (v1alpha1.RateLimitConfigClient, error) {
+	customFactory := getConfigClientFactory()
+	if customFactory != nil {
+		return v1alpha1.NewRateLimitConfigClient(ctx, customFactory)
+	}
+
+	cfg, err := kubeutils.GetConfig("", "")
+	if err != nil {
+		return nil, errors.Wrapf(err, "getting kube config")
+	}
+	kubeCache := kube.NewKubeCache(context.TODO())
+	rlConfigClient, err := v1alpha1.NewRateLimitConfigClient(ctx, &factory.KubeResourceClientFactory{
+		Crd:                v1alpha1.RateLimitConfigCrd,
+		Cfg:                cfg,
+		SharedCache:        kubeCache,
+		NamespaceWhitelist: namespaces,
+	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "creating rate limit config client")
+	}
+	if err := rlConfigClient.Register(); err != nil {
+		return nil, err
+	}
+	return rlConfigClient, nil
 }

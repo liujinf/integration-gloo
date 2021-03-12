@@ -6,30 +6,26 @@ import (
 	"sync"
 	"time"
 
-	mock_consul "github.com/solo-io/gloo/projects/gloo/pkg/upstreams/consul/mocks"
-	"google.golang.org/grpc"
-
-	"github.com/solo-io/gloo/test/samples"
-
-	validationgrpc "github.com/solo-io/gloo/projects/gloo/pkg/api/grpc/validation"
-	"github.com/solo-io/gloo/projects/gloo/pkg/utils/validation"
-
+	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	ratelimit "github.com/solo-io/gloo/projects/gloo/pkg/api/external/solo/ratelimit"
+	validationgrpc "github.com/solo-io/gloo/projects/gloo/pkg/api/grpc/validation"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	enterprise_gloo_solo_io "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/enterprise/options/extauth/v1"
+	"github.com/solo-io/gloo/projects/gloo/pkg/bootstrap"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
-	. "github.com/solo-io/gloo/projects/gloo/pkg/validation"
-
-	"github.com/golang/mock/gomock"
-
+	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/registry"
+	. "github.com/solo-io/gloo/projects/gloo/pkg/translator"
+	mock_consul "github.com/solo-io/gloo/projects/gloo/pkg/upstreams/consul/mocks"
 	sslutils "github.com/solo-io/gloo/projects/gloo/pkg/utils"
+	"github.com/solo-io/gloo/projects/gloo/pkg/utils/validation"
+	. "github.com/solo-io/gloo/projects/gloo/pkg/validation"
+	"github.com/solo-io/gloo/test/samples"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/factory"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/memory"
-
-	. "github.com/solo-io/gloo/projects/gloo/pkg/translator"
-
-	"github.com/solo-io/gloo/projects/gloo/pkg/bootstrap"
-	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/registry"
+	"github.com/solo-io/solo-kit/test/matchers"
+	"google.golang.org/grpc"
 )
 
 var _ = Describe("Validation Server", func() {
@@ -79,7 +75,7 @@ var _ = Describe("Validation Server", func() {
 			_ = s.Sync(context.TODO(), params.Snapshot)
 			rpt, err := s.ValidateProxy(context.TODO(), &validationgrpc.ProxyValidationServiceRequest{Proxy: proxy})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(rpt).To(Equal(&validationgrpc.ProxyValidationServiceResponse{ProxyReport: validation.MakeReport(proxy)}))
+			Expect(rpt).To(matchers.MatchProto(&validationgrpc.ProxyValidationServiceResponse{ProxyReport: validation.MakeReport(proxy)}))
 		})
 	})
 
@@ -163,11 +159,25 @@ var _ = Describe("Validation Server", func() {
 
 			Eventually(getNotifications, time.Second).Should(HaveLen(2))
 
+			// add an auth config
+			err = v.Sync(ctx, &v1.ApiSnapshot{
+				AuthConfigs: enterprise_gloo_solo_io.AuthConfigList{{}}},
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Eventually(getNotifications, time.Second).Should(HaveLen(3))
+
+			// add a rate limit config
+			err = v.Sync(ctx, &v1.ApiSnapshot{
+				Ratelimitconfigs: ratelimit.RateLimitConfigList{{}}},
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Eventually(getNotifications, time.Second).Should(HaveLen(4))
+
 			// create jitter by changing upstreams
 			err = v.Sync(ctx, &v1.ApiSnapshot{Upstreams: v1.UpstreamList{{}}})
 			Expect(err).NotTo(HaveOccurred())
 
-			Eventually(getNotifications, time.Second).Should(HaveLen(3))
+			Eventually(getNotifications, time.Second).Should(HaveLen(5))
 
 			// test close
 			desiredErr = "transport is closing"
@@ -177,7 +187,7 @@ var _ = Describe("Validation Server", func() {
 			err = v.Sync(ctx, &v1.ApiSnapshot{Upstreams: v1.UpstreamList{{}, {}}})
 			Expect(err).NotTo(HaveOccurred())
 
-			Consistently(getNotifications, time.Second).Should(HaveLen(3))
+			Consistently(getNotifications, time.Second).Should(HaveLen(5))
 		})
 	})
 })

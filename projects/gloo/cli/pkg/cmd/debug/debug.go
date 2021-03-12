@@ -18,7 +18,7 @@ import (
 
 	"github.com/solo-io/gloo/projects/gloo/cli/pkg/cmd/options"
 	"github.com/solo-io/gloo/projects/gloo/cli/pkg/helpers"
-	"github.com/solo-io/go-utils/debugutils"
+	"github.com/solo-io/k8s-utils/debugutils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -41,6 +41,12 @@ func DebugLogs(opts *options.Options, w io.Writer) error {
 	defer fs.RemoveAll(dir)
 	storageClient := debugutils.NewFileStorageClient(fs)
 
+	// if writing to a non-zipped file, create a channel to collect logs
+	var fileBuf chan string
+	if !opts.Top.Zip && opts.Top.File != "" {
+		fileBuf = make(chan string, len(responses))
+	}
+
 	eg := errgroup.Group{}
 	for _, response := range responses {
 		response := response
@@ -58,6 +64,8 @@ func DebugLogs(opts *options.Options, w io.Writer) error {
 						Resource: strings.NewReader(logs.String()),
 						Name:     response.ResourceId(),
 					})
+				} else if opts.Top.File != "" {
+					fileBuf <- logs.String()
 				} else {
 					err = displayLogs(w, logs)
 					if err != nil {
@@ -80,6 +88,19 @@ func DebugLogs(opts *options.Options, w io.Writer) error {
 		err = zip(fs, dir, opts.Top.File)
 		if err != nil {
 			return err
+		}
+	} else if opts.Top.File != "" {
+		// collect logs from fileBuf channel and write to
+		// fileName specified by opts.Top.File  when "-f" flag is used without ""--zip"
+		logFile, err := os.OpenFile(opts.Top.File, os.O_WRONLY|os.O_CREATE, filePermissions)
+		if err != nil {
+			return err
+		}
+		defer logFile.Close()
+
+		close(fileBuf)
+		for writeVal := range fileBuf {
+			logFile.WriteString(writeVal)
 		}
 	}
 
@@ -140,7 +161,7 @@ func displayLogs(w io.Writer, logs strings.Builder) error {
 }
 
 func setup(opts *options.Options) ([]*debugutils.LogsResponse, error) {
-	pods, err := helpers.MustKubeClient().CoreV1().Pods(opts.Metadata.Namespace).List(metav1.ListOptions{
+	pods, err := helpers.MustKubeClient().CoreV1().Pods(opts.Metadata.Namespace).List(opts.Top.Ctx, metav1.ListOptions{
 		LabelSelector: "gloo",
 	})
 	if err != nil {
@@ -154,10 +175,10 @@ func setup(opts *options.Options) ([]*debugutils.LogsResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	logRequests, err := logCollector.GetLogRequests(resources)
+	logRequests, err := logCollector.GetLogRequests(opts.Top.Ctx, resources)
 	if err != nil {
 		return nil, err
 	}
 
-	return logCollector.LogRequestBuilder.StreamLogs(logRequests)
+	return logCollector.LogRequestBuilder.StreamLogs(opts.Top.Ctx, logRequests)
 }

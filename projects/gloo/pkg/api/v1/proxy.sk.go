@@ -16,18 +16,18 @@ import (
 
 func NewProxy(namespace, name string) *Proxy {
 	proxy := &Proxy{}
-	proxy.SetMetadata(core.Metadata{
+	proxy.SetMetadata(&core.Metadata{
 		Name:      name,
 		Namespace: namespace,
 	})
 	return proxy
 }
 
-func (r *Proxy) SetMetadata(meta core.Metadata) {
+func (r *Proxy) SetMetadata(meta *core.Metadata) {
 	r.Metadata = meta
 }
 
-func (r *Proxy) SetStatus(status core.Status) {
+func (r *Proxy) SetStatus(status *core.Status) {
 	r.Status = status
 }
 
@@ -45,13 +45,10 @@ func (r *Proxy) GroupVersionKind() schema.GroupVersionKind {
 
 type ProxyList []*Proxy
 
-// namespace is optional, if left empty, names can collide if the list contains more than one with the same name
 func (list ProxyList) Find(namespace, name string) (*Proxy, error) {
 	for _, proxy := range list {
-		if proxy.GetMetadata().Name == name {
-			if namespace == "" || proxy.GetMetadata().Namespace == namespace {
-				return proxy, nil
-			}
+		if proxy.GetMetadata().Name == name && proxy.GetMetadata().Namespace == namespace {
+			return proxy, nil
 		}
 	}
 	return nil, errors.Errorf("list did not find proxy %v.%v", namespace, name)
@@ -150,12 +147,6 @@ var (
 		false,
 		&Proxy{})
 )
-
-func init() {
-	if err := crd.AddCrd(ProxyCrd); err != nil {
-		log.Fatalf("could not add crd to global registry")
-	}
-}
 
 var (
 	ProxyGVK = schema.GroupVersionKind{

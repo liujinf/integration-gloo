@@ -18,8 +18,9 @@ import (
 	"github.com/solo-io/go-utils/contextutils"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
-	knativev1alpha1 "knative.dev/serving/pkg/apis/networking/v1alpha1"
-	knativeclient "knative.dev/serving/pkg/client/clientset/versioned/typed/networking/v1alpha1"
+	v1machinery "k8s.io/apimachinery/pkg/apis/meta/v1"
+	knativev1alpha1 "knative.dev/networking/pkg/apis/networking/v1alpha1"
+	knativeclient "knative.dev/networking/pkg/client/clientset/versioned/typed/networking/v1alpha1"
 )
 
 type translatorSyncer struct {
@@ -158,14 +159,11 @@ func (s *translatorSyncer) propagateProxyStatus(ctx context.Context, proxy *gloo
 	if proxy == nil {
 		return nil
 	}
-	timeout := time.After(time.Second * 30)
 	ticker := time.Tick(time.Second / 2)
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-timeout:
-			return eris.Errorf("timed out waiting for proxy status to be updated")
 		case <-ticker:
 			// poll the proxy for an accepted or rejected status
 			updatedProxy, err := s.proxyClient.Read(proxy.Metadata.Namespace, proxy.Metadata.Name, clients.ReadOpts{Ctx: ctx})
@@ -178,7 +176,7 @@ func (s *translatorSyncer) propagateProxyStatus(ctx context.Context, proxy *gloo
 			case core.Status_Rejected:
 				contextutils.LoggerFrom(ctx).Errorf("proxy was rejected by gloo: %v",
 					updatedProxy.Status.Reason)
-				return nil
+				continue
 			case core.Status_Accepted:
 				return s.markIngressesReady(ctx, ingresses)
 			}
@@ -201,12 +199,12 @@ func (s *translatorSyncer) markIngressesReady(ctx context.Context, ingresses v1a
 		internalLbStatus := []knativev1alpha1.LoadBalancerIngressStatus{
 			{DomainInternal: s.internalProxyAddress},
 		}
-		ci.Status.MarkLoadBalancerReady(externalLbStatus, externalLbStatus, internalLbStatus)
+		ci.Status.MarkLoadBalancerReady(externalLbStatus, internalLbStatus)
 		ci.Status.ObservedGeneration = ci.Generation
 		updatedIngresses = append(updatedIngresses, &ci)
 	}
 	for _, ingress := range updatedIngresses {
-		if _, err := s.ingressClient.Ingresses(ingress.Namespace).UpdateStatus(ingress); err != nil {
+		if _, err := s.ingressClient.Ingresses(ingress.Namespace).UpdateStatus(ctx, ingress, v1machinery.UpdateOptions{}); err != nil {
 			contextutils.LoggerFrom(ctx).Errorf("failed to update Ingress %v status with error %v", ingress.Name, err)
 		}
 	}

@@ -20,7 +20,22 @@ spec:
     metadata:
       labels:
         gloo: ingress
+        {{- if .Values.ingress.deployment.extraIngressLabels }}
+        {{- range $key, $value := .Values.ingress.deployment.extraIngressLabels }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
+      {{- if .Values.global.istioIntegration.disableAutoinjection }}
+      annotations:
+        sidecar.istio.io/inject: "false"
+      {{- end }}
     spec:
+      {{- include "gloo.pullSecret" $image | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        {{- if not .Values.ingress.deployment.floatingUserId }}
+        runAsUser: {{ printf "%.0f" (float64 .Values.ingress.deployment.runAsUser) -}}
+        {{- end }}
       containers:
       - image: {{template "gloo.image" $image}}
         imagePullPolicy: {{ $image.pullPolicy }}
@@ -54,6 +69,11 @@ spec:
   {{- if or .Values.ingress.requireIngressClass .Values.settings.integrations.knative.requireIngressClass }}
         - name: "REQUIRE_INGRESS_CLASS"
           value: "true"
+  {{- end }}
+
+  {{- if and .Values.ingress.customIngressClass }}
+        - name: "CUSTOM_INGRESS_CLASS"
+          value: "{{ .Values.ingress.customIngressClass }}"
   {{- end }}
 {{- end }}
 

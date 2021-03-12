@@ -1,6 +1,7 @@
 package ratelimit_test
 
 import (
+	"context"
 	"io"
 
 	. "github.com/onsi/ginkgo"
@@ -19,13 +20,16 @@ var _ = Describe("CustomEnvoyConfig", func() {
 	var (
 		vsvc     *gatewayv1.VirtualService
 		vsClient gatewayv1.VirtualServiceClient
+		ctx      context.Context
+		cancel   context.CancelFunc
 	)
 	BeforeEach(func() {
 		helpers.UseMemoryClients()
 		// create a settings object
-		vsClient = helpers.MustVirtualServiceClient()
+		ctx, cancel = context.WithCancel(context.Background())
+		vsClient = helpers.MustVirtualServiceClient(ctx)
 		vsvc = &gatewayv1.VirtualService{
-			Metadata: core.Metadata{
+			Metadata: &core.Metadata{
 				Name:      "vs",
 				Namespace: "gloo-system",
 			},
@@ -39,12 +43,14 @@ var _ = Describe("CustomEnvoyConfig", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 
+	AfterEach(func() { cancel() })
+
 	rateLimitExtension := func(index int) *ratelimitpb.RateLimitRouteExtension {
 		var err error
 		vsvc, err = vsClient.Read(vsvc.Metadata.Namespace, vsvc.Metadata.Name, clients.ReadOpts{})
 		Expect(err).NotTo(HaveOccurred())
 
-		return vsvc.VirtualHost.Routes[index].Options.Ratelimit
+		return vsvc.VirtualHost.Routes[index].Options.GetRatelimit()
 	}
 
 	It("should edit route", func() {

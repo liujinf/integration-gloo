@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,16 +9,18 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/solo-io/gloo/pkg/utils/protoutils"
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/grpc/version"
-	"github.com/solo-io/go-utils/protoutils"
-
 	"github.com/solo-io/go-utils/githubutils"
 	"github.com/solo-io/go-utils/log"
 	"github.com/solo-io/go-utils/pkgmgmtutils"
+	"github.com/solo-io/go-utils/pkgmgmtutils/formula_updater_types"
 	"github.com/solo-io/go-utils/versionutils"
 )
 
 func main() {
+	ctx := context.Background()
+	versionBeingReleased := versionutils.GetReleaseVersionOrExitGracefully()
 	assetsOnly := false
 	if len(os.Args) > 1 {
 		var err error
@@ -73,12 +76,11 @@ func main() {
 		log.Warnf("Not creating PRs to update homebrew formulas or fish food because this was an assets_only release")
 		return
 	}
-	mustUpdateFormulas(buildDir, repoOwner, repoName)
-
+	mustUpdateFormulas(ctx, versionBeingReleased, repoOwner, repoName)
 }
 
-func mustUpdateFormulas(buildDir, repoOwner, repoName string) {
-	fOpts := []pkgmgmtutils.FormulaOptions{
+func mustUpdateFormulas(ctx context.Context, versionBeingReleased *versionutils.Version, repoOwner, repoName string) {
+	fOpts := []*formula_updater_types.FormulaOptions{
 		{
 			Name:           "homebrew-tap/glooctl",
 			FormulaName:    "glooctl",
@@ -124,14 +126,17 @@ func mustUpdateFormulas(buildDir, repoOwner, repoName string) {
 			PRDescription:   "Created by Solo-io Bot",
 			PRCommitName:    "Solo-io Bot",
 			PRCommitEmail:   "bot@solo.io",
-			VersionRegex:    `:tag\s*=>\s*"v([0-9.]+)",`,
-			VersionShaRegex: `:revision\s*=>\s*"(.*)"`,
+			VersionRegex:    `tag:\s*"v([0-9.]+)",`,
+			VersionShaRegex: `revision:\s*"(.*)"`,
 		},
 	}
 
-	// Update package manager install formulas
-	status, err := pkgmgmtutils.UpdateFormulas(repoOwner, repoName, buildDir,
-		`glooctl-(darwin|linux|windows).*\.sha256`, fOpts)
+	formulaUpdater, err := pkgmgmtutils.NewFormulaUpdaterWithDefaults(ctx)
+	if err != nil {
+		log.Fatalf("Error constructing formula updater: %+v", err)
+	}
+
+	status, err := formulaUpdater.Update(ctx, versionBeingReleased, repoOwner, repoName, fOpts)
 	if err != nil {
 		log.Fatalf("Error trying to update package manager formulas. Error was: %s", err.Error())
 	}

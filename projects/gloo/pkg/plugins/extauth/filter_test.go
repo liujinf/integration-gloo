@@ -3,14 +3,13 @@ package extauth_test
 import (
 	"time"
 
-	envoycore "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
-	envoyauth "github.com/envoyproxy/go-control-plane/envoy/config/filter/http/ext_authz/v2"
-	envoytype "github.com/envoyproxy/go-control-plane/envoy/type"
-	envoymatcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher"
-	"github.com/golang/protobuf/ptypes/duration"
+	envoycore "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoyauth "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_authz/v3"
+	envoymatcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
+	envoytype "github.com/envoyproxy/go-control-plane/envoy/type/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"github.com/solo-io/gloo/pkg/utils/gogoutils"
 	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	extauthv1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/enterprise/options/extauth/v1"
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/static"
@@ -19,13 +18,15 @@ import (
 	"github.com/solo-io/gloo/projects/gloo/pkg/translator"
 	. "github.com/solo-io/go-utils/testutils"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
+	"github.com/solo-io/solo-kit/pkg/utils/prototime"
+	"github.com/solo-io/solo-kit/test/matchers"
 )
 
 var _ = Describe("Extauth Http filter builder function", func() {
 
-	When("no extauth settings are provided", func() {
+	When("no global extauth settings are provided", func() {
 		It("does not return any filter", func() {
-			filters, err := BuildHttpFilters(nil, nil)
+			filters, err := BuildHttpFilters(nil, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(filters).To(HaveLen(0))
 		})
@@ -33,7 +34,7 @@ var _ = Describe("Extauth Http filter builder function", func() {
 
 	When("settings do not contain ext auth server ref", func() {
 		It("returns an error", func() {
-			_, err := BuildHttpFilters(&extauthv1.Settings{}, nil)
+			_, err := BuildHttpFilters(&extauthv1.Settings{}, nil, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(Equal(NoServerRefErr))
 		})
@@ -45,9 +46,67 @@ var _ = Describe("Extauth Http filter builder function", func() {
 				Name:      "non",
 				Namespace: "existent",
 			}
-			_, err := BuildHttpFilters(&extauthv1.Settings{ExtauthzServerRef: invalidUs}, nil)
+			_, err := BuildHttpFilters(&extauthv1.Settings{ExtauthzServerRef: invalidUs}, nil, nil)
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(HaveInErrorChain(ServerNotFound(invalidUs)))
+		})
+	})
+
+	Context("listener settings override global settings", func() {
+		var (
+			extauthSettings *extauthv1.Settings
+			initParams      plugins.InitParams
+			params          plugins.Params
+			extauthPlugin   *Plugin
+			listener        *gloov1.HttpListener
+			ref             core.ResourceRef
+		)
+
+		BeforeEach(func() {
+			extauthPlugin = &Plugin{}
+			ref = core.ResourceRef{
+				Name:      "test",
+				Namespace: "test",
+			}
+			params.Snapshot = &gloov1.ApiSnapshot{
+				Upstreams: []*gloov1.Upstream{
+					{
+						Metadata: &core.Metadata{
+							Name:      "extauth-upstream",
+							Namespace: "ns",
+						},
+					},
+				},
+			}
+			params.Snapshot.Upstreams = []*gloov1.Upstream{
+				{
+					Metadata: &core.Metadata{
+						Name:      "test",
+						Namespace: "test",
+					},
+				},
+			}
+			extauthSettings = &extauthv1.Settings{
+				ExtauthzServerRef: &ref,
+				FailureModeAllow:  true,
+			}
+			initParams.Settings = &gloov1.Settings{}
+			extauthPlugin.Init(initParams)
+			listener = &gloov1.HttpListener{
+				Options: &gloov1.HttpListenerOptions{
+					Extauth: extauthSettings,
+				},
+			}
+		})
+
+		It("should get extauth settings first from the listener, then from the global settings", func() {
+			filters, err := extauthPlugin.HttpFilters(params, listener)
+			Expect(err).NotTo(HaveOccurred(), "Should be able to build extauth filters")
+			Expect(filters).To(HaveLen(1), "Should only have created one custom filter")
+			// Should take config from http listener
+			Expect(filters[0].Stage.Weight).To(Equal(0))
+			Expect(filters[0].Stage.RelativeTo).To(Equal(plugins.AuthNStage))
+			Expect(filters[0].HttpFilter.Name).To(Equal(wellknown.HTTPExternalAuthorization))
 		})
 	})
 
@@ -61,10 +120,10 @@ var _ = Describe("Extauth Http filter builder function", func() {
 
 		getExtAuthz := func(extAuthFilter plugins.StagedHttpFilter) *envoyauth.ExtAuthz {
 			ExpectWithOffset(1, extAuthFilter).NotTo(BeNil())
-			ExpectWithOffset(1, extAuthFilter.HttpFilter.Name).To(Equal(FilterName))
+			ExpectWithOffset(1, extAuthFilter.HttpFilter.Name).To(Equal(wellknown.HTTPExternalAuthorization))
 
 			filterConfig := &envoyauth.ExtAuthz{}
-			err := translator.ParseConfig(extAuthFilter.HttpFilter, filterConfig)
+			err := translator.ParseTypedConfig(extAuthFilter.HttpFilter, filterConfig)
 			ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
 			return filterConfig
@@ -73,7 +132,7 @@ var _ = Describe("Extauth Http filter builder function", func() {
 		BeforeEach(func() {
 
 			upstream = &gloov1.Upstream{
-				Metadata: core.Metadata{
+				Metadata: &core.Metadata{
 					Name:      "extauth",
 					Namespace: "default",
 				},
@@ -94,15 +153,15 @@ var _ = Describe("Extauth Http filter builder function", func() {
 				usRef := upstream.Metadata.Ref()
 
 				settings = &extauthv1.Settings{
-					ExtauthzServerRef: &usRef,
+					ExtauthzServerRef: usRef,
 				}
 
 				expectedConfig = &envoyauth.ExtAuthz{
+					TransportApiVersion:       envoycore.ApiVersion_V3,
+					MetadataContextNamespaces: []string{JWTFilterName},
 					Services: &envoyauth.ExtAuthz_GrpcService{
 						GrpcService: &envoycore.GrpcService{
-							Timeout: &duration.Duration{
-								Nanos: int32(DefaultTimeout),
-							},
+							Timeout: DefaultTimeout,
 							TargetSpecifier: &envoycore.GrpcService_EnvoyGrpc_{
 								EnvoyGrpc: &envoycore.GrpcService_EnvoyGrpc{
 									ClusterName: translator.UpstreamToClusterName(usRef),
@@ -114,12 +173,28 @@ var _ = Describe("Extauth Http filter builder function", func() {
 			})
 
 			It("uses the expected defaults", func() {
-				filters, err := BuildHttpFilters(settings, gloov1.UpstreamList{upstream})
+				filters, err := BuildHttpFilters(settings, nil, gloov1.UpstreamList{upstream})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(filters).To(HaveLen(1))
 
 				actualFilterConfig := getExtAuthz(filters[0])
-				Expect(actualFilterConfig).To(Equal(expectedConfig))
+				Expect(actualFilterConfig).To(matchers.MatchProto(expectedConfig))
+			})
+		})
+
+		When("transport protocol version is set to V3 in settings", func() {
+
+			It("sets TransportApiVersion to V3 on the ext auth filter", func() {
+				settings = &extauthv1.Settings{
+					ExtauthzServerRef: upstream.Metadata.Ref(),
+				}
+
+				filters, err := BuildHttpFilters(settings, nil, gloov1.UpstreamList{upstream})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(filters).To(HaveLen(1))
+
+				actualFilterConfig := getExtAuthz(filters[0])
+				Expect(actualFilterConfig.GetTransportApiVersion()).To(Equal(envoycore.ApiVersion_V3))
 			})
 		})
 
@@ -128,26 +203,27 @@ var _ = Describe("Extauth Http filter builder function", func() {
 			BeforeEach(func() {
 				usRef := upstream.Metadata.Ref()
 
-				customTimeout := 500 * time.Millisecond
+				customTimeout := prototime.DurationToProto(500 * time.Millisecond)
 
 				settings = &extauthv1.Settings{
-					ExtauthzServerRef: &usRef,
-					RequestTimeout:    &customTimeout,
+					ExtauthzServerRef: usRef,
+					RequestTimeout:    customTimeout,
 					FailureModeAllow:  true,
 					RequestBody: &extauthv1.BufferSettings{
 						AllowPartialMessage: true,
 						MaxRequestBytes:     54,
+						PackAsBytes:         true,
 					},
 					ClearRouteCache: true,
 					StatusOnError:   400,
 				}
 
 				expectedConfig = &envoyauth.ExtAuthz{
+					TransportApiVersion:       envoycore.ApiVersion_V3,
+					MetadataContextNamespaces: []string{JWTFilterName},
 					Services: &envoyauth.ExtAuthz_GrpcService{
 						GrpcService: &envoycore.GrpcService{
-							Timeout: &duration.Duration{
-								Nanos: int32(customTimeout),
-							},
+							Timeout: customTimeout,
 							TargetSpecifier: &envoycore.GrpcService_EnvoyGrpc_{
 								EnvoyGrpc: &envoycore.GrpcService_EnvoyGrpc{
 									ClusterName: translator.UpstreamToClusterName(usRef),
@@ -159,6 +235,7 @@ var _ = Describe("Extauth Http filter builder function", func() {
 					WithRequestBody: &envoyauth.BufferSettings{
 						AllowPartialMessage: true,
 						MaxRequestBytes:     54,
+						PackAsBytes:         true,
 					},
 					ClearRouteCache: true,
 					StatusOnError:   &envoytype.HttpStatus{Code: envoytype.StatusCode_BadRequest},
@@ -166,12 +243,12 @@ var _ = Describe("Extauth Http filter builder function", func() {
 			})
 
 			It("generates the expected configuration", func() {
-				filters, err := BuildHttpFilters(settings, gloov1.UpstreamList{upstream})
+				filters, err := BuildHttpFilters(settings, nil, gloov1.UpstreamList{upstream})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(filters).To(HaveLen(1))
 
 				actualFilterConfig := getExtAuthz(filters[0])
-				Expect(actualFilterConfig).To(Equal(expectedConfig))
+				Expect(actualFilterConfig).To(matchers.MatchProto(expectedConfig))
 			})
 		})
 
@@ -181,14 +258,14 @@ var _ = Describe("Extauth Http filter builder function", func() {
 				usRef := upstream.Metadata.Ref()
 
 				settings = &extauthv1.Settings{
-					ExtauthzServerRef: &usRef,
+					ExtauthzServerRef: usRef,
 					// This is the only thing that can go wrong in the BuildHttpFilters function
 					StatusOnError: 999,
 				}
 			})
 
 			It("returns an error", func() {
-				_, err := BuildHttpFilters(settings, gloov1.UpstreamList{upstream})
+				_, err := BuildHttpFilters(settings, nil, gloov1.UpstreamList{upstream})
 				Expect(err).To(HaveOccurred())
 				Expect(err).To(HaveInErrorChain(InvalidStatusOnErrorErr(999)))
 			})
@@ -200,7 +277,7 @@ var _ = Describe("Extauth Http filter builder function", func() {
 				usRef := upstream.Metadata.Ref()
 
 				settings = &extauthv1.Settings{
-					ExtauthzServerRef: &usRef,
+					ExtauthzServerRef: usRef,
 					HttpService: &extauthv1.HttpService{
 						PathPrefix: "/foo",
 						Request: &extauthv1.HttpService_Request{
@@ -215,6 +292,8 @@ var _ = Describe("Extauth Http filter builder function", func() {
 				}
 
 				expectedConfig = &envoyauth.ExtAuthz{
+					TransportApiVersion:       envoycore.ApiVersion_V3,
+					MetadataContextNamespaces: []string{JWTFilterName},
 					Services: &envoyauth.ExtAuthz_HttpService{
 						HttpService: &envoyauth.HttpService{
 							AuthorizationRequest: &envoyauth.AuthorizationRequest{
@@ -242,7 +321,7 @@ var _ = Describe("Extauth Http filter builder function", func() {
 							},
 							PathPrefix: "/foo",
 							ServerUri: &envoycore.HttpUri{
-								Timeout: gogoutils.DurationStdToProto(&DefaultTimeout),
+								Timeout: DefaultTimeout,
 								Uri:     HttpServerUri,
 								HttpUpstreamType: &envoycore.HttpUri_Cluster{
 									Cluster: translator.UpstreamToClusterName(usRef),
@@ -254,12 +333,12 @@ var _ = Describe("Extauth Http filter builder function", func() {
 			})
 
 			It("uses the expected defaults", func() {
-				filters, err := BuildHttpFilters(settings, gloov1.UpstreamList{upstream})
+				filters, err := BuildHttpFilters(settings, nil, gloov1.UpstreamList{upstream})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(filters).To(HaveLen(1))
 
 				actualFilterConfig := getExtAuthz(filters[0])
-				Expect(actualFilterConfig).To(Equal(expectedConfig))
+				Expect(actualFilterConfig).To(matchers.MatchProto(expectedConfig))
 			})
 		})
 	})

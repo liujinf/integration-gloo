@@ -1,9 +1,12 @@
-{{- range $name, $spec := .Values.gatewayProxies }}
-{{- if $spec.gatewaySettings}}
+{{- $gatewayProxy := .Values.gatewayProxies.gatewayProxy -}}
+{{- range $name, $gatewaySpec := .Values.gatewayProxies }}
+{{- $spec := deepCopy $gatewayProxy | merge $gatewaySpec -}}
+{{- if and $spec.gatewaySettings (not $spec.disabled) }}
 {{$gatewaySettings := $spec.gatewaySettings}}
-{{- if not $gatewaySettings.disableGeneratedGateways}}
+{{- if not $gatewaySettings.disableGeneratedGateways -}}
 
 ---
+{{- if not $gatewaySettings.disableHttpGateway }}
 apiVersion: gateway.solo.io/v1
 kind: Gateway
 metadata:
@@ -24,17 +27,23 @@ spec:
 {{- else }}
   httpGateway: {}
 {{- end }}
-{{- if $gatewaySettings.options }}
+{{ if or ($gatewaySettings.options) ($gatewaySettings.accessLoggingService) }}
   options:
-{{ toYaml $gatewaySettings.options | indent 4 }}
 {{- end }}
+  {{- if $gatewaySettings.options }}
+  {{ toYaml $gatewaySettings.options | indent 4 }}
+  {{- end }}
+  {{- if $gatewaySettings.accessLoggingService }}
+    accessLoggingService:
+  {{ toYaml $gatewaySettings.accessLoggingService | nindent 6 }}
+  {{- end }}
   useProxyProto: {{ $gatewaySettings.useProxyProto }}
   ssl: false
   proxyNames:
   - {{ $name | kebabcase }}
-
+{{- end }}
 ---
-
+{{- if not $gatewaySettings.disableHttpsGateway -}}
 apiVersion: gateway.solo.io/v1
 kind: Gateway
 metadata:
@@ -55,14 +64,52 @@ spec:
 {{- else }}
   httpGateway: {}
 {{- end }}
-{{- if $gatewaySettings.options }}
+{{ if or ($gatewaySettings.options) ($gatewaySettings.accessLoggingService) }}
   options:
-{{ toYaml $gatewaySettings.options | indent 4 }}
 {{- end }}
+  {{- if $gatewaySettings.options }}
+  {{ toYaml $gatewaySettings.options | indent 4 }}
+  {{- end }}
+  {{- if $gatewaySettings.accessLoggingService }}
+    accessLoggingService:
+  {{ toYaml $gatewaySettings.accessLoggingService | nindent 6 }}
+  {{- end }}
   useProxyProto: {{ $gatewaySettings.useProxyProto }}
   ssl: true
   proxyNames:
   - {{ $name | kebabcase }}
 {{- end }}
 {{- end }}
+---
+
+{{- if $spec.failover }}
+{{- if $spec.failover.enabled }}
+apiVersion: gateway.solo.io/v1
+kind: Gateway
+metadata:
+  name: {{ $name | kebabcase }}-failover
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app: gloo
+spec:
+{{- if $gatewaySettings.ipv4Only }}
+  bindAddress: "0.0.0.0"
+{{- else }}
+  bindAddress: "::"
 {{- end }}
+  bindPort: {{ $spec.failover.port }}
+  tcpGateway:
+    tcpHosts:
+    - name: failover
+      sslConfig:
+        secretRef:
+          name: {{ $spec.failover.secretName }}
+          namespace: {{ $.Release.Namespace }}
+      destination:
+        forwardSniClusterName: {}
+  proxyNames:
+  - {{ $name | kebabcase }}
+{{- end }} {{/* if failover.enabled */}}
+{{- end }} {{/* if failover */}}
+{{- end }} {{/* if  $spec.gatewaySettings and (not $spec.disabled) */}}
+{{- end }} {{/* range gateways */}}

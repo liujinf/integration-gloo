@@ -5,13 +5,15 @@ import (
 	"os"
 	"time"
 
+	"github.com/solo-io/gloo/projects/ingress/pkg/translator"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/solo-io/gloo/projects/ingress/pkg/api/ingress"
 	"github.com/solo-io/gloo/projects/ingress/pkg/api/service"
 	v1 "github.com/solo-io/gloo/projects/ingress/pkg/api/v1"
 	"github.com/solo-io/gloo/projects/ingress/pkg/status"
-	"github.com/solo-io/go-utils/kubeutils"
+	"github.com/solo-io/k8s-utils/kubeutils"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
 	"github.com/solo-io/solo-kit/test/helpers"
 	"github.com/solo-io/solo-kit/test/setup"
@@ -28,6 +30,8 @@ var _ = Describe("StatusSyncer", func() {
 	var (
 		namespace string
 		cfg       *rest.Config
+		ctx       context.Context
+		cancel    context.CancelFunc
 	)
 
 	BeforeEach(func() {
@@ -36,21 +40,23 @@ var _ = Describe("StatusSyncer", func() {
 		}
 		namespace = helpers.RandString(8)
 		var err error
+		ctx, cancel = context.WithCancel(context.Background())
 		cfg, err = kubeutils.GetConfig("", "")
 		Expect(err).NotTo(HaveOccurred())
 
 		kube, err := kubernetes.NewForConfig(cfg)
 		Expect(err).NotTo(HaveOccurred())
-		_, err = kube.CoreV1().Namespaces().Create(&kubev1.Namespace{
+		_, err = kube.CoreV1().Namespaces().Create(ctx, &kubev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: namespace,
 			},
-		})
+		}, metav1.CreateOptions{})
 		Expect(err).NotTo(HaveOccurred())
 
 	})
 	AfterEach(func() {
 		setup.TeardownKube(namespace)
+		cancel()
 	})
 
 	It("updates kube ingresses with endpoints from the service", func() {
@@ -81,12 +87,12 @@ var _ = Describe("StatusSyncer", func() {
 				IntVal: 8080,
 			},
 		}
-		kubeIng, err := kubeIngressClient.Create(&v1beta1.Ingress{
+		kubeIng, err := kubeIngressClient.Create(ctx, &v1beta1.Ingress{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "rusty",
 				Namespace: namespace,
 				Annotations: map[string]string{
-					"kubernetes.io/ingress.class": "gloo",
+					translator.IngressClassKey: "gloo",
 				},
 			},
 			Spec: v1beta1.IngressSpec{
@@ -112,10 +118,10 @@ var _ = Describe("StatusSyncer", func() {
 					},
 				},
 			},
-		})
+		}, metav1.CreateOptions{})
 
 		kubeSvcClient := kube.CoreV1().Services(namespace)
-		svc, err := kubeSvcClient.Create(&kubev1.Service{
+		svc_def := kubev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "dusty",
 				Namespace: namespace,
@@ -135,10 +141,20 @@ var _ = Describe("StatusSyncer", func() {
 				},
 				Type: kubev1.ServiceTypeLoadBalancer,
 			},
-		})
+			Status: kubev1.ServiceStatus{
+				LoadBalancer: kubev1.LoadBalancerStatus{
+					Ingress: []kubev1.LoadBalancerIngress{
+						{
+							Hostname: "hostname",
+						},
+					},
+				},
+			},
+		}
+		svc, err := kubeSvcClient.Create(ctx, &svc_def, metav1.CreateOptions{})
 		Expect(err).NotTo(HaveOccurred())
 
-		_, err = kube.CoreV1().Pods(namespace).Create(&kubev1.Pod{
+		_, err = kube.CoreV1().Pods(namespace).Create(ctx, &kubev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "musty",
 				Namespace: namespace,
@@ -154,17 +170,21 @@ var _ = Describe("StatusSyncer", func() {
 					},
 				},
 			},
-		})
+		}, metav1.CreateOptions{})
 		Expect(err).NotTo(HaveOccurred())
 
 		time.Sleep(time.Second) // give the kube service time to update lb endpoints
-		svc, err = kubeSvcClient.Get(svc.Name, metav1.GetOptions{})
+		svc, err = kubeSvcClient.Get(ctx, svc.Name, metav1.GetOptions{})
 		Expect(err).NotTo(HaveOccurred())
 
-		// note (ilackarms): unless running on a cloud provider that supports
-		// kube lb ingress, the status ips for the service and ingress will be empty
+		if len(svc.Status.LoadBalancer.Ingress) == 0 {
+			// kubernetes does set ingress lb, set service status explicitly instead
+			svc, err = kubeSvcClient.UpdateStatus(ctx, &svc_def, metav1.UpdateOptions{})
+			Expect(err).NotTo(HaveOccurred())
+		}
+
 		Eventually(func() ([]kubev1.LoadBalancerIngress, error) {
-			ing, err := kubeIngressClient.Get(kubeIng.Name, metav1.GetOptions{})
+			ing, err := kubeIngressClient.Get(ctx, kubeIng.Name, metav1.GetOptions{})
 			if err != nil {
 				return nil, err
 			}

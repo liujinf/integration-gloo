@@ -1,30 +1,28 @@
 package translator
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"unicode"
 
-	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/headers"
-
+	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoy_config_route_v3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	envoy_type_matcher_v3 "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
+	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes/wrappers"
-	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/core/matchers"
-	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/pluginutils"
-
-	"github.com/gogo/protobuf/proto"
-	validationapi "github.com/solo-io/gloo/projects/gloo/pkg/api/grpc/validation"
-	"github.com/solo-io/gloo/projects/gloo/pkg/utils/validation"
-
-	usconversion "github.com/solo-io/gloo/projects/gloo/pkg/upstreams"
-
-	envoyapi "github.com/envoyproxy/go-control-plane/envoy/api/v2"
-	envoycore "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
-	envoyroute "github.com/envoyproxy/go-control-plane/envoy/api/v2/route"
-	envoy_type_matcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher"
 	errors "github.com/rotisserie/eris"
+	regexutils "github.com/solo-io/gloo/pkg/utils/regexutils"
+	validationapi "github.com/solo-io/gloo/projects/gloo/pkg/api/grpc/validation"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/core/matchers"
 	v1plugins "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
+	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/headers"
+	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/pluginutils"
+	usconversion "github.com/solo-io/gloo/projects/gloo/pkg/upstreams"
 	"github.com/solo-io/gloo/projects/gloo/pkg/utils"
+	"github.com/solo-io/gloo/projects/gloo/pkg/utils/validation"
 	"github.com/solo-io/go-utils/contextutils"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 )
@@ -35,7 +33,13 @@ var (
 	SubsetsMisconfiguredErr = errors.New("route has a subset config, but the upstream does not.")
 )
 
-func (t *translatorInstance) computeRouteConfig(params plugins.Params, proxy *v1.Proxy, listener *v1.Listener, routeCfgName string, listenerReport *validationapi.ListenerReport) *envoyapi.RouteConfiguration {
+func (t *translatorInstance) computeRouteConfig(
+	params plugins.Params,
+	proxy *v1.Proxy,
+	listener *v1.Listener,
+	routeCfgName string,
+	listenerReport *validationapi.ListenerReport,
+) *envoy_config_route_v3.RouteConfiguration {
 	if listener.GetHttpListener() == nil {
 		return nil
 	}
@@ -57,21 +61,26 @@ func (t *translatorInstance) computeRouteConfig(params plugins.Params, proxy *v1
 		)
 	}
 
-	return &envoyapi.RouteConfiguration{
+	return &envoy_config_route_v3.RouteConfiguration{
 		Name:         routeCfgName,
 		VirtualHosts: virtualHosts,
 	}
 }
 
-func (t *translatorInstance) computeVirtualHosts(params plugins.Params, proxy *v1.Proxy, listener *v1.Listener, httpListenerReport *validationapi.HttpListenerReport) []*envoyroute.VirtualHost {
+func (t *translatorInstance) computeVirtualHosts(
+	params plugins.Params,
+	proxy *v1.Proxy,
+	listener *v1.Listener,
+	httpListenerReport *validationapi.HttpListenerReport,
+) []*envoy_config_route_v3.VirtualHost {
 	httpListener, ok := listener.ListenerType.(*v1.Listener_HttpListener)
 	if !ok {
 		return nil
 	}
-	virtualHosts := httpListener.HttpListener.VirtualHosts
+	virtualHosts := httpListener.HttpListener.GetVirtualHosts()
 	ValidateVirtualHostDomains(virtualHosts, httpListenerReport)
-	requireTls := len(listener.SslConfigurations) > 0
-	var envoyVirtualHosts []*envoyroute.VirtualHost
+	requireTls := len(listener.GetSslConfigurations()) > 0
+	var envoyVirtualHosts []*envoy_config_route_v3.VirtualHost
 	for i, virtualHost := range virtualHosts {
 		vhostParams := plugins.VirtualHostParams{
 			Params:   params,
@@ -84,13 +93,18 @@ func (t *translatorInstance) computeVirtualHosts(params plugins.Params, proxy *v
 	return envoyVirtualHosts
 }
 
-func (t *translatorInstance) computeVirtualHost(params plugins.VirtualHostParams, virtualHost *v1.VirtualHost, requireTls bool, vhostReport *validationapi.VirtualHostReport) *envoyroute.VirtualHost {
+func (t *translatorInstance) computeVirtualHost(
+	params plugins.VirtualHostParams,
+	virtualHost *v1.VirtualHost,
+	requireTls bool,
+	vhostReport *validationapi.VirtualHostReport,
+) *envoy_config_route_v3.VirtualHost {
 
 	// Make copy to avoid modifying the snapshot
 	virtualHost = proto.Clone(virtualHost).(*v1.VirtualHost)
 	virtualHost.Name = utils.SanitizeForEnvoy(params.Ctx, virtualHost.Name, "virtual host")
 
-	var envoyRoutes []*envoyroute.Route
+	var envoyRoutes []*envoy_config_route_v3.Route
 	for i, route := range virtualHost.Routes {
 		routeParams := plugins.RouteParams{
 			VirtualHostParams: params,
@@ -104,13 +118,13 @@ func (t *translatorInstance) computeVirtualHost(params plugins.VirtualHostParams
 	if len(domains) == 0 || (len(domains) == 1 && domains[0] == "") {
 		domains = []string{"*"}
 	}
-	var envoyRequireTls envoyroute.VirtualHost_TlsRequirementType
+	var envoyRequireTls envoy_config_route_v3.VirtualHost_TlsRequirementType
 	if requireTls {
 		// TODO (ilackarms): support external-only TLS
-		envoyRequireTls = envoyroute.VirtualHost_ALL
+		envoyRequireTls = envoy_config_route_v3.VirtualHost_ALL
 	}
 
-	out := &envoyroute.VirtualHost{
+	out := &envoy_config_route_v3.VirtualHost{
 		Name:       virtualHost.Name,
 		Domains:    domains,
 		Routes:     envoyRoutes,
@@ -134,9 +148,13 @@ func (t *translatorInstance) computeVirtualHost(params plugins.VirtualHostParams
 	return out
 }
 
-func (t *translatorInstance) envoyRoutes(params plugins.RouteParams, routeReport *validationapi.RouteReport, in *v1.Route) []*envoyroute.Route {
+func (t *translatorInstance) envoyRoutes(
+	params plugins.RouteParams,
+	routeReport *validationapi.RouteReport,
+	in *v1.Route,
+) []*envoy_config_route_v3.Route {
 
-	out := initRoutes(in, routeReport)
+	out := initRoutes(params, in, routeReport)
 
 	for i := range out {
 		t.setAction(params, routeReport, in, out[i])
@@ -146,14 +164,18 @@ func (t *translatorInstance) envoyRoutes(params plugins.RouteParams, routeReport
 }
 
 // creates Envoy routes for each matcher provided on our Gateway route
-func initRoutes(in *v1.Route, routeReport *validationapi.RouteReport) []*envoyroute.Route {
-	out := make([]*envoyroute.Route, len(in.Matchers))
+func initRoutes(
+	params plugins.RouteParams,
+	in *v1.Route,
+	routeReport *validationapi.RouteReport,
+) []*envoy_config_route_v3.Route {
+	out := make([]*envoy_config_route_v3.Route, len(in.Matchers))
 
 	if len(in.Matchers) == 0 {
-		out = []*envoyroute.Route{
+		out = []*envoy_config_route_v3.Route{
 			{
-				Match: &envoyroute.RouteMatch{
-					PathSpecifier: &envoyroute.RouteMatch_Prefix{Prefix: "/"},
+				Match: &envoy_config_route_v3.RouteMatch{
+					PathSpecifier: &envoy_config_route_v3.RouteMatch_Prefix{Prefix: "/"},
 				},
 			},
 		}
@@ -166,8 +188,8 @@ func initRoutes(in *v1.Route, routeReport *validationapi.RouteReport) []*envoyro
 				"no path specifier provided",
 			)
 		}
-		match := GlooMatcherToEnvoyMatcher(matcher)
-		out[i] = &envoyroute.Route{
+		match := GlooMatcherToEnvoyMatcher(params.Params.Ctx, matcher)
+		out[i] = &envoy_config_route_v3.Route{
 			Match: &match,
 		}
 		if in.Name != "" {
@@ -179,29 +201,32 @@ func initRoutes(in *v1.Route, routeReport *validationapi.RouteReport) []*envoyro
 }
 
 // utility function to transform gloo matcher to envoy route matcher
-func GlooMatcherToEnvoyMatcher(matcher *matchers.Matcher) envoyroute.RouteMatch {
-	match := envoyroute.RouteMatch{
-		Headers:         envoyHeaderMatcher(matcher.GetHeaders()),
-		QueryParameters: envoyQueryMatcher(matcher.GetQueryParameters()),
+func GlooMatcherToEnvoyMatcher(ctx context.Context, matcher *matchers.Matcher) envoy_config_route_v3.RouteMatch {
+	match := envoy_config_route_v3.RouteMatch{
+		Headers:         envoyHeaderMatcher(ctx, matcher.GetHeaders()),
+		QueryParameters: envoyQueryMatcher(ctx, matcher.GetQueryParameters()),
 	}
 	if len(matcher.GetMethods()) > 0 {
-		match.Headers = append(match.Headers, &envoyroute.HeaderMatcher{
+		match.Headers = append(match.Headers, &envoy_config_route_v3.HeaderMatcher{
 			Name: ":method",
-			HeaderMatchSpecifier: &envoyroute.HeaderMatcher_SafeRegexMatch{
-				SafeRegexMatch: &envoy_type_matcher.RegexMatcher{
-					EngineType: &envoy_type_matcher.RegexMatcher_GoogleRe2{GoogleRe2: &envoy_type_matcher.RegexMatcher_GoogleRE2{}},
-					Regex:      strings.Join(matcher.Methods, "|"),
-				},
+			HeaderMatchSpecifier: &envoy_config_route_v3.HeaderMatcher_SafeRegexMatch{
+				SafeRegexMatch: regexutils.NewRegex(ctx, strings.Join(matcher.Methods, "|")),
 			},
 		})
 	}
 	// need to do this because Go's proto implementation makes oneofs private
 	// which genius thought of that?
-	setEnvoyPathMatcher(matcher, &match)
+	setEnvoyPathMatcher(ctx, matcher, &match)
+	match.CaseSensitive = matcher.GetCaseSensitive()
 	return match
 }
 
-func (t *translatorInstance) setAction(params plugins.RouteParams, routeReport *validationapi.RouteReport, in *v1.Route, out *envoyroute.Route) {
+func (t *translatorInstance) setAction(
+	params plugins.RouteParams,
+	routeReport *validationapi.RouteReport,
+	in *v1.Route,
+	out *envoy_config_route_v3.Route,
+) {
 	switch action := in.Action.(type) {
 	case *v1.Route_RouteAction:
 		if err := ValidateRouteDestinations(params.Snapshot, action.RouteAction); err != nil {
@@ -211,10 +236,10 @@ func (t *translatorInstance) setAction(params plugins.RouteParams, routeReport *
 			)
 		}
 
-		out.Action = &envoyroute.Route_Route{
-			Route: &envoyroute.RouteAction{},
+		out.Action = &envoy_config_route_v3.Route_Route{
+			Route: &envoy_config_route_v3.RouteAction{},
 		}
-		if err := t.setRouteAction(params, action.RouteAction, out.Action.(*envoyroute.Route_Route).Route, routeReport); err != nil {
+		if err := t.setRouteAction(params, action.RouteAction, out.Action.(*envoy_config_route_v3.Route_Route).Route, routeReport); err != nil {
 			if isWarningErr(err) {
 				validation.AppendRouteWarning(routeReport,
 					validationapi.RouteReport_Warning_InvalidDestinationWarning,
@@ -271,8 +296,8 @@ func (t *translatorInstance) setAction(params plugins.RouteParams, routeReport *
 		}
 
 	case *v1.Route_DirectResponseAction:
-		out.Action = &envoyroute.Route_DirectResponse{
-			DirectResponse: &envoyroute.DirectResponseAction{
+		out.Action = &envoy_config_route_v3.Route_DirectResponse{
+			DirectResponse: &envoy_config_route_v3.DirectResponseAction{
 				Status: action.DirectResponseAction.Status,
 				Body:   DataSourceFromString(action.DirectResponseAction.Body),
 			},
@@ -297,37 +322,37 @@ func (t *translatorInstance) setAction(params plugins.RouteParams, routeReport *
 		}
 
 	case *v1.Route_RedirectAction:
-		out.Action = &envoyroute.Route_Redirect{
-			Redirect: &envoyroute.RedirectAction{
+		out.Action = &envoy_config_route_v3.Route_Redirect{
+			Redirect: &envoy_config_route_v3.RedirectAction{
 				HostRedirect:           action.RedirectAction.HostRedirect,
-				ResponseCode:           envoyroute.RedirectAction_RedirectResponseCode(action.RedirectAction.ResponseCode),
-				SchemeRewriteSpecifier: &envoyroute.RedirectAction_HttpsRedirect{HttpsRedirect: action.RedirectAction.HttpsRedirect},
+				ResponseCode:           envoy_config_route_v3.RedirectAction_RedirectResponseCode(action.RedirectAction.ResponseCode),
+				SchemeRewriteSpecifier: &envoy_config_route_v3.RedirectAction_HttpsRedirect{HttpsRedirect: action.RedirectAction.HttpsRedirect},
 				StripQuery:             action.RedirectAction.StripQuery,
 			},
 		}
 
 		switch pathRewrite := action.RedirectAction.PathRewriteSpecifier.(type) {
 		case *v1.RedirectAction_PathRedirect:
-			out.Action.(*envoyroute.Route_Redirect).Redirect.PathRewriteSpecifier = &envoyroute.RedirectAction_PathRedirect{
+			out.Action.(*envoy_config_route_v3.Route_Redirect).Redirect.PathRewriteSpecifier = &envoy_config_route_v3.RedirectAction_PathRedirect{
 				PathRedirect: pathRewrite.PathRedirect,
 			}
 		case *v1.RedirectAction_PrefixRewrite:
-			out.Action.(*envoyroute.Route_Redirect).Redirect.PathRewriteSpecifier = &envoyroute.RedirectAction_PrefixRewrite{
+			out.Action.(*envoy_config_route_v3.Route_Redirect).Redirect.PathRewriteSpecifier = &envoy_config_route_v3.RedirectAction_PrefixRewrite{
 				PrefixRewrite: pathRewrite.PrefixRewrite,
 			}
 		}
 	}
 }
 
-func (t *translatorInstance) setRouteAction(params plugins.RouteParams, in *v1.RouteAction, out *envoyroute.RouteAction, routeReport *validationapi.RouteReport) error {
+func (t *translatorInstance) setRouteAction(params plugins.RouteParams, in *v1.RouteAction, out *envoy_config_route_v3.RouteAction, routeReport *validationapi.RouteReport) error {
 	switch dest := in.Destination.(type) {
 	case *v1.RouteAction_Single:
 		usRef, err := usconversion.DestinationToUpstreamRef(dest.Single)
 		if err != nil {
 			return err
 		}
-		out.ClusterSpecifier = &envoyroute.RouteAction_Cluster{
-			Cluster: UpstreamToClusterName(*usRef),
+		out.ClusterSpecifier = &envoy_config_route_v3.RouteAction_Cluster{
+			Cluster: UpstreamToClusterName(usRef),
 		}
 
 		out.MetadataMatch = getSubsetMatch(dest.Single)
@@ -339,23 +364,33 @@ func (t *translatorInstance) setRouteAction(params plugins.RouteParams, in *v1.R
 		upstreamGroupRef := dest.UpstreamGroup
 		upstreamGroup, err := params.Snapshot.UpstreamGroups.Find(upstreamGroupRef.Namespace, upstreamGroupRef.Name)
 		if err != nil {
+			// the UpstreamGroup isn't found but set a bogus cluster so route replacement will still work
+			out.ClusterSpecifier = &envoy_config_route_v3.RouteAction_Cluster{
+				Cluster: "",
+			}
 			return pluginutils.NewUpstreamGroupNotFoundErr(*upstreamGroupRef)
 		}
 		md := &v1.MultiDestination{
 			Destinations: upstreamGroup.Destinations,
 		}
 		return t.setWeightedClusters(params, md, out, routeReport)
+	case *v1.RouteAction_ClusterHeader:
+		// ClusterHeader must use the naming convention {{namespace}}_{{clustername}}
+		out.ClusterSpecifier = &envoy_config_route_v3.RouteAction_ClusterHeader{
+			ClusterHeader: in.GetClusterHeader(),
+		}
+		return nil
 	}
 	return errors.Errorf("unknown upstream destination type")
 }
 
-func (t *translatorInstance) setWeightedClusters(params plugins.RouteParams, multiDest *v1.MultiDestination, out *envoyroute.RouteAction, routeReport *validationapi.RouteReport) error {
+func (t *translatorInstance) setWeightedClusters(params plugins.RouteParams, multiDest *v1.MultiDestination, out *envoy_config_route_v3.RouteAction, routeReport *validationapi.RouteReport) error {
 	if len(multiDest.Destinations) == 0 {
 		return NoDestinationSpecifiedError
 	}
 
-	clusterSpecifier := &envoyroute.RouteAction_WeightedClusters{
-		WeightedClusters: &envoyroute.WeightedCluster{},
+	clusterSpecifier := &envoy_config_route_v3.RouteAction_WeightedClusters{
+		WeightedClusters: &envoy_config_route_v3.WeightedCluster{},
 	}
 
 	var totalWeight uint32
@@ -368,8 +403,8 @@ func (t *translatorInstance) setWeightedClusters(params plugins.RouteParams, mul
 
 		totalWeight += weightedDest.Weight
 
-		weightedCluster := &envoyroute.WeightedCluster_ClusterWeight{
-			Name:          UpstreamToClusterName(*usRef),
+		weightedCluster := &envoy_config_route_v3.WeightedCluster_ClusterWeight{
+			Name:          UpstreamToClusterName(usRef),
 			Weight:        &wrappers.UInt32Value{Value: weightedDest.Weight},
 			MetadataMatch: getSubsetMatch(weightedDest.Destination),
 		}
@@ -402,8 +437,8 @@ func (t *translatorInstance) setWeightedClusters(params plugins.RouteParams, mul
 }
 
 // TODO(marco): when we update the routing API we should move this to a RouteActionPlugin
-func getSubsetMatch(destination *v1.Destination) *envoycore.Metadata {
-	var routeMetadata *envoycore.Metadata
+func getSubsetMatch(destination *v1.Destination) *envoy_config_core_v3.Metadata {
+	var routeMetadata *envoy_config_core_v3.Metadata
 
 	// TODO(yuval-k): should we add validation that the route subset indeed exists in the upstream?
 	// First convert the subset information on the base destination, if present
@@ -477,55 +512,47 @@ func getSubsets(upstream *v1.Upstream) *v1plugins.SubsetSpec {
 
 }
 
-func setEnvoyPathMatcher(in *matchers.Matcher, out *envoyroute.RouteMatch) {
+func setEnvoyPathMatcher(ctx context.Context, in *matchers.Matcher, out *envoy_config_route_v3.RouteMatch) {
 	switch path := in.GetPathSpecifier().(type) {
 	case *matchers.Matcher_Exact:
-		out.PathSpecifier = &envoyroute.RouteMatch_Path{
+		out.PathSpecifier = &envoy_config_route_v3.RouteMatch_Path{
 			Path: path.Exact,
 		}
 	case *matchers.Matcher_Regex:
-		out.PathSpecifier = &envoyroute.RouteMatch_SafeRegex{
-			SafeRegex: &envoy_type_matcher.RegexMatcher{
-				EngineType: &envoy_type_matcher.RegexMatcher_GoogleRe2{
-					GoogleRe2: &envoy_type_matcher.RegexMatcher_GoogleRE2{},
-				},
-				Regex: path.Regex,
-			},
+		out.PathSpecifier = &envoy_config_route_v3.RouteMatch_SafeRegex{
+			SafeRegex: regexutils.NewRegex(ctx, path.Regex),
 		}
 	case *matchers.Matcher_Prefix:
-		out.PathSpecifier = &envoyroute.RouteMatch_Prefix{
+		out.PathSpecifier = &envoy_config_route_v3.RouteMatch_Prefix{
 			Prefix: path.Prefix,
 		}
 	}
 }
 
-func envoyHeaderMatcher(in []*matchers.HeaderMatcher) []*envoyroute.HeaderMatcher {
-	var out []*envoyroute.HeaderMatcher
+func envoyHeaderMatcher(ctx context.Context, in []*matchers.HeaderMatcher) []*envoy_config_route_v3.HeaderMatcher {
+	var out []*envoy_config_route_v3.HeaderMatcher
 	for _, matcher := range in {
 
-		envoyMatch := &envoyroute.HeaderMatcher{
-			Name: matcher.Name,
+		envoyMatch := &envoy_config_route_v3.HeaderMatcher{
+			Name: matcher.GetName(),
 		}
-		if matcher.Value == "" {
-			envoyMatch.HeaderMatchSpecifier = &envoyroute.HeaderMatcher_PresentMatch{
+		if matcher.GetValue() == "" {
+			envoyMatch.HeaderMatchSpecifier = &envoy_config_route_v3.HeaderMatcher_PresentMatch{
 				PresentMatch: true,
 			}
 		} else {
 			if matcher.Regex {
-				envoyMatch.HeaderMatchSpecifier = &envoyroute.HeaderMatcher_SafeRegexMatch{
-					SafeRegexMatch: &envoy_type_matcher.RegexMatcher{
-						EngineType: &envoy_type_matcher.RegexMatcher_GoogleRe2{GoogleRe2: &envoy_type_matcher.RegexMatcher_GoogleRE2{}},
-						Regex:      matcher.Value,
-					},
+				envoyMatch.HeaderMatchSpecifier = &envoy_config_route_v3.HeaderMatcher_SafeRegexMatch{
+					SafeRegexMatch: regexutils.NewRegex(ctx, matcher.Value),
 				}
 			} else {
-				envoyMatch.HeaderMatchSpecifier = &envoyroute.HeaderMatcher_ExactMatch{
+				envoyMatch.HeaderMatchSpecifier = &envoy_config_route_v3.HeaderMatcher_ExactMatch{
 					ExactMatch: matcher.Value,
 				}
 			}
 		}
 
-		if matcher.InvertMatch {
+		if matcher.GetInvertMatch() {
 			envoyMatch.InvertMatch = true
 		}
 
@@ -534,33 +561,30 @@ func envoyHeaderMatcher(in []*matchers.HeaderMatcher) []*envoyroute.HeaderMatche
 	return out
 }
 
-func envoyQueryMatcher(in []*matchers.QueryParameterMatcher) []*envoyroute.QueryParameterMatcher {
-	var out []*envoyroute.QueryParameterMatcher
+func envoyQueryMatcher(ctx context.Context, in []*matchers.QueryParameterMatcher) []*envoy_config_route_v3.QueryParameterMatcher {
+	var out []*envoy_config_route_v3.QueryParameterMatcher
 	for _, matcher := range in {
-		envoyMatch := &envoyroute.QueryParameterMatcher{
-			Name: matcher.Name,
+		envoyMatch := &envoy_config_route_v3.QueryParameterMatcher{
+			Name: matcher.GetName(),
 		}
 
 		if matcher.Value == "" {
-			envoyMatch.QueryParameterMatchSpecifier = &envoyroute.QueryParameterMatcher_PresentMatch{
+			envoyMatch.QueryParameterMatchSpecifier = &envoy_config_route_v3.QueryParameterMatcher_PresentMatch{
 				PresentMatch: true,
 			}
 		} else {
-			if matcher.Regex {
-				envoyMatch.QueryParameterMatchSpecifier = &envoyroute.QueryParameterMatcher_StringMatch{
-					StringMatch: &envoy_type_matcher.StringMatcher{
-						MatchPattern: &envoy_type_matcher.StringMatcher_SafeRegex{
-							SafeRegex: &envoy_type_matcher.RegexMatcher{
-								EngineType: &envoy_type_matcher.RegexMatcher_GoogleRe2{GoogleRe2: &envoy_type_matcher.RegexMatcher_GoogleRE2{}},
-								Regex:      matcher.Value,
-							},
+			if matcher.GetRegex() {
+				envoyMatch.QueryParameterMatchSpecifier = &envoy_config_route_v3.QueryParameterMatcher_StringMatch{
+					StringMatch: &envoy_type_matcher_v3.StringMatcher{
+						MatchPattern: &envoy_type_matcher_v3.StringMatcher_SafeRegex{
+							SafeRegex: regexutils.NewRegex(ctx, matcher.Value),
 						},
 					},
 				}
 			} else {
-				envoyMatch.QueryParameterMatchSpecifier = &envoyroute.QueryParameterMatcher_StringMatch{
-					StringMatch: &envoy_type_matcher.StringMatcher{
-						MatchPattern: &envoy_type_matcher.StringMatcher_Exact{
+				envoyMatch.QueryParameterMatchSpecifier = &envoy_config_route_v3.QueryParameterMatcher_StringMatch{
+					StringMatch: &envoy_type_matcher_v3.StringMatcher{
+						MatchPattern: &envoy_type_matcher_v3.StringMatcher_Exact{
 							Exact: matcher.Value,
 						},
 					},
@@ -628,8 +652,27 @@ func ValidateRouteDestinations(snap *v1.ApiSnapshot, action *v1.RouteAction) err
 		return validateMultiDestination(upstreams, dest.Multi.Destinations)
 	case *v1.RouteAction_UpstreamGroup:
 		return validateUpstreamGroup(snap, dest.UpstreamGroup)
+	// Cluster Header can not be validated because the cluster name is not provided till runtime
+	case *v1.RouteAction_ClusterHeader:
+		return validateClusterHeader(action.GetClusterHeader())
 	}
 	return errors.Errorf("must specify either 'singleDestination', 'multipleDestinations' or 'upstreamGroup' for action")
+}
+
+func ValidateTcpRouteDestinations(snap *v1.ApiSnapshot, action *v1.TcpHost_TcpAction) error {
+	upstreams := snap.Upstreams
+	// make sure the destination itself has the right structure
+	switch dest := action.Destination.(type) {
+	case *v1.TcpHost_TcpAction_Single:
+		return validateSingleDestination(upstreams, dest.Single)
+	case *v1.TcpHost_TcpAction_Multi:
+		return validateMultiDestination(upstreams, dest.Multi.Destinations)
+	case *v1.TcpHost_TcpAction_UpstreamGroup:
+		return validateUpstreamGroup(snap, dest.UpstreamGroup)
+	case *v1.TcpHost_TcpAction_ForwardSniClusterName:
+		return nil
+	}
+	return errors.Errorf("must specify either 'singleDestination', 'multipleDestinations', 'upstreamGroup' or 'forwardSniClusterName' for action")
 }
 
 func validateUpstreamGroup(snap *v1.ApiSnapshot, ref *core.ResourceRef) error {
@@ -668,6 +711,16 @@ func validateSingleDestination(upstreams v1.UpstreamList, destination *v1.Destin
 	return nil
 }
 
+func validateClusterHeader(header string) error {
+	// check that header name is only ASCII characters
+	for i := 0; i < len(header); i++ {
+		if header[i] > unicode.MaxASCII || header[i] == ':' {
+			return fmt.Errorf("%s is an invalid HTTP header name", header)
+		}
+	}
+	return nil
+}
+
 func validateListenerSslConfig(params plugins.Params, listener *v1.Listener) error {
 	sslCfgTranslator := utils.NewSslConfigTranslator()
 	for _, ssl := range listener.SslConfigurations {
@@ -678,9 +731,9 @@ func validateListenerSslConfig(params plugins.Params, listener *v1.Listener) err
 	return nil
 }
 
-func DataSourceFromString(str string) *envoycore.DataSource {
-	return &envoycore.DataSource{
-		Specifier: &envoycore.DataSource_InlineString{
+func DataSourceFromString(str string) *envoy_config_core_v3.DataSource {
+	return &envoy_config_core_v3.DataSource{
+		Specifier: &envoy_config_core_v3.DataSource_InlineString{
 			InlineString: str,
 		},
 	}

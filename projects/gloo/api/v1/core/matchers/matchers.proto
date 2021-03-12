@@ -2,9 +2,10 @@ syntax = "proto3";
 package matchers.core.gloo.solo.io;
 option go_package = "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/core/matchers";
 
-import "gogoproto/gogo.proto";
-option (gogoproto.equal_all) = true;
+import "google/protobuf/wrappers.proto";
+
 import "extproto/ext.proto";
+option (extproto.equal_all) = true;
 option (extproto.hash_all) = true;
 
 // Parameters for matching routes to requests received by a Gloo-managed proxy
@@ -24,14 +25,21 @@ message Matcher {
         // sub-sequence of the *:path* header matches the regex. The regex grammar is defined `here
         // <http://en.cppreference.com/w/cpp/regex/ecmascript>`_.
         //
-        // Examples:
+        // Examples:<br/>
         //
-        // * The regex */b[io]t* matches the path */bit*
-        // * The regex */b[io]t* matches the path */bot*
-        // * The regex */b[io]t* does not match the path */bite*
-        // * The regex */b[io]t* does not match the path */bit/bot*
+        // * The regex */b[io]t* matches the path */bit*<br/>
+        // * The regex */b[io]t* matches the path */bot*<br/>
+        // * The regex */b[io]t* does not match the path */bite*<br/>
+        // * The regex */b[io]t* does not match the path */bit/bot*<br/><br/>
+        //
+        // Note that the complexity of the regex is constrained by the regex engine's "program size" setting.
+        // If your regex is too complex, you may need to adjust the `regexMaxProgramSize` field
+        // in the `GlooOptions` section of your `Settings` resource
         string regex = 3;
     }
+
+    // Indicates that prefix/path matching should be case sensitive. The default is true.
+    google.protobuf.BoolValue case_sensitive = 4;
 
     // Specifies a set of headers that the route should match on. The router will
     // check the request’s headers against all the specified headers in the route

@@ -3,11 +3,11 @@ package hcm
 import (
 	"context"
 
-	envoyapi "github.com/envoyproxy/go-control-plane/envoy/api/v2"
-	envoycore "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
-	envoyhttp "github.com/envoyproxy/go-control-plane/envoy/config/filter/network/http_connection_manager/v2"
+	envoycore "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoy_config_listener_v3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	envoyhttp "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	errors "github.com/rotisserie/eris"
-	"github.com/solo-io/gloo/pkg/utils/gogoutils"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/hcm"
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/protocol_upgrade"
@@ -15,7 +15,6 @@ import (
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/utils/upgradeconfig"
 	translatorutil "github.com/solo-io/gloo/projects/gloo/pkg/translator"
 	"github.com/solo-io/go-utils/contextutils"
-	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/util"
 )
 
 func NewPlugin() *Plugin {
@@ -44,7 +43,7 @@ func (p *Plugin) RegisterHcmPlugins(allPlugins []plugins.Plugin) {
 // ProcessListener has two responsibilities:
 // 1. apply the core HCM settings from the HCM plugin to the listener
 // 2. call each of the HCM plugins to make sure that they have a chance to apply their modifications to the listener
-func (p *Plugin) ProcessListener(params plugins.Params, in *v1.Listener, out *envoyapi.Listener) error {
+func (p *Plugin) ProcessListener(params plugins.Params, in *v1.Listener, out *envoy_config_listener_v3.Listener) error {
 	hl, ok := in.ListenerType.(*v1.Listener_HttpListener)
 	if !ok {
 		return nil
@@ -55,10 +54,10 @@ func (p *Plugin) ProcessListener(params plugins.Params, in *v1.Listener, out *en
 	hcmSettings := hl.HttpListener.GetOptions().GetHttpConnectionManagerSettings()
 	for _, fc := range out.FilterChains {
 		for i, filter := range fc.Filters {
-			if filter.Name == util.HTTPConnectionManager {
+			if filter.Name == wellknown.HTTPConnectionManager {
 				// get config
 				var cfg envoyhttp.HttpConnectionManager
-				err := translatorutil.ParseConfig(filter, &cfg)
+				err := translatorutil.ParseTypedConfig(filter, &cfg)
 				// this should never error
 				if err != nil {
 					return err
@@ -71,12 +70,12 @@ func (p *Plugin) ProcessListener(params plugins.Params, in *v1.Listener, out *en
 
 				// then allow any HCM plugins to make their changes, with respect to any changes the core plugin made
 				for _, hp := range p.hcmPlugins {
-					if err := hp.ProcessHcmSettings(&cfg, hcmSettings); err != nil {
+					if err := hp.ProcessHcmSettings(params.Snapshot, &cfg, hcmSettings); err != nil {
 						return hcmPluginError(err)
 					}
 				}
 
-				fc.Filters[i], err = translatorutil.NewFilterWithConfig(util.HTTPConnectionManager, &cfg)
+				fc.Filters[i], err = translatorutil.NewFilterWithTypedConfig(wellknown.HTTPConnectionManager, &cfg)
 				// this should never error
 				if err != nil {
 					return err
@@ -88,19 +87,20 @@ func (p *Plugin) ProcessListener(params plugins.Params, in *v1.Listener, out *en
 }
 
 func copyCoreHcmSettings(ctx context.Context, cfg *envoyhttp.HttpConnectionManager, hcmSettings *hcm.HttpConnectionManagerSettings) error {
-	cfg.UseRemoteAddress = gogoutils.BoolGogoToProto(hcmSettings.GetUseRemoteAddress())
+	cfg.UseRemoteAddress = hcmSettings.GetUseRemoteAddress()
 	cfg.XffNumTrustedHops = hcmSettings.GetXffNumTrustedHops()
 	cfg.SkipXffAppend = hcmSettings.GetSkipXffAppend()
 	cfg.Via = hcmSettings.GetVia()
-	cfg.GenerateRequestId = gogoutils.BoolGogoToProto(hcmSettings.GetGenerateRequestId())
+	cfg.GenerateRequestId = hcmSettings.GetGenerateRequestId()
 	cfg.Proxy_100Continue = hcmSettings.GetProxy_100Continue()
-	cfg.StreamIdleTimeout = gogoutils.DurationStdToProto(hcmSettings.GetStreamIdleTimeout())
-	cfg.MaxRequestHeadersKb = gogoutils.UInt32GogoToProto(hcmSettings.GetMaxRequestHeadersKb())
-	cfg.RequestTimeout = gogoutils.DurationStdToProto(hcmSettings.GetRequestTimeout())
-	cfg.DrainTimeout = gogoutils.DurationStdToProto(hcmSettings.GetDrainTimeout())
-	cfg.DelayedCloseTimeout = gogoutils.DurationStdToProto(hcmSettings.GetDelayedCloseTimeout())
+	cfg.StreamIdleTimeout = hcmSettings.GetStreamIdleTimeout()
+	cfg.MaxRequestHeadersKb = hcmSettings.GetMaxRequestHeadersKb()
+	cfg.RequestTimeout = hcmSettings.GetRequestTimeout()
+	cfg.DrainTimeout = hcmSettings.GetDrainTimeout()
+	cfg.DelayedCloseTimeout = hcmSettings.GetDelayedCloseTimeout()
 	cfg.ServerName = hcmSettings.GetServerName()
 	cfg.PreserveExternalRequestId = hcmSettings.GetPreserveExternalRequestId()
+	cfg.ServerHeaderTransformation = envoyhttp.HttpConnectionManager_ServerHeaderTransformation(hcmSettings.GetServerHeaderTransformation())
 
 	if hcmSettings.GetAcceptHttp_10() {
 		cfg.HttpProtocolOptions = &envoycore.Http1ProtocolOptions{
@@ -109,11 +109,36 @@ func copyCoreHcmSettings(ctx context.Context, cfg *envoyhttp.HttpConnectionManag
 		}
 	}
 
+	if hcmSettings.GetProperCaseHeaderKeyFormat() {
+		if cfg.GetHttpProtocolOptions() == nil {
+			cfg.HttpProtocolOptions = &envoycore.Http1ProtocolOptions{}
+		}
+		cfg.HttpProtocolOptions.HeaderKeyFormat = &envoycore.Http1ProtocolOptions_HeaderKeyFormat{
+			HeaderFormat: &envoycore.Http1ProtocolOptions_HeaderKeyFormat_ProperCaseWords_{
+				ProperCaseWords: &envoycore.Http1ProtocolOptions_HeaderKeyFormat_ProperCaseWords{},
+			},
+		}
+	}
+
 	if hcmSettings.GetIdleTimeout() != nil {
 		if cfg.GetCommonHttpProtocolOptions() == nil {
 			cfg.CommonHttpProtocolOptions = &envoycore.HttpProtocolOptions{}
 		}
-		cfg.CommonHttpProtocolOptions.IdleTimeout = gogoutils.DurationStdToProto(hcmSettings.GetIdleTimeout())
+		cfg.CommonHttpProtocolOptions.IdleTimeout = hcmSettings.GetIdleTimeout()
+	}
+
+	if hcmSettings.GetMaxConnectionDuration() != nil {
+		if cfg.GetCommonHttpProtocolOptions() == nil {
+			cfg.CommonHttpProtocolOptions = &envoycore.HttpProtocolOptions{}
+		}
+		cfg.CommonHttpProtocolOptions.MaxConnectionDuration = hcmSettings.GetMaxConnectionDuration()
+	}
+
+	if hcmSettings.GetMaxStreamDuration() != nil {
+		if cfg.GetCommonHttpProtocolOptions() == nil {
+			cfg.CommonHttpProtocolOptions = &envoycore.HttpProtocolOptions{}
+		}
+		cfg.CommonHttpProtocolOptions.MaxStreamDuration = hcmSettings.GetMaxStreamDuration()
 	}
 
 	// allowed upgrades
@@ -134,7 +159,7 @@ func copyCoreHcmSettings(ctx context.Context, cfg *envoyhttp.HttpConnectionManag
 		case *protocol_upgrade.ProtocolUpgradeConfig_Websocket:
 			cfg.UpgradeConfigs[i] = &envoyhttp.HttpConnectionManager_UpgradeConfig{
 				UpgradeType: upgradeconfig.WebSocketUpgradeType,
-				Enabled:     gogoutils.BoolGogoToProto(config.GetWebsocket().GetEnabled()),
+				Enabled:     config.GetWebsocket().GetEnabled(),
 			}
 
 			webSocketUpgradeSpecified = true
@@ -163,7 +188,7 @@ func copyCoreHcmSettings(ctx context.Context, cfg *envoyhttp.HttpConnectionManag
 
 	if shouldConfigureClientCertDetails {
 		cfg.SetCurrentClientCertDetails = &envoyhttp.HttpConnectionManager_SetCurrentClientCertDetails{
-			Subject: gogoutils.BoolGogoToProto(hcmSettings.GetSetCurrentClientCertDetails().GetSubject()),
+			Subject: hcmSettings.GetSetCurrentClientCertDetails().GetSubject(),
 			Cert:    hcmSettings.GetSetCurrentClientCertDetails().GetCert(),
 			Chain:   hcmSettings.GetSetCurrentClientCertDetails().GetChain(),
 			Dns:     hcmSettings.GetSetCurrentClientCertDetails().GetDns(),

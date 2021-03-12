@@ -36,7 +36,7 @@ func RateLimitCustomConfig(opts *editOptions.EditOptions, optionsFunc ...cliutil
 
 func editVhost(opts *editOptions.EditOptions) error {
 
-	vsClient := helpers.MustNamespacedVirtualServiceClient(opts.Metadata.GetNamespace())
+	vsClient := helpers.MustNamespacedVirtualServiceClient(opts.Top.Ctx, opts.Metadata.GetNamespace())
 	vs, err := vsClient.Read(opts.Metadata.Namespace, opts.Metadata.Name, clients.ReadOpts{})
 	if err != nil {
 		return errors.Wrapf(err, "Error reading virtual service")
@@ -63,7 +63,7 @@ func editVhost(opts *editOptions.EditOptions) error {
 		vs.VirtualHost.Options = &gloov1.VirtualHostOptions{}
 	}
 
-	vs.VirtualHost.Options.Ratelimit = ratelimitExtension
+	vs.VirtualHost.Options.RateLimitConfigType = &gloov1.VirtualHostOptions_Ratelimit{Ratelimit: ratelimitExtension}
 	_, err = vsClient.Write(vs, clients.WriteOpts{OverwriteExisting: true})
 	return err
 }

@@ -2,12 +2,11 @@ syntax = "proto3";
 package gloo.solo.io;
 option go_package = "github.com/solo-io/gloo/projects/gloo/pkg/api/v1";
 
-import "gogoproto/gogo.proto";
-option (gogoproto.equal_all) = true;
 import "extproto/ext.proto";
+option (extproto.equal_all) = true;
 option (extproto.hash_all) = true;
 
-import "solo-kit/api/v1/ref.proto";
+import "github.com/solo-io/solo-kit/api/v1/ref.proto";
 
 // SslConfig contains the options necessary to configure a virtual host or listener to use TLS
 message SslConfig {
@@ -42,7 +41,7 @@ message SSLFiles {
     string root_ca = 3;
 }
 
-// SslConfig contains the options necessary to configure a virtual host or listener to use TLS
+// SslConfig contains the options necessary to configure an upstream to use TLS origination
 message UpstreamSslConfig {
     oneof ssl_secrets {
 
@@ -71,12 +70,16 @@ message UpstreamSslConfig {
 message SDSConfig {
     // Target uri for the sds channel. currently only a unix domain socket is supported.
     string target_uri = 1;
-    // Call credentials.
-    CallCredentials call_credentials = 2;
+    oneof sds_builder {
+        // Call credentials.
+        CallCredentials call_credentials = 2;
+        // The name of the sds cluster in envoy
+        string cluster_name = 5;
+    }
     // The name of the secret containing the certificate
     string certificates_secret_name = 3;
     // The name of secret containing the validation context (i.e. root ca)
-    string validation_context_name= 4;
+    string validation_context_name = 4;
 }
 
 message CallCredentials {

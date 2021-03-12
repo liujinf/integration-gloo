@@ -6,19 +6,19 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/golang/protobuf/ptypes"
-	structpb "github.com/golang/protobuf/ptypes/struct"
-	"github.com/solo-io/gloo/projects/gateway/pkg/defaults"
-
 	v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	envoy_api_v2_core1 "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
 	envoylistener "github.com/envoyproxy/go-control-plane/envoy/api/v2/listener"
-	envoyhttp "github.com/envoyproxy/go-control-plane/envoy/config/filter/network/http_connection_manager/v2"
+	envoyhttp "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	envoyutil "github.com/envoyproxy/go-control-plane/pkg/conversion"
+	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"github.com/ghodss/yaml"
-	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes"
+	structpb "github.com/golang/protobuf/ptypes/struct"
 	"github.com/k0kubun/pp"
-	"github.com/solo-io/go-utils/protoutils"
+	"github.com/solo-io/gloo/pkg/utils/protoutils"
+	"github.com/solo-io/gloo/projects/gateway/pkg/defaults"
 	"google.golang.org/grpc"
 )
 
@@ -56,7 +56,7 @@ func main() {
 	for _, l := range listeners {
 		for _, fc := range l.FilterChains {
 			for _, filter := range fc.Filters {
-				if filter.Name == "envoy.http_connection_manager" {
+				if filter.Name == wellknown.HTTPConnectionManager {
 					var hcm envoyhttp.HttpConnectionManager
 					switch config := filter.ConfigType.(type) {
 					case *envoylistener.Filter_Config:

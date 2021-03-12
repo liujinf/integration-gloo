@@ -6,19 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"knative.dev/pkg/network"
-
-	clusteringressclient "github.com/solo-io/gloo/projects/clusteringress/pkg/api/custom/knative"
-
-	clusteringressv1alpha1 "github.com/solo-io/gloo/projects/clusteringress/pkg/api/external/knative"
-
-	knativeclient "github.com/solo-io/gloo/projects/knative/pkg/api/custom/knative"
-	knativev1alpha1 "github.com/solo-io/gloo/projects/knative/pkg/api/external/knative"
-
-	"github.com/solo-io/solo-kit/pkg/api/v1/clients/kube/cache"
-
-	"github.com/gogo/protobuf/types"
+	"github.com/golang/protobuf/ptypes"
 	"github.com/solo-io/gloo/pkg/utils"
+	clusteringressclient "github.com/solo-io/gloo/projects/clusteringress/pkg/api/custom/knative"
+	clusteringressv1alpha1 "github.com/solo-io/gloo/projects/clusteringress/pkg/api/external/knative"
 	clusteringressv1 "github.com/solo-io/gloo/projects/clusteringress/pkg/api/v1"
 	clusteringresstranslator "github.com/solo-io/gloo/projects/clusteringress/pkg/translator"
 	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
@@ -29,18 +20,22 @@ import (
 	v1 "github.com/solo-io/gloo/projects/ingress/pkg/api/v1"
 	"github.com/solo-io/gloo/projects/ingress/pkg/status"
 	"github.com/solo-io/gloo/projects/ingress/pkg/translator"
+	knativeclient "github.com/solo-io/gloo/projects/knative/pkg/api/custom/knative"
+	knativev1alpha1 "github.com/solo-io/gloo/projects/knative/pkg/api/external/knative"
 	knativev1 "github.com/solo-io/gloo/projects/knative/pkg/api/v1"
 	knativetranslator "github.com/solo-io/gloo/projects/knative/pkg/translator"
 	"github.com/solo-io/go-utils/contextutils"
 	"github.com/solo-io/go-utils/errutils"
-	"github.com/solo-io/go-utils/kubeutils"
+	"github.com/solo-io/k8s-utils/kubeutils"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/kube"
+	"github.com/solo-io/solo-kit/pkg/api/v1/clients/kube/cache"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/memory"
 	"github.com/solo-io/solo-kit/pkg/errors"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	knativeclientset "knative.dev/serving/pkg/client/clientset/versioned"
+	knativeclientset "knative.dev/networking/pkg/client/clientset/versioned"
+	"knative.dev/pkg/network"
 )
 
 var defaultClusterIngressProxyAddress = "clusteringress-proxy." + gloodefaults.GlooSystem + ".svc." + network.GetClusterDomainName()
@@ -87,7 +82,7 @@ func Setup(ctx context.Context, kubeCache kube.SharedCache, inMemoryCache memory
 		return err
 	}
 
-	refreshRate, err := types.DurationFromProto(settings.RefreshRate)
+	refreshRate, err := ptypes.Duration(settings.RefreshRate)
 	if err != nil {
 		return err
 	}
@@ -105,7 +100,9 @@ func Setup(ctx context.Context, kubeCache kube.SharedCache, inMemoryCache memory
 	disableKubeIngress := envTrue("DISABLE_KUBE_INGRESS")
 	requireIngressClass := envTrue("REQUIRE_INGRESS_CLASS")
 	enableKnative := envTrue("ENABLE_KNATIVE_INGRESS")
+	customIngressClass := os.Getenv("CUSTOM_INGRESS_CLASS")
 	knativeVersion := os.Getenv("KNATIVE_VERSION")
+	ingressProxyLabel := os.Getenv("INGRESS_PROXY_LABEL")
 
 	clusterIngressProxyAddress := defaultClusterIngressProxyAddress
 	if settings.Knative != nil && settings.Knative.ClusterIngressProxyAddress != "" {
@@ -120,6 +117,10 @@ func Setup(ctx context.Context, kubeCache kube.SharedCache, inMemoryCache memory
 	knativeInternalProxyAddress := defaultKnativeInternalProxyAddress
 	if settings.Knative != nil && settings.Knative.KnativeInternalProxyAddress != "" {
 		knativeInternalProxyAddress = settings.Knative.KnativeInternalProxyAddress
+	}
+
+	if len(ingressProxyLabel) == 0 {
+		ingressProxyLabel = "ingress-proxy"
 	}
 
 	opts := Opts{
@@ -139,6 +140,8 @@ func Setup(ctx context.Context, kubeCache kube.SharedCache, inMemoryCache memory
 		KnativeVersion:      knativeVersion,
 		DisableKubeIngress:  disableKubeIngress,
 		RequireIngressClass: requireIngressClass,
+		CustomIngressClass:  customIngressClass,
+		IngressProxyLabel:   ingressProxyLabel,
 	}
 
 	return RunIngress(opts)
@@ -158,7 +161,7 @@ func RunIngress(opts Opts) error {
 		return errors.Wrapf(err, "getting kube config")
 	}
 
-	proxyClient, err := gloov1.NewProxyClient(opts.Proxies)
+	proxyClient, err := gloov1.NewProxyClient(opts.WatchOpts.Ctx, opts.Proxies)
 	if err != nil {
 		return err
 	}
@@ -173,7 +176,7 @@ func RunIngress(opts Opts) error {
 			return errors.Wrapf(err, "getting kube client")
 		}
 
-		upstreamClient, err := gloov1.NewUpstreamClient(opts.Upstreams)
+		upstreamClient, err := gloov1.NewUpstreamClient(opts.WatchOpts.Ctx, opts.Upstreams)
 		if err != nil {
 			return err
 		}
@@ -184,8 +187,11 @@ func RunIngress(opts Opts) error {
 		baseIngressClient := ingress.NewResourceClient(kube, &v1.Ingress{})
 		ingressClient := v1.NewIngressClientWithBase(baseIngressClient)
 
-		translatorEmitter := v1.NewTranslatorEmitter(upstreamClient, ingressClient)
-		translatorSync := translator.NewSyncer(opts.WriteNamespace, proxyClient, ingressClient, writeErrs, opts.RequireIngressClass)
+		baseKubeServiceClient := service.NewResourceClient(kube, &v1.KubeService{})
+		kubeServiceClient := v1.NewKubeServiceClientWithBase(baseKubeServiceClient)
+
+		translatorEmitter := v1.NewTranslatorEmitter(upstreamClient, kubeServiceClient, ingressClient)
+		translatorSync := translator.NewSyncer(opts.WriteNamespace, proxyClient, ingressClient, writeErrs, opts.RequireIngressClass, opts.CustomIngressClass)
 		translatorEventLoop := v1.NewTranslatorEventLoop(translatorEmitter, translatorSync)
 		translatorEventLoopErrs, err := translatorEventLoop.Run(opts.WatchNamespaces, opts.WatchOpts)
 		if err != nil {
@@ -193,15 +199,12 @@ func RunIngress(opts Opts) error {
 		}
 		go errutils.AggregateErrs(opts.WatchOpts.Ctx, writeErrs, translatorEventLoopErrs, "ingress_translator_event_loop")
 
-		baseKubeServiceClient := service.NewResourceClient(kube, &v1.KubeService{})
-		kubeServiceClient := v1.NewKubeServiceClientWithBase(baseKubeServiceClient)
 		// note (ilackarms): we must set the selector correctly here or the status syncer will not work
 		// the selector should return exactly 1 service which is our <install-namespace>.ingress-proxy service
-		// TODO (ilackarms): make the service labels configurable
-		kubeServiceClient = service.NewClientWithSelector(kubeServiceClient, map[string]string{
-			"gloo": "ingress-proxy",
+		ingressServiceClient := service.NewClientWithSelector(kubeServiceClient, map[string]string{
+			"gloo": opts.IngressProxyLabel,
 		})
-		statusEmitter := v1.NewStatusEmitter(kubeServiceClient, ingressClient)
+		statusEmitter := v1.NewStatusEmitter(ingressServiceClient, ingressClient)
 		statusSync := status.NewSyncer(ingressClient)
 		statusEventLoop := v1.NewStatusEventLoop(statusEmitter, statusSync)
 		statusEventLoopErrs, err := statusEventLoop.Run(opts.WatchNamespaces, opts.WatchOpts)

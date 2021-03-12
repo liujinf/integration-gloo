@@ -11,8 +11,8 @@ import (
 
 	"github.com/solo-io/gloo/projects/gateway/pkg/services/k8sadmisssion"
 
-	"github.com/solo-io/go-utils/kubeutils"
-	"github.com/solo-io/go-utils/testutils/helper"
+	"github.com/solo-io/k8s-utils/kubeutils"
+	"github.com/solo-io/k8s-utils/testutils/helper"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/factory"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/kube"
@@ -85,12 +85,12 @@ var _ = Describe("Robustness tests", func() {
 			SharedCache: cache,
 		}
 
-		virtualServiceClient, err = gatewayv1.NewVirtualServiceClient(virtualServiceClientFactory)
+		virtualServiceClient, err = gatewayv1.NewVirtualServiceClient(ctx, virtualServiceClientFactory)
 		Expect(err).NotTo(HaveOccurred())
 		err = virtualServiceClient.Register()
 		Expect(err).NotTo(HaveOccurred())
 
-		proxyClient, err = gloov1.NewProxyClient(proxyClientFactory)
+		proxyClient, err = gloov1.NewProxyClient(ctx, proxyClientFactory)
 		Expect(err).NotTo(HaveOccurred())
 		err = proxyClient.Register()
 		Expect(err).NotTo(HaveOccurred())
@@ -120,7 +120,7 @@ var _ = Describe("Robustness tests", func() {
 
 		By("create a virtual service routing to the service")
 		virtualService, err = virtualServiceClient.Write(&gatewayv1.VirtualService{
-			Metadata: core.Metadata{
+			Metadata: &core.Metadata{
 				Name:      "echo-vs",
 				Namespace: namespace,
 			},
@@ -139,7 +139,7 @@ var _ = Describe("Robustness tests", func() {
 									Single: &gloov1.Destination{
 										DestinationType: &gloov1.Destination_Kube{
 											Kube: &gloov1.KubernetesServiceDestination{
-												Ref: core.ResourceRef{
+												Ref: &core.ResourceRef{
 													Namespace: appService.Namespace,
 													Name:      appService.Name,
 												},
@@ -162,7 +162,7 @@ var _ = Describe("Robustness tests", func() {
 			if err != nil {
 				return err
 			}
-			if proxy.Status.State == core.Status_Accepted {
+			if proxy.GetStatus().GetState() == core.Status_Accepted {
 				return nil
 			}
 			return eris.Errorf("waiting for proxy to be accepted, but status is %v", proxy.Status)
@@ -197,7 +197,7 @@ var _ = Describe("Robustness tests", func() {
 						Single: &gloov1.Destination{
 							DestinationType: &gloov1.Destination_Kube{
 								Kube: &gloov1.KubernetesServiceDestination{
-									Ref: core.ResourceRef{
+									Ref: &core.ResourceRef{
 										Namespace: namespace,
 										Name:      "non-existent-svc",
 									},
@@ -223,7 +223,7 @@ var _ = Describe("Robustness tests", func() {
 			if err != nil {
 				return err
 			}
-			if proxy.Status.State == core.Status_Warning {
+			if proxy.GetStatus().GetState() == core.Status_Warning {
 				return nil
 			}
 			return eris.Errorf("waiting for proxy to be warning, but status is %v", proxy.Status)
@@ -263,7 +263,7 @@ func expectedResponse(appName string) string {
 func createDeploymentAndService(kubeClient kubernetes.Interface, namespace, appName string) (
 	*appsv1.Deployment, *corev1.Service, error,
 ) {
-	deployment, err := kubeClient.AppsV1().Deployments(namespace).Create(&appsv1.Deployment{
+	deployment, err := kubeClient.AppsV1().Deployments(namespace).Create(ctx, &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   appName,
 			Labels: map[string]string{"app": appName},
@@ -292,12 +292,12 @@ func createDeploymentAndService(kubeClient kubernetes.Interface, namespace, appN
 				},
 			},
 		},
-	})
+	}, metav1.CreateOptions{})
 	if err != nil {
 		return nil, nil, err
 	}
 
-	service, err := kubeClient.CoreV1().Services(namespace).Create(&corev1.Service{
+	service, err := kubeClient.CoreV1().Services(namespace).Create(ctx, &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   appName,
 			Labels: map[string]string{"app": appName},
@@ -310,7 +310,7 @@ func createDeploymentAndService(kubeClient kubernetes.Interface, namespace, appN
 				Port: 5678,
 			}},
 		},
-	})
+	}, metav1.CreateOptions{})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -327,7 +327,7 @@ func pointerToInt64(value int64) *int64 {
 func endpointsFor(kubeClient kubernetes.Interface, svc *corev1.Service) []string {
 	var endpoints *corev1.EndpointsList
 	listOpts := metav1.ListOptions{LabelSelector: labels.SelectorFromSet(svc.Spec.Selector).String()}
-	endpoints, err := kubeClient.CoreV1().Endpoints(svc.Namespace).List(listOpts)
+	endpoints, err := kubeClient.CoreV1().Endpoints(svc.Namespace).List(ctx, listOpts)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
 	var ips []string
@@ -347,14 +347,14 @@ func scaleDeploymentTo(kubeClient kubernetes.Interface, deployment *appsv1.Deplo
 	// Do this in an Eventually block, as the update sometimes fails due to concurrent modification
 	EventuallyWithOffset(1, func() error {
 		// Get deployment
-		deployment, err := kubeClient.AppsV1().Deployments(deployment.Namespace).Get(deployment.Name, metav1.GetOptions{})
+		deployment, err := kubeClient.AppsV1().Deployments(deployment.Namespace).Get(ctx, deployment.Name, metav1.GetOptions{})
 		if err != nil {
 			return err
 		}
 
 		// Scale it
 		deployment.Spec.Replicas = pointerToInt32(replicas)
-		deployment, err = kubeClient.AppsV1().Deployments(deployment.Namespace).Update(deployment)
+		deployment, err = kubeClient.AppsV1().Deployments(deployment.Namespace).Update(ctx, deployment, metav1.UpdateOptions{})
 		if err != nil {
 			return err
 		}
@@ -364,7 +364,7 @@ func scaleDeploymentTo(kubeClient kubernetes.Interface, deployment *appsv1.Deplo
 	// Wait for expected running pod number
 	EventuallyWithOffset(1, func() error {
 		listOpts := metav1.ListOptions{LabelSelector: labels.SelectorFromSet(deployment.Spec.Selector.MatchLabels).String()}
-		pods, err := kubeClient.CoreV1().Pods(deployment.Namespace).List(listOpts)
+		pods, err := kubeClient.CoreV1().Pods(deployment.Namespace).List(ctx, listOpts)
 		if err != nil {
 			return err
 		}

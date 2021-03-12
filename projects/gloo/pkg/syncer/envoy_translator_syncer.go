@@ -7,6 +7,7 @@ import (
 
 	syncerstats "github.com/solo-io/gloo/projects/gloo/pkg/syncer/stats"
 	"github.com/solo-io/go-utils/hashutils"
+	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/resource"
 
 	"github.com/gorilla/mux"
 	"github.com/rotisserie/eris"
@@ -66,7 +67,7 @@ func measureResource(ctx context.Context, resource string, len int) {
 	}
 }
 
-func (s *translatorSyncer) syncEnvoy(ctx context.Context, snap *v1.ApiSnapshot) error {
+func (s *translatorSyncer) syncEnvoy(ctx context.Context, snap *v1.ApiSnapshot, allReports reporter.ResourceReports) error {
 	ctx, span := trace.StartSpan(ctx, "gloo.syncer.Sync")
 	defer span.End()
 
@@ -74,8 +75,8 @@ func (s *translatorSyncer) syncEnvoy(ctx context.Context, snap *v1.ApiSnapshot) 
 	ctx = contextutils.WithLogger(ctx, "envoyTranslatorSyncer")
 	logger := contextutils.LoggerFrom(ctx)
 	snapHash := hashutils.MustHash(snap)
-	logger.Infof("begin sync %v (%v proxies, %v upstreams, %v endpoints, %v secrets, %v artifacts, %v auth configs)", snapHash,
-		len(snap.Proxies), len(snap.Upstreams), len(snap.Endpoints), len(snap.Secrets), len(snap.Artifacts), len(snap.AuthConfigs))
+	logger.Infof("begin sync %v (%v proxies, %v upstreams, %v endpoints, %v secrets, %v artifacts, %v auth configs, %v rate limit configs)", snapHash,
+		len(snap.Proxies), len(snap.Upstreams), len(snap.Endpoints), len(snap.Secrets), len(snap.Artifacts), len(snap.AuthConfigs), len(snap.Ratelimitconfigs))
 	defer logger.Infof("end sync %v", snapHash)
 
 	// stringifying the snapshot may be an expensive operation, so we'd like to avoid building the large
@@ -84,7 +85,6 @@ func (s *translatorSyncer) syncEnvoy(ctx context.Context, snap *v1.ApiSnapshot) 
 		logger.Debug(syncutil.StringifySnapshot(snap))
 	}
 
-	allReports := make(reporter.ResourceReports)
 	allReports.Accept(snap.Upstreams.AsInputResources()...)
 	allReports.Accept(snap.UpstreamGroups.AsInputResources()...)
 	allReports.Accept(snap.Proxies.AsInputResources()...)
@@ -160,10 +160,10 @@ func (s *translatorSyncer) syncEnvoy(ctx context.Context, snap *v1.ApiSnapshot) 
 		}
 
 		// Record some metrics
-		clustersLen := len(xdsSnapshot.GetResources(xds.ClusterType).Items)
-		listenersLen := len(xdsSnapshot.GetResources(xds.ListenerType).Items)
-		routesLen := len(xdsSnapshot.GetResources(xds.RouteType).Items)
-		endpointsLen := len(xdsSnapshot.GetResources(xds.EndpointType).Items)
+		clustersLen := len(xdsSnapshot.GetResources(resource.ClusterTypeV3).Items)
+		listenersLen := len(xdsSnapshot.GetResources(resource.ListenerTypeV3).Items)
+		routesLen := len(xdsSnapshot.GetResources(resource.RouteTypeV3).Items)
+		endpointsLen := len(xdsSnapshot.GetResources(resource.EndpointTypeV3).Items)
 
 		measureResource(proxyCtx, "clusters", clustersLen)
 		measureResource(proxyCtx, "listeners", listenersLen)
@@ -176,15 +176,11 @@ func (s *translatorSyncer) syncEnvoy(ctx context.Context, snap *v1.ApiSnapshot) 
 			"routes", routesLen,
 			"endpoints", endpointsLen)
 
-		logger.Debugf("Full snapshot for proxy %v: %v", proxy.Metadata.Name, xdsSnapshot)
+		logger.Debugf("Full snapshot for proxy %v: %+v", proxy.Metadata.Name, xdsSnapshot)
 	}
 
 	logger.Debugf("gloo reports to be written: %v", allReports)
 
-	if err := s.reporter.WriteReports(ctx, allReports, nil); err != nil {
-		logger.Debugf("Failed writing report for proxies: %v", err)
-		return eris.Wrapf(err, "writing reports")
-	}
 	return nil
 }
 
@@ -214,11 +210,11 @@ func (s *translatorSyncer) updateEndpointsOnly(snapshotKey string, current envoy
 
 	newSnapshot := xds.NewSnapshotFromResources(
 		// Set endpoints and clusters calculated during this sync
-		current.GetResources(xds.EndpointType),
-		current.GetResources(xds.ClusterType),
+		current.GetResources(resource.EndpointTypeV3),
+		current.GetResources(resource.ClusterTypeV3),
 		// Keep other resources from previous snapshot
-		previous.GetResources(xds.RouteType),
-		previous.GetResources(xds.ListenerType),
+		previous.GetResources(resource.RouteTypeV3),
+		previous.GetResources(resource.ListenerTypeV3),
 	)
 
 	if err := newSnapshot.Consistent(); err != nil {

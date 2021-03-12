@@ -9,18 +9,16 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/solo-io/gloo/pkg/utils"
-
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
 	envoy_transform "github.com/solo-io/gloo/projects/gloo/pkg/api/external/envoy/extensions/transformation"
+	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	transformation "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/transformation"
 	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
 	"github.com/solo-io/gloo/test/services"
 	"github.com/solo-io/gloo/test/v1helpers"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
-
-	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 )
 
@@ -34,7 +32,7 @@ var _ = Describe("Transformations", func() {
 		envoyPort     uint32
 		tu            *v1helpers.TestUpstream
 		opts          clients.WriteOpts
-		transform     *envoy_transform.RouteTransformations
+		transform     *transformation.Transformations
 	)
 
 	BeforeEach(func() {
@@ -54,7 +52,7 @@ var _ = Describe("Transformations", func() {
 		var err error
 		envoyInstance, err = envoyFactory.NewEnvoyInstance()
 		Expect(err).NotTo(HaveOccurred())
-		err = envoyInstance.Run(testClients.GlooPort)
+		err = envoyInstance.RunWithRoleAndRestXds(services.DefaultProxyName, testClients.GlooPort, testClients.RestXdsPort)
 		Expect(err).NotTo(HaveOccurred())
 		envoyPort = defaults.HttpPort
 
@@ -65,7 +63,7 @@ var _ = Describe("Transformations", func() {
 		}
 		_, err = testClients.UpstreamClient.Write(tu.Upstream, opts)
 		Expect(err).NotTo(HaveOccurred())
-		transform = &envoy_transform.RouteTransformations{
+		transform = &transformation.Transformations{
 			ResponseTransformation: &envoy_transform.Transformation{
 				TransformationType: &envoy_transform.Transformation_TransformationTemplate{
 					TransformationTemplate: &envoy_transform.TransformationTemplate{
@@ -118,7 +116,7 @@ var _ = Describe("Transformations", func() {
 	WriteVhost := func(vs *gloov1.VirtualHost) {
 		proxycli := testClients.ProxyClient
 		proxy := &gloov1.Proxy{
-			Metadata: core.Metadata{
+			Metadata: &core.Metadata{
 				Name:      "proxy",
 				Namespace: "default",
 			},
@@ -151,7 +149,7 @@ var _ = Describe("Transformations", func() {
 						Destination: &gloov1.RouteAction_Single{
 							Single: &gloov1.Destination{
 								DestinationType: &gloov1.Destination_Upstream{
-									Upstream: utils.ResourceRefPtr(tu.Upstream.Metadata.Ref()),
+									Upstream: tu.Upstream.Metadata.Ref(),
 								},
 							},
 						},
@@ -176,7 +174,7 @@ var _ = Describe("Transformations", func() {
 						Destination: &gloov1.RouteAction_Single{
 							Single: &gloov1.Destination{
 								DestinationType: &gloov1.Destination_Upstream{
-									Upstream: utils.ResourceRefPtr(tu.Upstream.Metadata.Ref()),
+									Upstream: tu.Upstream.Metadata.Ref(),
 								},
 							},
 						},
@@ -206,7 +204,7 @@ var _ = Describe("Transformations", func() {
 										Destination: &gloov1.Destination{
 
 											DestinationType: &gloov1.Destination_Upstream{
-												Upstream: utils.ResourceRefPtr(tu.Upstream.Metadata.Ref()),
+												Upstream: tu.Upstream.Metadata.Ref(),
 											},
 										},
 									},

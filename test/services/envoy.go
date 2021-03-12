@@ -2,8 +2,10 @@ package services
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -14,11 +16,9 @@ import (
 	"strings"
 	"sync/atomic"
 	"text/template"
+	"time"
 
 	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
-
-	"bytes"
-	"io"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/ginkgo/config"
@@ -29,7 +29,8 @@ import (
 )
 
 const (
-	containerName = "e2e_envoy"
+	containerName    = "e2e_envoy"
+	DefaultProxyName = "default~proxy"
 )
 
 var adminPort = uint32(20000)
@@ -43,7 +44,34 @@ func AdvanceBindPort(p *uint32) uint32 {
 	return atomic.AddUint32(p, 1) + uint32(config.GinkgoConfig.ParallelNode*1000)
 }
 
-func (ei *EnvoyInstance) buildBootstrap() string {
+type EnvoyBootstrapBuilder interface {
+	Build(ei *EnvoyInstance) string
+}
+
+type templateBootstrapBuilder struct {
+	template *template.Template
+}
+
+func (tbb *templateBootstrapBuilder) Build(ei *EnvoyInstance) string {
+	var b bytes.Buffer
+	if err := tbb.template.Execute(&b, ei); err != nil {
+		panic(err)
+	}
+	return b.String()
+}
+
+type fileBootstrapBuilder struct {
+	file string
+}
+
+func (fbb *fileBootstrapBuilder) Build(ei *EnvoyInstance) string {
+	templateBytes, err := ioutil.ReadFile(fbb.file)
+	if err != nil {
+		panic(err)
+	}
+
+	parsedTemplate := template.Must(template.New(fbb.file).Parse(string(templateBytes)))
+
 	var b bytes.Buffer
 	if err := parsedTemplate.Execute(&b, ei); err != nil {
 		panic(err)
@@ -52,68 +80,110 @@ func (ei *EnvoyInstance) buildBootstrap() string {
 }
 
 const envoyConfigTemplate = `
+layered_runtime:
+  layers:
+  - name: static_layer
+    static_layer:
+      upstream:
+        healthy_panic_threshold:
+          value: 0
+  - name: admin_layer
+    admin_layer: {}
 node:
  cluster: ingress
  id: {{.ID}}
  metadata:
   role: {{.Role}}
-{{if .MetricsAddr}}
-stats_sinks:
-  - name: envoy.metrics_service
-    config:
-      grpc_service:
-        envoy_grpc: {cluster_name: metrics_cluster}
-{{end}}
 
 static_resources:
   clusters:
   - name: xds_cluster
     connect_timeout: 5.000s
-    hosts:
-    - socket_address:
-        address: {{.GlooAddr}}
-        port_value: {{.Port}}
+    load_assignment:
+      cluster_name: xds_cluster
+      endpoints:
+        - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: {{.GlooAddr}}
+                    port_value: {{.Port}}
     http2_protocol_options: {}
     type: STATIC
+  - name: rest_xds_cluster
+    connect_timeout: 5.000s
+    load_assignment:
+      cluster_name: rest_xds_cluster
+      endpoints:
+        - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: {{.GlooAddr}}
+                    port_value: {{.RestXdsPort}}
+    upstream_connection_options:
+      tcp_keepalive: {}
+    type: STRICT_DNS
+    respect_dns_ttl: true
 {{if .RatelimitAddr}}
   - name: ratelimit_cluster
     connect_timeout: 5.000s
-    hosts:
-    - socket_address:
-        address: {{.RatelimitAddr}}
-        port_value: {{.RatelimitPort}}
+    load_assignment:
+      cluster_name: ratelimit_cluster
+      endpoints:
+        - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: {{.RatelimitAddr}}
+                    port_value: {{.RatelimitPort}}
     http2_protocol_options: {}
     type: STATIC
 {{end}}
 {{if .AccessLogAddr}}
   - name: access_log_cluster
     connect_timeout: 5.000s
-    hosts:
-    - socket_address:
-        address: {{.AccessLogAddr}}
-        port_value: {{.AccessLogPort}}
+    load_assignment:
+      cluster_name: access_log_cluster
+      endpoints:
+        - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: {{.AccessLogAddr}}
+                    port_value: {{.AccessLogPort}}
     http2_protocol_options: {}
     type: STATIC
 {{end}}
-{{if .MetricsAddr}}
-  - name: metrics_cluster
+  - name: aws_sts_cluster
     connect_timeout: 5.000s
-    hosts:
-    - socket_address:
-        address: {{.MetricsAddr}}
-        port_value: {{.MetricsPort}}
-    http2_protocol_options: {}
-    type: STATIC
-{{end}}
-
+    type: LOGICAL_DNS
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: aws_sts_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                port_value: 443
+                address: sts.amazonaws.com
+    transport_socket:
+      name: envoy.transport_sockets.tls
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+        sni: sts.amazonaws.com
 dynamic_resources:
   ads_config:
+    transport_api_version: {{ .ApiVersion }}
     api_type: GRPC
     grpc_services:
     - envoy_grpc: {cluster_name: xds_cluster}
   cds_config:
+    resource_api_version: {{ .ApiVersion }}
     ads: {}
   lds_config:
+    resource_api_version: {{ .ApiVersion }}
     ads: {}
 
 admin:
@@ -125,7 +195,7 @@ admin:
 
 `
 
-var parsedTemplate = template.Must(template.New("bootstrap").Parse(envoyConfigTemplate))
+var defaultBootstrapTemplate = template.Must(template.New("bootstrap").Parse(envoyConfigTemplate))
 
 type EnvoyFactory struct {
 	envoypath string
@@ -146,20 +216,20 @@ func getEnvoyImageTag() string {
 	gomodfile := strings.TrimSpace(string(gomod))
 	projectbase, _ := filepath.Split(gomodfile)
 
-	envoyinit := filepath.Join(projectbase, "projects/envoyinit/cmd/Dockerfile.envoyinit")
-	inFile, err := os.Open(envoyinit)
+	makefile := filepath.Join(projectbase, "Makefile")
+	inFile, err := os.Open(makefile)
 	Expect(err).NotTo(HaveOccurred())
 
 	defer inFile.Close()
 
+	const prefix = "ENVOY_GLOO_IMAGE ?= quay.io/solo-io/envoy-gloo:"
+
 	scanner := bufio.NewScanner(inFile)
 	for scanner.Scan() {
 		line := scanner.Text()
-		parts := strings.Split(strings.TrimSpace(line), ":")
-		if len(parts) == 2 {
-			return parts[1]
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
 		}
-
 	}
 	return ""
 }
@@ -176,12 +246,18 @@ func NewEnvoyFactory() (*EnvoyFactory, error) {
 	}
 
 	// maybe it is in the path?!
-	envoyPath, err := exec.LookPath("envoy")
-	if err == nil {
-		log.Printf("Using envoy from PATH: %s", envoyPath)
-		return &EnvoyFactory{
-			envoypath: envoyPath,
-		}, nil
+	// only try to use local path if FETCH_ENVOY_BINARY is not set;
+	// there are two options:
+	// - you are using local envoy binary you just built and want to test (don't set the variable)
+	// - you want to use the envoy version gloo is shipped with (set the variable)
+	if os.Getenv("FETCH_ENVOY_BINARY") != "" {
+		envoyPath, err := exec.LookPath("envoy")
+		if err == nil {
+			log.Printf("Using envoy from PATH: %s", envoyPath)
+			return &EnvoyFactory{
+				envoypath: envoyPath,
+			}, nil
+		}
 	}
 
 	switch runtime.GOOS {
@@ -254,9 +330,18 @@ func (ef *EnvoyFactory) Clean() error {
 	return nil
 }
 
+func (ei *EnvoyInstance) EnvoyConfig() (*http.Response, error) {
+	adminUrl := fmt.Sprintf("http://%s:%d/config_dump",
+		ei.LocalAddr(),
+		ei.AdminPort)
+	r, err := http.Get(adminUrl)
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
 type EnvoyInstance struct {
-	MetricsAddr   string
-	MetricsPort   uint32
 	AccessLogAddr string
 	AccessLogPort uint32
 	RatelimitAddr string
@@ -270,9 +355,24 @@ type EnvoyInstance struct {
 	UseDocker     bool
 	GlooAddr      string // address for gloo and services
 	Port          uint32
+	RestXdsPort   uint32
 	AdminPort     uint32
 	// Path to access logs for binary run
 	AccessLogs string
+
+	// Envoy API Version to use, default to V3
+	ApiVersion string
+
+	DockerOptions
+}
+
+// Extra options for running in docker
+type DockerOptions struct {
+	// Extra volume arguments
+	Volumes []string
+	// Extra env arguments.
+	// see https://docs.docker.com/engine/reference/run/#env-environment-variables for more info
+	Env []string
 }
 
 func (ef *EnvoyFactory) MustEnvoyInstance() *EnvoyInstance {
@@ -298,8 +398,8 @@ func (ef *EnvoyFactory) NewEnvoyInstance() (*EnvoyInstance, error) {
 		UseDocker:     ef.useDocker,
 		GlooAddr:      gloo,
 		AccessLogAddr: gloo,
-		MetricsAddr:   gloo,
 		AdminPort:     atomic.AddUint32(&adminPort, 1) + uint32(config.GinkgoConfig.ParallelNode*1000),
+		ApiVersion:    "V3",
 	}
 	ef.instances = append(ef.instances, ei)
 	return ei, nil
@@ -308,66 +408,109 @@ func (ef *EnvoyFactory) NewEnvoyInstance() (*EnvoyInstance, error) {
 
 func (ei *EnvoyInstance) RunWithId(id string) error {
 	ei.ID = id
-	ei.Role = "default~proxy"
-
-	// TODO: refactor this function to include a context.
-	return ei.runWithPort(context.TODO(), 8081)
+	return ei.RunWithRole(DefaultProxyName, 8081)
 }
 
 func (ei *EnvoyInstance) Run(port int) error {
-	ei.Role = "default~proxy"
-
-	// TODO: refactor this function to include a context.
-	return ei.runWithPort(context.TODO(), uint32(port))
+	return ei.RunWithRole(DefaultProxyName, port)
 }
+
+func (ei *EnvoyInstance) RunWith(eic EnvoyInstanceConfig) error {
+	return ei.runWithAll(eic, &templateBootstrapBuilder{
+		template: defaultBootstrapTemplate,
+	})
+}
+
 func (ei *EnvoyInstance) RunWithRole(role string, port int) error {
-	ei.Role = role
-	// TODO: refactor this function to include a context.
-	return ei.runWithPort(context.TODO(), uint32(port))
+	eic := &envoyInstanceConfig{
+		role:    role,
+		port:    uint32(port),
+		context: context.TODO(),
+	}
+	boostrapBuilder := &templateBootstrapBuilder{
+		template: defaultBootstrapTemplate,
+	}
+	return ei.runWithAll(eic, boostrapBuilder)
+}
+
+func (ei *EnvoyInstance) RunWithRoleAndRestXds(role string, glooPort, restXdsPort int) error {
+	eic := &envoyInstanceConfig{
+		role:        role,
+		port:        uint32(glooPort),
+		restXdsPort: uint32(restXdsPort),
+		context:     context.TODO(),
+	}
+	boostrapBuilder := &templateBootstrapBuilder{
+		template: defaultBootstrapTemplate,
+	}
+	return ei.runWithAll(eic, boostrapBuilder)
+}
+
+func (ei *EnvoyInstance) RunWithConfigFile(port int, configFile string) error {
+	eic := &envoyInstanceConfig{
+		role:    "gloo-system~gateway-proxy",
+		port:    uint32(port),
+		context: context.TODO(),
+	}
+	boostrapBuilder := &fileBootstrapBuilder{
+		file: configFile,
+	}
+	return ei.runWithAll(eic, boostrapBuilder)
 }
 
 type EnvoyInstanceConfig interface {
 	Role() string
 	Port() uint32
+	RestXdsPort() uint32
+
 	Context() context.Context
 }
 
-func (ei *EnvoyInstance) RunWith(eic EnvoyInstanceConfig) error {
-	ei.Role = eic.Role()
-	return ei.runWithPort(eic.Context(), eic.Port())
+type envoyInstanceConfig struct {
+	role        string
+	port        uint32
+	restXdsPort uint32
+
+	context context.Context
 }
 
-/*
-func (ei *EnvoyInstance) DebugMode() error {
-
-	_, err := http.Get("http://localhost:19000/logging?level=debug")
-
-	return err
+func (eic *envoyInstanceConfig) Role() string {
+	return eic.role
 }
-*/
-func (ei *EnvoyInstance) runWithPort(ctx context.Context, port uint32) error {
+
+func (eic *envoyInstanceConfig) Port() uint32 {
+	return eic.port
+}
+
+func (eic *envoyInstanceConfig) RestXdsPort() uint32 {
+	return eic.restXdsPort
+}
+
+func (eic *envoyInstanceConfig) Context() context.Context {
+	return eic.context
+}
+
+func (ei *EnvoyInstance) runWithAll(eic EnvoyInstanceConfig, bootstrapBuilder EnvoyBootstrapBuilder) error {
 	go func() {
-		<-ctx.Done()
+		<-eic.Context().Done()
 		ei.Clean()
 	}()
 	if ei.ID == "" {
 		ei.ID = "ingress~for-testing"
 	}
-	ei.Port = port
+	ei.Role = eic.Role()
+	ei.Port = eic.Port()
+	ei.RestXdsPort = eic.RestXdsPort()
+	ei.envoycfg = bootstrapBuilder.Build(ei)
 
-	ei.envoycfg = ei.buildBootstrap()
 	if ei.UseDocker {
-		err := ei.runContainer(ctx)
-		if err != nil {
-			return err
-		}
-		return nil
+		return ei.runContainer(eic.Context())
 	}
 
 	args := []string{"--config-yaml", ei.envoycfg, "--disable-hot-restart", "--log-level", "debug"}
 
 	// run directly
-	cmd := exec.CommandContext(ctx, ei.envoypath, args...)
+	cmd := exec.CommandContext(eic.Context(), ei.envoypath, args...)
 
 	buf := &bytes.Buffer{}
 	ei.logs = buf
@@ -381,6 +524,11 @@ func (ei *EnvoyInstance) runWithPort(ctx context.Context, port uint32) error {
 		return err
 	}
 	ei.cmd = cmd
+
+	err = ei.waitForEnvoyToBeRunning()
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -392,8 +540,16 @@ func (ei *EnvoyInstance) LocalAddr() string {
 	return ei.GlooAddr
 }
 
-func (ei *EnvoyInstance) SetPanicThreshold() error {
-	_, err := http.Post(fmt.Sprintf("http://localhost:%d/runtime_modify?upstream.healthy_panic_threshold=%d", ei.AdminPort, 0), "", nil)
+func (ei *EnvoyInstance) EnablePanicMode() error {
+	return ei.setRuntimeConfiguration(fmt.Sprintf("upstream.healthy_panic_threshold=%d", 100))
+}
+
+func (ei *EnvoyInstance) DisablePanicMode() error {
+	return ei.setRuntimeConfiguration(fmt.Sprintf("upstream.healthy_panic_threshold=%d", 0))
+}
+
+func (ei *EnvoyInstance) setRuntimeConfiguration(queryParameters string) error {
+	_, err := http.Post(fmt.Sprintf("http://localhost:%d/runtime_modify?%s", ei.AdminPort, queryParameters), "", nil)
 	return err
 }
 
@@ -408,9 +564,9 @@ func (ei *EnvoyInstance) Clean() error {
 	}
 
 	if ei.UseDocker {
-		if err := stopContainer(); err != nil {
-			return err
-		}
+		// No need to handle the error here as the call to quitquitquit above should kill and exit the container
+		// This is just a backup to make sure it really gets deleted
+		stopContainer()
 	}
 	return nil
 }
@@ -426,11 +582,22 @@ func (ei *EnvoyInstance) runContainer(ctx context.Context) error {
 		"-p", fmt.Sprintf("%d:%d", defaults.HttpPort, defaults.HttpPort),
 		"-p", fmt.Sprintf("%d:%d", defaults.HttpsPort, defaults.HttpsPort),
 		"-p", fmt.Sprintf("%d:%d", ei.AdminPort, ei.AdminPort),
+	}
+
+	for _, volume := range ei.DockerOptions.Volumes {
+		args = append(args, "-v", volume)
+	}
+
+	for _, env := range ei.DockerOptions.Env {
+		args = append(args, "-e", env)
+	}
+
+	args = append(args,
 		"--entrypoint=envoy",
 		image,
 		"--disable-hot-restart", "--log-level", "debug",
 		"--config-yaml", ei.envoycfg,
-	}
+	)
 
 	fmt.Fprintln(ginkgo.GinkgoWriter, args)
 	cmd := exec.CommandContext(ctx, "docker", args...)
@@ -440,7 +607,33 @@ func (ei *EnvoyInstance) runContainer(ctx context.Context) error {
 		return errors.Wrap(err, "Unable to start envoy container")
 	}
 
-	return nil
+	// cmd.Run() is entering an infinite loop here (not sure why).
+	// This is a temporary workaround to poll the container until the admin port is ready for traffic
+	return ei.waitForEnvoyToBeRunning()
+}
+
+func (ei *EnvoyInstance) waitForEnvoyToBeRunning() error {
+	pingInterval := time.Tick(time.Second)
+	pingDuration := time.Second * 5
+	pingEndpoint := fmt.Sprintf("localhost:%d", ei.AdminPort)
+
+	ctx, cancel := context.WithTimeout(context.Background(), pingDuration)
+	defer cancel()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return errors.Errorf("timed out waiting for envoy on %s", pingEndpoint)
+
+		case <-pingInterval:
+			conn, _ := net.Dial("tcp", pingEndpoint)
+			if conn != nil {
+				conn.Close()
+				return nil
+			}
+			continue
+		}
+	}
 }
 
 func stopContainer() error {

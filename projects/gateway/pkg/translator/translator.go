@@ -23,6 +23,7 @@ type ListenerFactory interface {
 	GenerateListeners(ctx context.Context, snap *v1.ApiSnapshot, filteredGateways []*v1.Gateway, reports reporter.ResourceReports) []*gloov1.Listener
 }
 
+//go:generate mockgen -destination mocks/mock_translator.go -package mocks github.com/solo-io/gloo/projects/gateway/pkg/translator Translator
 type Translator interface {
 	Translate(ctx context.Context, proxyName, namespace string, snap *v1.ApiSnapshot, filteredGateways v1.GatewayList) (*gloov1.Proxy, reporter.ResourceReports)
 }
@@ -40,7 +41,12 @@ func NewTranslator(factories []ListenerFactory, opts Opts) *translator {
 }
 
 func NewDefaultTranslator(opts Opts) *translator {
-	return NewTranslator([]ListenerFactory{&HttpTranslator{}, &TcpTranslator{}}, opts)
+	warnOnRouteShortCircuiting := false
+	if opts.Validation != nil {
+		warnOnRouteShortCircuiting = opts.Validation.WarnOnRouteShortCircuiting
+	}
+
+	return NewTranslator([]ListenerFactory{&HttpTranslator{WarnOnRouteShortCircuiting: warnOnRouteShortCircuiting}, &TcpTranslator{}}, opts)
 }
 
 func (t *translator) Translate(ctx context.Context, proxyName, namespace string, snap *v1.ApiSnapshot, gatewaysByProxy v1.GatewayList) (*gloov1.Proxy, reporter.ResourceReports) {
@@ -66,7 +72,7 @@ func (t *translator) Translate(ctx context.Context, proxyName, namespace string,
 		return nil, reports
 	}
 	return &gloov1.Proxy{
-		Metadata: core.Metadata{
+		Metadata: &core.Metadata{
 			Name:      proxyName,
 			Namespace: namespace,
 		},

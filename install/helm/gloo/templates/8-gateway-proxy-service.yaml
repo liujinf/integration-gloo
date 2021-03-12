@@ -1,5 +1,8 @@
 {{- if .Values.gateway.enabled }}
-{{- range $name, $spec := .Values.gatewayProxies }}
+{{- $gatewayProxy := .Values.gatewayProxies.gatewayProxy -}}
+{{- range $name, $gatewaySpec := .Values.gatewayProxies }}
+{{- $spec := deepCopy $gatewayProxy | merge $gatewaySpec -}}
+{{- if not $spec.disabled }}
 {{- $svcName := default $name $spec.service.name }}
 ---
 apiVersion: v1
@@ -18,29 +21,56 @@ metadata:
   {{- end }}
 {{- end }}
 spec:
+{{- if $spec.service.externalIPs }}
+{{- with $spec.service.externalIPs }}
+  externalIPs:
+    {{- range . }}
+    - {{ . }}
+    {{- end }}
+{{- end }} {{/* with spec.service.externalIPs */}}
+{{- end }} {{/* $spec.service.externalIPs */}}
 {{- if $spec.service.externalTrafficPolicy }}
   externalTrafficPolicy: {{ $spec.service.externalTrafficPolicy }}
 {{- end }}
+  # port order matters due to this issue: https://github.com/solo-io/gloo/issues/2571
   ports:
 {{- if $spec.service.httpsFirst }}
   - port: {{ $spec.service.httpsPort }}
     targetPort: {{ $spec.podTemplate.httpsPort }}
     protocol: TCP
     name: https
+    {{- if and (eq $spec.service.type "NodePort") $spec.service.httpsNodePort }}
+    nodePort: {{ $spec.service.httpsNodePort }}
+    {{- end}}
+{{- end }}
   - port: {{ $spec.service.httpPort }}
     targetPort: {{ $spec.podTemplate.httpPort }}
     protocol: TCP
     name: http
-{{- else }}
-  - port: {{ $spec.service.httpPort }}
-    targetPort: {{ $spec.podTemplate.httpPort }}
-    protocol: TCP
-    name: http
+    {{- if and (eq $spec.service.type "NodePort") $spec.service.httpNodePort }}
+    nodePort: {{ $spec.service.httpNodePort }}
+    {{- end}}
+{{- if not $spec.service.httpsFirst }}
   - port: {{ $spec.service.httpsPort }}
     targetPort: {{ $spec.podTemplate.httpsPort }}
     protocol: TCP
     name: https
+    {{- if and (eq $spec.service.type "NodePort") $spec.service.httpsNodePort }}
+    nodePort: {{ $spec.service.httpsNodePort }}
+    {{- end}}
 {{- end }}
+{{- if $spec.failover }}
+{{- if $spec.failover.enabled }}
+  - port: {{ $spec.failover.port }}
+    targetPort: {{ $spec.failover.port }}
+    protocol: TCP
+    name: failover
+    nodePort: {{ $spec.failover.nodePort }}
+{{- end }} {{/* if failover.enabled */}}
+{{- end }} {{/* if failover */}}
+{{- if $spec.service.customPorts }}
+{{ toYaml $spec.service.customPorts | indent 2 }}
+{{- end}}
   selector:
     gateway-proxy-id: {{ $name | kebabcase }}
     gateway-proxy: live
@@ -48,8 +78,38 @@ spec:
   {{- if and (eq $spec.service.type "ClusterIP") $spec.service.clusterIP }}
   clusterIP: {{ $spec.service.clusterIP }}
   {{- end }}
-  {{- if and (eq $spec.service.type "LoadBalancer") $spec.service.loadBalancerIP }}
+  {{- if eq $spec.service.type "LoadBalancer" }}
+  {{- if $spec.service.loadBalancerIP }}
   loadBalancerIP: {{ $spec.service.loadBalancerIP }}
-  {{- end }}
-{{- end }}
-{{ end }}
+  {{- end }} {{/* $spec.service.loadBalancerIP */}}
+  {{- if $spec.service.loadBalancerSourceRanges }}
+  {{- with $spec.service.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- range . }}
+    - {{ . }}
+    {{- end }}
+  {{- end }} {{/* with spec.service.loadBalancerSourceRanges */}}
+  {{- end }} {{/* $spec.service.loadBalancerSourceRanges */}}
+  {{- end }} {{/* $spec.service.type "LoadBalancer" */}}
+---
+{{- if and $spec.readConfig $spec.readConfigMulticluster }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name | kebabcase }}-config-dump-service
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    gloo: gateway-proxy
+    gateway-proxy-id: {{ $name | kebabcase }}
+spec:
+  type: ClusterIP
+  selector:
+    gloo: gateway-proxy
+    gateway-proxy-id: {{ $name | kebabcase }}
+  ports:
+    - protocol: TCP
+      port: 8082
+{{- end }} {{/* if and ($spec.readConfig $spec.readConfigMulticluster) */}}
+{{- end }} {{/* range $name, $spec := .Values.gatewayProxies */}}
+{{- end }} {{/* if not $spec.disabled */}}
+{{ end }} {{/* if .Values.gateway.enabled */}}

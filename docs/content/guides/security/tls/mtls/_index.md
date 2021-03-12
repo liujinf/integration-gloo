@@ -1,16 +1,16 @@
 ---
-title: Gloo mTLS mode
+title: Gloo Edge mTLS mode
 weight: 40
-description: Ensure that communications between Gloo and Envoy is secure with mTLS
+description: Ensure that communications between Gloo Edge and Envoy is secure with mTLS
 ---
 
 {{% notice note %}}
-This feature was introduced in version 1.3.6 of Gloo and version 1.3.0-beta3 of Gloo Enterprise. If you are using earlier versions of Gloo, this feature will not be available.
+This feature was introduced in version 1.3.6 of Gloo Edge and version 1.3.0-beta3 of Gloo Edge Enterprise. If you are using earlier versions of Gloo Edge, this feature will not be available.
 {{% /notice %}}
 
-Gloo and Envoy communicate through the [xDS protocol](https://www.envoyproxy.io/docs/envoy/latest/api-docs/xds_protocol#streaming-grpc-subscriptions). Since the Envoy configuration can contain secret data, plaintext communication between Gloo and Envoy may be too insecure. This is especially true if your setup has the Gloo control plane and Envoy instances running in separate clusters.
+Gloo Edge and Envoy communicate through the [xDS protocol](https://www.envoyproxy.io/docs/envoy/latest/api-docs/xds_protocol#streaming-grpc-subscriptions). Since the Envoy configuration can contain secret data, plaintext communication between Gloo Edge and Envoy may be too insecure. This is especially true if your setup has the Gloo Edge control plane and Envoy instances running in separate clusters.
 
-Mutual TLS authentication (mTLS) ensures that both the client and server in a session are presenting valid certificates to each other.Turning on mTLS will encrypt the xDS communication between Gloo and Envoy and validate the identity of both parties in the session.
+Mutual TLS authentication (mTLS) ensures that both the client and server in a session are presenting valid certificates to each other.Turning on mTLS will encrypt the xDS communication between Gloo Edge and Envoy and validate the identity of both parties in the session.
 
 ---
 
@@ -28,19 +28,19 @@ Then, we run:
 
 `glooctl install gateway --values helm-override.yaml`
 
-This will ensure that Envoy initializes the connection to Gloo using mTLS. Gloo will now answer through a TCP proxy that communicates with the TLS protocol. We do this by attaching an envoy sidecar to the gloo pod to do TLS termination.
+This will ensure that Envoy initializes the connection to Gloo Edge using mTLS. Gloo Edge will now answer through a TCP proxy that communicates with the TLS protocol. We do this by attaching an envoy sidecar to the gloo pod to do TLS termination.
 
-For Gloo Enterprise users, the extauth and rate-limiting servers also need to communicate with Gloo in order to get configuration. These pods will now start up a gRPC connection with additional TLS credentials.
+For Gloo Edge Enterprise users, the extauth and rate-limiting servers also need to communicate with Gloo Edge in order to get configuration. These pods will now start up a gRPC connection with additional TLS credentials.
 
 ---
 
 ## Detailed Explanation
 
-This is a step-by step-guide to what the `global.glooMtls.enabled=true` Helm value does to the Gloo installation.
+This is a step-by step-guide to what the `global.glooMtls.enabled=true` Helm value does to the Gloo Edge installation.
 
 ### Secret Creation
 
-The first step is to create a Kubernetes secret object of type 'kubernetes.io/tls'. If Gloo is installed with the Helm override flag, a Job called 'gloo-mtls-certgen' is created to automatically generate the 'gloo-mtls-certs' secret for you. The secret object has the following structure:
+The first step is to create a Kubernetes secret object of type 'kubernetes.io/tls'. If Gloo Edge is installed with the Helm override flag, a Job called 'gloo-mtls-certgen' is created to automatically generate the 'gloo-mtls-certs' secret for you. The secret object has the following structure:
 
 ```yaml
 apiVersion: v1
@@ -55,7 +55,7 @@ metadata:
 type: kubernetes.io/tls
 ```
 
-### Gloo Deployment (the xDS server)
+### Gloo Edge Deployment (the xDS server)
 
 In the gloo deployment, two sidecars are added: the envoy sidecar and the SDS sidecar.
 
@@ -96,6 +96,9 @@ In the gloo deployment, this sidecar is added as:
       - name: sds
         image: "quay.io/solo-io/sds:1.3.4"
         imagePullPolicy: IfNotPresent
+        env:
+        - name: GLOO_MTLS_SDS_ENABLED
+          value: "true"
         volumeMounts:
         - mountPath: /etc/envoy/ssl
           name: gloo-mtls-certs
@@ -112,7 +115,7 @@ Finally, the 'gloo-mtls-certs' secret is added to the volumes to make it accessi
           secretName: gloo-mtls-certs
 ```
 
-### Gloo Settings
+### Gloo Edge Settings
 
 The default Settings custom resource (CR) changes such that the gloo.xdsBindAddr will only listen to incoming requests from localhost.
 
@@ -123,15 +126,15 @@ The default Settings custom resource (CR) changes such that the gloo.xdsBindAddr
     xdsBindAddr: 127.0.0.1:9999
 {{< /highlight >}}
 
-The address 127.0.0.1 binds all incoming connections to Gloo to localhost. This ensures that only the envoy sidecar can connect to the Gloo, but not any other malicious sources.
+The address 127.0.0.1 binds all incoming connections to Gloo Edge to localhost. This ensures that only the envoy sidecar can connect to the Gloo Edge, but not any other malicious sources.
 
-The Gloo Settings CR gets picked up automatically within ~5 seconds, so there’s no need to restart the Gloo pod.
+The Gloo Edge Settings CR gets picked up automatically within ~5 seconds, so there’s no need to restart the Gloo Edge pod.
 
 ### Changes to the xDS clients
 
 #### Gateway-Proxy
 
-The gateway-proxy pod is changed so that Envoy will initialize the connection to Gloo using TLS.
+The gateway-proxy pod is changed so that Envoy will initialize the connection to Gloo Edge using TLS.
 
 The configmap has the following change:
 
@@ -198,8 +201,11 @@ An SDS sidecar is also added to the gateway-proxy deployment:
 
 ```yaml
       - name: sds
-        image: "quay.io/solo-io/sds:1.3.4"
+        image: "quay.io/solo-io/sds:1.5.0-beta23"
         imagePullPolicy: IfNotPresent
+        env:
+        - name: GLOO_MTLS_SDS_ENABLED
+          value: "true"
         volumeMounts:
         - mountPath: /etc/envoy/ssl
           name: gloo-mtls-certs
@@ -208,60 +214,35 @@ An SDS sidecar is also added to the gateway-proxy deployment:
 
 ### Extauth Server
 
-To make the default extauth server work with mTLS, the extauth deployment takes in an additional environment variable:
+To make the default extauth server work with mTLS, the extauth deployment adds in an Envoy sidecar and SDS sidecar.
 
-{{< highlight yaml "hl_lines=2-3" >}}
-        env:
-        - name: GLOO_MTLS
-          value: "true"
-{{< /highlight >}}
+The envoy sidecar is responsible for TLS termination and outgoing encryption, and uses the SDS sidecar to handle cert rotation.
+The SDS sidecar watches the gloo-mtls-certs kube secret and provides those certs when the envoy sidecar is sending the request for Gloo Edge configuration.
 
-The gloo-mtls-certs are added to the volumes section and mounted in the extauth container:
+The configuration for the extauth envoy sidecar can be found in the extauth-sidecar-config confimap in the gloo-system
+namespace. It:
 
-{{< highlight yaml "hl_lines=2-4 7-10" >}}
-        volumeMounts:
-        - mountPath: /etc/envoy/ssl
-          name: gloo-mtls-certs
-          readOnly: true
-...
-      volumes:
-      - name: gloo-mtls
-        secret:
-          defaultMode: 420
-          secretName: gloo-mtls
-{{< /highlight >}}
+1) listens to 127.0.0.1:9955 and routes to Gloo Edge's XDS port.
+2) listens to 0.0.0.0:8083 and routes to 127.0.0.1:8084, extauth's Server Port.
 
 ### Rate-limiting Server
 
-To make the default rate-limiting server work with mTLS, the rate-limit deployment takes in an additional environment variable as well:
+To make the default rate-limiting server work with mTLS, the rate-limit deployment also adds in an Envoy sidecar
+and SDS sidecar.
 
-{{< highlight yaml "hl_lines=2-3" >}}
-        env:
-        - name: GLOO_MTLS
-          value: "true"
-{{< /highlight >}}
+The envoy sidecar is responsible for TLS termination and outgoing encryption, and uses the SDS sidecar to handle cert rotation.
+The SDS sidecar watches the gloo-mtls-certs kube secret and provides those certs when the envoy sidecar is sending the request for Gloo Edge configuration.
 
-The gloo-mtls-certs are added to the volumes section and mounted in the rate-limit container:
+The configuration for the extauth envoy sidecar can be found in the rate-limit-sidecar-config confimap. It:
 
-{{< highlight yaml "hl_lines=2-4 7-10" >}}
-        volumeMounts:
-        - mountPath: /etc/envoy/ssl
-          name: gloo-mtls-certs
-          readOnly: true
-...
-      volumes:
-      - name: gloo-mtls
-        secret:
-          defaultMode: 420
-          secretName: gloo-mtls
-{{< /highlight >}}
-
+1) listens to 127.0.0.1:9955 and routes to Gloo Edge's XDS port.
 
 ---
 
 ## Cert Rotation
 
-Cert rotation can be done by updating the gloo-mtls-certs secret.
+Cert rotation can be done by updating the gloo-mtls-certs secret. The SDS sidecar will
+automatically pick up the change.
 
 ---
 
@@ -269,7 +250,7 @@ Cert rotation can be done by updating the gloo-mtls-certs secret.
 
 ### SDS sidecar
 
-The gloo, gateway-proxy, extauth and rate-limiting pods will have SDS sidecars when Gloo is running in mTLS mode. To see the logs for the sds server, run:
+The gloo, gateway-proxy, extauth and rate-limiting pods will have SDS sidecars when Gloo Edge is running in mTLS mode. To see the logs for the sds server, run:
 
 ```
 kubectl logs -n gloo-system deploy/gloo sds

@@ -3,11 +3,11 @@ package wasm.options.gloo.solo.io;
 
 option go_package = "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/wasm";
 
-import "gogoproto/gogo.proto";
-option (gogoproto.equal_all) = true;
 import "extproto/ext.proto";
+option (extproto.equal_all) = true;
 option (extproto.hash_all) = true;
 
+import "google/protobuf/any.proto";
 
 /*
     Options config for WASM filters
@@ -21,13 +21,20 @@ message PluginSource {
     This message defines a single Envoy WASM filter to be placed into the filter chain
 */
 message WasmFilter {
-    // name of image which houses the compiled wasm filter
-    string image = 2;
 
-    // string of the config sent to the wasm filter
-    // currently has to be json or will crash
-    // TODO: update to proto.Any or proto.Struct? and then turn into json
-    string config = 3;
+    oneof src {
+        // name of image which houses the compiled wasm filter
+        string image = 2;
+        // path from which to load wasm filter from disk
+        string file_path = 8;
+    }
+
+    // Filter/service configuration used to configure or reconfigure a plugin
+    // (proxy_on_configuration).
+    // `google.protobuf.Struct` is serialized as JSON before
+    // passing it to the plugin. `google.protobuf.BytesValue` and
+    // `google.protobuf.StringValue` are passed directly without the wrapper.
+    google.protobuf.Any config = 3;
 
     // the stage in the filter chain where this filter should be placed
     FilterStage filter_stage = 4;

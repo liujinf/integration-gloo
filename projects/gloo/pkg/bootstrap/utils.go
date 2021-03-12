@@ -5,15 +5,15 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/gogo/protobuf/types"
+	"github.com/golang/protobuf/ptypes/duration"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/kube/cache"
+	"github.com/solo-io/solo-kit/pkg/utils/prototime"
 
 	consulapi "github.com/hashicorp/consul/api"
 	vaultapi "github.com/hashicorp/vault/api"
-	"github.com/solo-io/gloo/pkg/utils/settingsutil"
 	kubeconverters "github.com/solo-io/gloo/projects/gloo/pkg/api/converters/kube"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
-	"github.com/solo-io/go-utils/kubeutils"
+	"github.com/solo-io/k8s-utils/kubeutils"
 	"github.com/solo-io/solo-kit/pkg/api/external/kubernetes/service"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/factory"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/kube"
@@ -107,7 +107,6 @@ func ConfigFactoryForSettings(params ConfigFactoryParams, resourceCrd crd.Crd) (
 			Crd:                resourceCrd,
 			Cfg:                *cfg,
 			SharedCache:        kubeCache,
-			SkipCrdCreation:    settingsutil.GetSkipCrdCreation(),
 			NamespaceWhitelist: settings.WatchNamespaces,
 		}, nil
 	case *v1.Settings_ConsulKvSource:
@@ -149,7 +148,7 @@ func KubeServiceClientForSettings(ctx context.Context,
 		return nil, errors.Errorf("internal error: shared cache cannot be nil")
 	}
 	memoryRcFactory := &factory.MemoryResourceClientFactory{Cache: sharedCache}
-	inMemoryClient, err := memoryRcFactory.NewResourceClient(factory.NewResourceClientParams{
+	inMemoryClient, err := memoryRcFactory.NewResourceClient(ctx, factory.NewResourceClientParams{
 		ResourceType: &skkube.Service{},
 	})
 	if err != nil {
@@ -181,14 +180,10 @@ func SecretFactoryForSettings(ctx context.Context,
 		if err := initializeForKube(ctx, cfg, clientset, kubeCoreCache, settings.RefreshRate, settings.WatchNamespaces); err != nil {
 			return nil, errors.Wrapf(err, "initializing kube cfg clientset and core cache")
 		}
-		converterChain := kubeconverters.NewSecretConverterChain(
-			new(kubeconverters.TLSSecretConverter),
-			new(kubeconverters.AwsSecretConverter),
-		)
 		return &factory.KubeSecretClientFactory{
 			Clientset:       *clientset,
 			Cache:           *kubeCoreCache,
-			SecretConverter: converterChain,
+			SecretConverter: kubeconverters.GlooSecretConverterChain,
 		}, nil
 	case *v1.Settings_VaultSecretSource:
 		rootKey := source.VaultSecretSource.GetRootKey()
@@ -256,7 +251,9 @@ func initializeForKube(ctx context.Context,
 	cfg **rest.Config,
 	clientset *kubernetes.Interface,
 	kubeCoreCache *cache.KubeCoreCache,
-	refreshRate *types.Duration, nsToWatch []string) error {
+	refreshRate *duration.Duration,
+	nsToWatch []string,
+) error {
 	if cfg == nil {
 		c, err := kubeutils.GetConfig("", "")
 		if err != nil {
@@ -276,9 +273,7 @@ func initializeForKube(ctx context.Context,
 	if *kubeCoreCache == nil {
 		duration := 12 * time.Hour
 		if refreshRate != nil {
-			if parsedDuration, err := types.DurationFromProto(refreshRate); err == nil {
-				duration = parsedDuration
-			}
+			duration = prototime.DurationFromProto(refreshRate)
 		}
 		coreCache, err := cache.NewKubeCoreCacheWithOptions(ctx, *clientset, duration, nsToWatch)
 		if err != nil {

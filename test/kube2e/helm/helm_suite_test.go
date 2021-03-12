@@ -1,6 +1,7 @@
 package helm_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,16 +9,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/solo-io/go-utils/log"
+
 	"github.com/solo-io/gloo/test/kube2e"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/solo-io/gloo/test/helpers"
 
-	"github.com/solo-io/go-utils/log"
-	"github.com/solo-io/go-utils/testutils/helper"
-
-	"github.com/solo-io/go-utils/testutils"
+	"github.com/solo-io/k8s-utils/testutils/helper"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -25,12 +25,8 @@ import (
 )
 
 func TestHelm(t *testing.T) {
-	if testutils.AreTestsDisabled() {
-		return
-	}
-	if os.Getenv("CLUSTER_LOCK_TESTS") == "1" {
-		log.Warnf("This test does not require using a cluster lock. Cluster lock is enabled so this test is disabled. " +
-			"To enable, unset CLUSTER_LOCK_TESTS in your env.")
+	if os.Getenv("KUBE2E_TESTS") != "helm" {
+		log.Warnf("This test is disabled. To enable, set KUBE2E_TESTS to 'helm' in your env.")
 		return
 	}
 	helpers.RegisterGlooDebugLogPrintHandlerAndClearLogs()
@@ -40,6 +36,7 @@ func TestHelm(t *testing.T) {
 }
 
 var testHelper *helper.SoloTestHelper
+var ctx, cancel = context.WithCancel(context.Background())
 
 var _ = BeforeSuite(StartTestHelper)
 var _ = AfterSuite(TearDownTestHelper)
@@ -73,16 +70,19 @@ func StartTestHelper() {
 		"--version", "v1.3.0")
 
 	// Check that everything is OK
-	kube2e.GlooctlCheckEventuallyHealthy(testHelper, "40s")
+	kube2e.GlooctlCheckEventuallyHealthy(1, testHelper, "90s")
 
 }
 
 func TearDownTestHelper() {
-	Expect(testHelper).ToNot(BeNil())
-	err := testHelper.UninstallGloo()
-	Expect(err).NotTo(HaveOccurred())
-	_, err = kube2e.MustKubeClient().CoreV1().Namespaces().Get(testHelper.InstallNamespace, metav1.GetOptions{})
-	Expect(apierrors.IsNotFound(err)).To(BeTrue())
+	if os.Getenv("TEAR_DOWN") == "true" {
+		Expect(testHelper).ToNot(BeNil())
+		err := testHelper.UninstallGloo()
+		Expect(err).NotTo(HaveOccurred())
+		_, err = kube2e.MustKubeClient().CoreV1().Namespaces().Get(ctx, testHelper.InstallNamespace, metav1.GetOptions{})
+		Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		cancel()
+	}
 }
 
 func runAndCleanCommand(name string, arg ...string) []byte {

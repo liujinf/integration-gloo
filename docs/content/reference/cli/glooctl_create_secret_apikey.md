@@ -8,7 +8,7 @@ Create an ApiKey secret with the given name (Enterprise)
 
 ### Synopsis
 
-Create an ApiKey secret with the given name. The ApiKey secret contains a single apikey. This is an enterprise-only feature.
+Create an ApiKey secret with the given name. The ApiKey secret contains a single apikey. This is an enterprise-only feature. The API key will be stored is the secret data under the key `api-key`.
 
 ```
 glooctl create secret apikey [flags]

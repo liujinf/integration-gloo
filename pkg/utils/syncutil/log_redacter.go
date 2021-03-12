@@ -1,14 +1,19 @@
 package syncutil
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
 
+	"github.com/golang/protobuf/proto"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	"github.com/solo-io/protoc-gen-ext/pkg/redaction"
 )
 
-const Redacted = "[REDACTED]"
+const (
+	Redacted = "[REDACTED]"
+)
 
 // stringify the contents of the snapshot
 //
@@ -52,4 +57,26 @@ func StringifySnapshot(snapshot interface{}) string {
 	}
 
 	return stringBuilder.String()
+}
+
+type ProtoRedactor interface {
+	// Build a JSON string representation of the proto message, zeroing-out all fields in the proto that match some criteria
+	BuildRedactedJsonString(message proto.Message) (string, error)
+}
+
+// build a ProtoRedactor that zeroes out fields that have the given struct tag set to the given value
+func NewProtoRedactor() ProtoRedactor {
+	return &protoRedactor{}
+}
+
+type protoRedactor struct{}
+
+func (p *protoRedactor) BuildRedactedJsonString(message proto.Message) (string, error) {
+	// make a clone so that we can mutate it and zero-out fields
+	clone := proto.Clone(message)
+
+	redaction.Redact(proto.MessageReflect(clone))
+
+	bytes, err := json.Marshal(clone)
+	return string(bytes), err
 }

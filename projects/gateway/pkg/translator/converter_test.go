@@ -1,7 +1,8 @@
 package translator_test
 
 import (
-	"github.com/gogo/protobuf/types"
+	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes/wrappers"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
@@ -10,24 +11,33 @@ import (
 	"github.com/solo-io/gloo/projects/gateway/pkg/translator"
 	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/core/matchers"
-	"github.com/solo-io/go-utils/testutils"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 	"github.com/solo-io/solo-kit/pkg/api/v2/reporter"
 )
 
 var _ = Describe("Route converter", func() {
 
-	DescribeTable("should reject bad config on a delegate route",
+	DescribeTable("should detect bad config on a delegate route",
 		func(route *v1.Route, expectedErr error) {
-			rv := translator.NewRouteConverter(nil, nil, reporter.ResourceReports{})
-			_, err := rv.ConvertVirtualService(
-				&v1.VirtualService{
-					VirtualHost: &v1.VirtualHost{
-						Routes: []*v1.Route{route},
-					},
+			reports := reporter.ResourceReports{}
+			vs := &v1.VirtualService{
+				Metadata: &core.Metadata{
+					Name:      "foo",
+					Namespace: "bar",
 				},
-			)
-			Expect(err).To(Equal(expectedErr))
+				VirtualHost: &v1.VirtualHost{
+					Routes: []*v1.Route{route},
+				},
+			}
+			rv := translator.NewRouteConverter(nil, nil)
+			_, err := rv.ConvertVirtualService(vs, reports)
+			Expect(err).NotTo(HaveOccurred())
+
+			// One error on the VS, one on the RT
+			Expect(reports).To(HaveLen(1))
+			_, vsReport := reports.Find("*v1.VirtualService", vs.Metadata.Ref())
+			Expect(vsReport.Errors).To(HaveOccurred())
+			Expect(vsReport.Errors).To(MatchError(ContainSubstring(expectedErr.Error())))
 		},
 
 		Entry("route has a regex matcher",
@@ -68,69 +78,6 @@ var _ = Describe("Route converter", func() {
 				},
 			},
 			translator.MissingPrefixErr,
-		),
-
-		Entry("route has header matchers",
-			&v1.Route{
-				Matchers: []*matchers.Matcher{{
-					PathSpecifier: &matchers.Matcher_Prefix{
-						Prefix: "/any",
-					},
-					Headers: []*matchers.HeaderMatcher{{}},
-				}},
-				Action: &v1.Route_DelegateAction{
-					DelegateAction: &v1.DelegateAction{
-						DelegationType: &v1.DelegateAction_Ref{
-							Ref: &core.ResourceRef{
-								Name: "any",
-							},
-						},
-					},
-				},
-			},
-			translator.HasHeaderMatcherErr,
-		),
-
-		Entry("route has method matchers",
-			&v1.Route{
-				Matchers: []*matchers.Matcher{{
-					PathSpecifier: &matchers.Matcher_Prefix{
-						Prefix: "/any",
-					},
-					Methods: []string{"any"},
-				}},
-				Action: &v1.Route_DelegateAction{
-					DelegateAction: &v1.DelegateAction{
-						DelegationType: &v1.DelegateAction_Ref{
-							Ref: &core.ResourceRef{
-								Name: "any",
-							},
-						},
-					},
-				},
-			},
-			translator.HasMethodMatcherErr,
-		),
-
-		Entry("route has query matchers",
-			&v1.Route{
-				Matchers: []*matchers.Matcher{{
-					PathSpecifier: &matchers.Matcher_Prefix{
-						Prefix: "/any",
-					},
-					QueryParameters: []*matchers.QueryParameterMatcher{{}},
-				}},
-				Action: &v1.Route_DelegateAction{
-					DelegateAction: &v1.DelegateAction{
-						DelegationType: &v1.DelegateAction_Ref{
-							Ref: &core.ResourceRef{
-								Name: "any",
-							},
-						},
-					},
-				},
-			},
-			translator.HasQueryMatcherErr,
 		),
 
 		Entry("route has multiple path prefix matchers",
@@ -181,7 +128,7 @@ var _ = Describe("Route converter", func() {
 					Matchers: []*matchers.Matcher{}, // empty list should default to '/'
 					Action:   &v1.Route_DirectResponseAction{},
 				}},
-				Metadata: core.Metadata{
+				Metadata: &core.Metadata{
 					Name: "any",
 				},
 			}
@@ -196,11 +143,91 @@ var _ = Describe("Route converter", func() {
 			rv := translator.NewRouteConverter(
 				translator.NewRouteTableSelector(v1.RouteTableList{&rt}),
 				translator.NewRouteTableIndexer(),
-				rpt,
 			)
-			converted, err := rv.ConvertVirtualService(vs)
+			converted, err := rv.ConvertVirtualService(vs, rpt)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(converted[0].Matchers[0]).To(Equal(defaults.DefaultMatcher()))
+		})
+
+		It("uses parent resource's namespace as default if namespace is omitted on routeAction with single upstream destination", func() {
+			route := &v1.Route{
+				Matchers: []*matchers.Matcher{{}}, // empty struct in list of size one should default to '/'
+				Action: &v1.Route_RouteAction{
+					RouteAction: &gloov1.RouteAction{
+						Destination: &gloov1.RouteAction_Single{
+							Single: &gloov1.Destination{
+								DestinationType: &gloov1.Destination_Upstream{
+									Upstream: &core.ResourceRef{
+										Name: "my-upstream",
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			rpt := reporter.ResourceReports{}
+			vs := &v1.VirtualService{
+				VirtualHost: &v1.VirtualHost{
+					Routes: []*v1.Route{route},
+				},
+				Metadata: &core.Metadata{
+					Namespace: "vs-ns",
+				},
+			}
+
+			rv := translator.NewRouteConverter(
+				translator.NewRouteTableSelector(v1.RouteTableList{}),
+				translator.NewRouteTableIndexer(),
+			)
+			converted, err := rv.ConvertVirtualService(vs, rpt)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(converted[0].GetRouteAction().GetSingle().GetUpstream().GetNamespace()).To(Equal("vs-ns"))
+		})
+
+		It("uses parent resource's namespace as default if namespace is omitted on routeAction with multi upstream destination", func() {
+			route := &v1.Route{
+				Matchers: []*matchers.Matcher{{}}, // empty struct in list of size one should default to '/'
+				Action: &v1.Route_RouteAction{
+					RouteAction: &gloov1.RouteAction{
+						Destination: &gloov1.RouteAction_Multi{
+							Multi: &gloov1.MultiDestination{
+								Destinations: []*gloov1.WeightedDestination{
+									{
+										Destination: &gloov1.Destination{
+											DestinationType: &gloov1.Destination_Upstream{
+												Upstream: &core.ResourceRef{
+													Name: "my-upstream",
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			rpt := reporter.ResourceReports{}
+			vs := &v1.VirtualService{
+				VirtualHost: &v1.VirtualHost{
+					Routes: []*v1.Route{route},
+				},
+				Metadata: &core.Metadata{
+					Namespace: "vs-ns",
+				},
+			}
+
+			rv := translator.NewRouteConverter(
+				translator.NewRouteTableSelector(v1.RouteTableList{}),
+				translator.NewRouteTableIndexer(),
+			)
+			converted, err := rv.ConvertVirtualService(vs, rpt)
+			Expect(err).NotTo(HaveOccurred())
+			dest0 := converted[0].GetRouteAction().GetMulti().GetDestinations()[0]
+			Expect(dest0.GetDestination().GetUpstream().GetNamespace()).To(Equal("vs-ns"))
 		})
 
 		It("builds correct route name when the parent route is named", func() {
@@ -232,14 +259,14 @@ var _ = Describe("Route converter", func() {
 					Matchers: []*matchers.Matcher{},
 					Action:   &v1.Route_RouteAction{},
 				}},
-				Metadata: core.Metadata{
+				Metadata: &core.Metadata{
 					Name: "any",
 				},
 			}
 
 			rpt := reporter.ResourceReports{}
 			vs := &v1.VirtualService{
-				Metadata: core.Metadata{Name: "vs1"},
+				Metadata: &core.Metadata{Name: "vs1"},
 				VirtualHost: &v1.VirtualHost{
 					Routes: []*v1.Route{route},
 				},
@@ -248,9 +275,8 @@ var _ = Describe("Route converter", func() {
 			rv := translator.NewRouteConverter(
 				translator.NewRouteTableSelector(v1.RouteTableList{&rt}),
 				translator.NewRouteTableIndexer(),
-				rpt,
 			)
-			converted, err := rv.ConvertVirtualService(vs)
+			converted, err := rv.ConvertVirtualService(vs, rpt)
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(converted).To(HaveLen(3))
@@ -287,14 +313,14 @@ var _ = Describe("Route converter", func() {
 					Matchers: []*matchers.Matcher{},
 					Action:   &v1.Route_RouteAction{},
 				}},
-				Metadata: core.Metadata{
+				Metadata: &core.Metadata{
 					Name: "any",
 				},
 			}
 
 			rpt := reporter.ResourceReports{}
 			vs := &v1.VirtualService{
-				Metadata: core.Metadata{Name: "vs1"},
+				Metadata: &core.Metadata{Name: "vs1"},
 				VirtualHost: &v1.VirtualHost{
 					Routes: []*v1.Route{route},
 				},
@@ -303,9 +329,8 @@ var _ = Describe("Route converter", func() {
 			rv := translator.NewRouteConverter(
 				translator.NewRouteTableSelector(v1.RouteTableList{&rt}),
 				translator.NewRouteTableIndexer(),
-				rpt,
 			)
-			converted, err := rv.ConvertVirtualService(vs)
+			converted, err := rv.ConvertVirtualService(vs, rpt)
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(converted).To(HaveLen(3))
@@ -313,64 +338,787 @@ var _ = Describe("Route converter", func() {
 			Expect(converted[1].Name).To(Equal(""))
 			Expect(converted[2].Name).To(Equal("vs:vs1_route:<unnamed>_rt:any_route:routeAction"))
 		})
+
+		Context("inheritance mode", func() {
+
+			var (
+				rtOnlyHeaders []*matchers.HeaderMatcher
+				vsOnlyHeaders []*matchers.HeaderMatcher
+				vs            *v1.VirtualService
+				rt            *v1.RouteTable
+				rv            translator.RouteConverter
+			)
+
+			BeforeEach(func() {
+				rtOnlyHeaders = []*matchers.HeaderMatcher{
+					{
+						Name:        "headername",
+						Value:       "headerval",
+						Regex:       false,
+						InvertMatch: false,
+					},
+				}
+				vsOnlyHeaders = []*matchers.HeaderMatcher{
+					{
+						Name:        "mismatchedheadername",
+						Value:       "mismatchedheaderval",
+						Regex:       false,
+						InvertMatch: false,
+					},
+				}
+
+				rt = &v1.RouteTable{
+					Metadata: &core.Metadata{
+						Name:      "rt",
+						Namespace: "default",
+					},
+					Routes: []*v1.Route{{
+						Name: "route-1",
+						Action: &v1.Route_DirectResponseAction{
+							DirectResponseAction: &gloov1.DirectResponseAction{
+								Status: 200,
+								Body:   "foo",
+							},
+						},
+					}},
+				}
+
+				vs = &v1.VirtualService{
+					Metadata: &core.Metadata{
+						Name:      "vs",
+						Namespace: "default",
+					},
+					VirtualHost: &v1.VirtualHost{
+						Routes: []*v1.Route{
+							{
+								Matchers: []*matchers.Matcher{{
+									Headers: vsOnlyHeaders,
+									PathSpecifier: &matchers.Matcher_Prefix{
+										Prefix: "/foo",
+									},
+								}},
+								InheritableMatchers: &wrappers.BoolValue{Value: true},
+								Action: &v1.Route_DelegateAction{
+									DelegateAction: &v1.DelegateAction{
+										DelegationType: &v1.DelegateAction_Ref{
+											Ref: &core.ResourceRef{
+												Name:      "rt",
+												Namespace: "default",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+
+				rv = translator.NewRouteConverter(
+					translator.NewRouteTableSelector(v1.RouteTableList{rt}),
+					translator.NewRouteTableIndexer(),
+				)
+			})
+
+			It("accepts the route table if its parent has different headers but inheritance is on", func() {
+
+				rt.Routes[0].Matchers = []*matchers.Matcher{
+					{
+						PathSpecifier: &matchers.Matcher_Prefix{
+							Prefix: "/foo/bar",
+						},
+						Headers: rtOnlyHeaders,
+					},
+					{
+						PathSpecifier: &matchers.Matcher_Prefix{
+							Prefix: "/foo/baz",
+						},
+						Headers: rtOnlyHeaders,
+					},
+				}
+
+				expectedHeaders := append(rtOnlyHeaders, vsOnlyHeaders...)
+
+				rpt := reporter.ResourceReports{}
+				converted, err := rv.ConvertVirtualService(vs, rpt)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(converted).To(HaveLen(1))
+				Expect(rpt).To(HaveLen(0))
+
+				Expect(converted[0].Matchers).To(HaveLen(2))
+				Expect(converted[0].Matchers[0].Headers).To(ConsistOf(expectedHeaders))
+				Expect(converted[0].Matchers[1].Headers).To(ConsistOf(expectedHeaders))
+
+				// zero out headers since we asserted them above
+				// ConsistOf doesn't handle the nested objects, so we need to assert the headers for
+				// each matcher (above) separate from the matchers
+				converted[0].Matchers[0].Headers = nil
+				converted[0].Matchers[1].Headers = nil
+
+				Expect(converted[0].Matchers).To(BeEquivalentTo(
+					[]*matchers.Matcher{
+						{
+							PathSpecifier: &matchers.Matcher_Prefix{Prefix: "/foo/bar"},
+							// asserted above
+							//Headers:       expectedHeaders,
+						},
+						{
+							PathSpecifier: &matchers.Matcher_Prefix{Prefix: "/foo/baz"},
+							// asserted above
+							//Headers:       expectedHeaders,
+						},
+					},
+				))
+			})
+
+			It("accepts the route table if its parent has different headers but inheritance is on -- nested route tables", func() {
+
+				rt = buildRouteTableWithDelegateAction("rt", "default", "/foo/bar", nil,
+					&v1.DelegateAction{
+						DelegationType: &v1.DelegateAction_Ref{
+							Ref: &core.ResourceRef{
+								Name:      "rt-child",
+								Namespace: "default",
+							},
+						},
+					},
+				)
+				rt.Routes[0].Matchers[0].Headers = rtOnlyHeaders
+
+				rt2 := buildRouteTableWithDelegateAction("rt-child", "default", "/foo/bar/baz", nil,
+					&v1.DelegateAction{
+						DelegationType: &v1.DelegateAction_Ref{
+							Ref: &core.ResourceRef{
+								Name:      "rt-grandchild",
+								Namespace: "default",
+							},
+						},
+					},
+				)
+				rt3 := buildRouteTableWithSimpleAction("rt-grandchild", "default", "/foo/bar/baz/quz", nil)
+
+				rv = translator.NewRouteConverter(
+					translator.NewRouteTableSelector(v1.RouteTableList{rt, rt2, rt3}),
+					translator.NewRouteTableIndexer(),
+				)
+
+				expectedHeaders := append(rtOnlyHeaders, vsOnlyHeaders...)
+
+				rpt := reporter.ResourceReports{}
+				converted, err := rv.ConvertVirtualService(vs, rpt)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(converted).To(HaveLen(1))
+				Expect(rpt).To(HaveLen(0))
+
+				Expect(converted[0].Matchers).To(HaveLen(1))
+				Expect(converted[0].Matchers[0].Headers).To(ConsistOf(expectedHeaders))
+
+				// zero out headers since we asserted them above
+				// ConsistOf doesn't handle the nested objects, so we need to assert the headers for
+				// each matcher (above) separate from the matchers
+				converted[0].Matchers[0].Headers = nil
+
+				Expect(converted[0].Matchers).To(ConsistOf(
+					[]*matchers.Matcher{
+						{
+							PathSpecifier: &matchers.Matcher_Prefix{Prefix: "/foo/bar/baz/quz"},
+							// asserted above
+							// Headers:       expectedHeaders,
+						},
+					},
+				))
+			})
+
+			It("inherits route config from parent", func() {
+
+				rt = buildRouteTableWithSimpleAction("rt", "default", "/bar", nil)
+
+				rv = translator.NewRouteConverter(
+					translator.NewRouteTableSelector(v1.RouteTableList{rt}),
+					translator.NewRouteTableIndexer(),
+				)
+
+				// parent has /foo matcher
+				Expect(vs.VirtualHost.GetRoutes()).To(HaveLen(1))
+				Expect(vs.VirtualHost.GetRoutes()[0].Matchers).To(HaveLen(1))
+				Expect(vs.VirtualHost.GetRoutes()[0].Matchers[0].GetPrefix()).To(Equal("/foo"))
+
+				// but child has /bar matcher
+				Expect(rt.GetRoutes()).To(HaveLen(1))
+				Expect(rt.GetRoutes()[0].Matchers).To(HaveLen(1))
+				Expect(rt.GetRoutes()[0].Matchers[0].GetPrefix()).To(Equal("/bar"))
+
+				// with inheritable path matchers, the parent matcher will trump any child config
+				vs.VirtualHost.Routes[0].InheritablePathMatchers = &wrappers.BoolValue{Value: true}
+
+				rpt := reporter.ResourceReports{}
+				converted, err := rv.ConvertVirtualService(vs, rpt)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(converted).To(HaveLen(1))
+				Expect(rpt).To(HaveLen(0))
+
+				Expect(converted[0].Matchers).To(HaveLen(1))
+				Expect(converted[0].Matchers[0].GetPrefix()).To(Equal("/foo"))
+			})
+
+			It("child route inheritance config overrides parent route inheritance config", func() {
+
+				vs.VirtualHost.Routes[0].InheritableMatchers = &wrappers.BoolValue{Value: false}
+
+				rt = buildRouteTableWithSimpleAction("rt", "default", "/bar", nil)
+
+				rv = translator.NewRouteConverter(
+					translator.NewRouteTableSelector(v1.RouteTableList{rt}),
+					translator.NewRouteTableIndexer(),
+				)
+
+				// parent has /foo matcher
+				Expect(vs.VirtualHost.GetRoutes()).To(HaveLen(1))
+				Expect(vs.VirtualHost.GetRoutes()[0].Matchers).To(HaveLen(1))
+				Expect(vs.VirtualHost.GetRoutes()[0].Matchers[0].GetPrefix()).To(Equal("/foo"))
+
+				// but child has /bar matcher
+				Expect(rt.GetRoutes()).To(HaveLen(1))
+				Expect(rt.GetRoutes()[0].Matchers).To(HaveLen(1))
+				Expect(rt.GetRoutes()[0].Matchers[0].GetPrefix()).To(Equal("/bar"))
+
+				// with inheritable matchers, the parent matcher will trump any child config
+				rt.Routes[0].InheritablePathMatchers = &wrappers.BoolValue{Value: true}
+				rt.Routes[0].InheritableMatchers = &wrappers.BoolValue{Value: true}
+
+				rpt := reporter.ResourceReports{}
+				converted, err := rv.ConvertVirtualService(vs, rpt)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(converted).To(HaveLen(1))
+				Expect(rpt).To(HaveLen(0))
+
+				Expect(converted[0].Matchers).To(HaveLen(1))
+				Expect(converted[0].Matchers[0].GetPrefix()).To(Equal("/foo"))
+			})
+
+		})
 	})
 
 	When("bad route table config", func() {
 
-		It("returns error if route table has a matcher that doesn't have the delegate prefix", func() {
-			ref := core.ResourceRef{
-				Name: "rt",
-			}
-			route := &v1.Route{
-				Matchers: []*matchers.Matcher{{
-					PathSpecifier: &matchers.Matcher_Prefix{
-						Prefix: "/foo",
+		var (
+			vs *v1.VirtualService
+			rt *v1.RouteTable
+			rv translator.RouteConverter
+		)
+
+		BeforeEach(func() {
+			rt = &v1.RouteTable{
+				Metadata: &core.Metadata{
+					Name:      "rt",
+					Namespace: "default",
+				},
+				Routes: []*v1.Route{{
+					Name: "route-1",
+					Action: &v1.Route_DirectResponseAction{
+						DirectResponseAction: &gloov1.DirectResponseAction{
+							Status: 200,
+							Body:   "foo",
+						},
 					},
 				}},
-				Action: &v1.Route_DelegateAction{
-					DelegateAction: &v1.DelegateAction{
-						DelegationType: &v1.DelegateAction_Ref{
-							Ref: &ref,
+			}
+
+			vs = &v1.VirtualService{
+				Metadata: &core.Metadata{
+					Name:      "vs",
+					Namespace: "default",
+				},
+				VirtualHost: &v1.VirtualHost{
+					Routes: []*v1.Route{
+						{
+							Matchers: []*matchers.Matcher{{
+								PathSpecifier: &matchers.Matcher_Prefix{
+									Prefix: "/foo",
+								},
+							}},
+							Action: &v1.Route_DelegateAction{
+								DelegateAction: &v1.DelegateAction{
+									DelegationType: &v1.DelegateAction_Ref{
+										Ref: &core.ResourceRef{
+											Name:      "rt",
+											Namespace: "default",
+										},
+									},
+								},
+							},
 						},
 					},
 				},
 			}
-			rt := v1.RouteTable{
-				Routes: []*v1.Route{{
-					Matchers: []*matchers.Matcher{
+
+			rv = translator.NewRouteConverter(
+				translator.NewRouteTableSelector(v1.RouteTableList{rt}),
+				translator.NewRouteTableIndexer(),
+			)
+		})
+
+		When("route table has a matcher that doesn't match the prefix of the parent route", func() {
+			It("reports error on the route table and on the virtual service", func() {
+				rt.Routes[0].Matchers = []*matchers.Matcher{
+					{
+						PathSpecifier: &matchers.Matcher_Prefix{
+							Prefix: "/foo/bar",
+						},
+					},
+					{
+						PathSpecifier: &matchers.Matcher_Prefix{
+							Prefix: "/invalid",
+						},
+					},
+				}
+
+				rpt := reporter.ResourceReports{}
+				converted, err := rv.ConvertVirtualService(vs, rpt)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(converted).To(BeNil())
+				Expect(rpt).To(HaveLen(2))
+
+				expectedErr := translator.InvalidRouteTableForDelegatePrefixErr("/foo", "/invalid").Error()
+
+				_, vsReport := rpt.Find("*v1.VirtualService", vs.Metadata.Ref())
+				Expect(vsReport.Errors).To(MatchError(ContainSubstring(expectedErr)))
+
+				_, rtReport := rpt.Find("*v1.RouteTable", rt.Metadata.Ref())
+				Expect(rtReport.Errors).To(MatchError(ContainSubstring(expectedErr)))
+			})
+		})
+
+		When("route table has a matcher case sensitivity that doesn't match the prefix case sensitivity of the parent route", func() {
+			It("reports error on the route table and on the virtual service", func() {
+				rtCaseSensitivity := &wrappers.BoolValue{Value: false}
+				rt.Routes[0].Matchers = []*matchers.Matcher{
+					{
+						PathSpecifier: &matchers.Matcher_Prefix{
+							Prefix: "/foo/bar",
+						},
+						CaseSensitive: rtCaseSensitivity,
+					},
+				}
+
+				rpt := reporter.ResourceReports{}
+				converted, err := rv.ConvertVirtualService(vs, rpt)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(converted).To(BeNil())
+				Expect(rpt).To(HaveLen(2))
+
+				expectedErr := translator.InvalidRouteTableForDelegateCaseSensitivePathMatchErr(rtCaseSensitivity, nil).Error()
+
+				_, vsReport := rpt.Find("*v1.VirtualService", vs.Metadata.Ref())
+				Expect(vsReport.Errors).To(MatchError(ContainSubstring(expectedErr)))
+
+				_, rtReport := rpt.Find("*v1.RouteTable", rt.Metadata.Ref())
+				Expect(rtReport.Errors).To(MatchError(ContainSubstring(expectedErr)))
+			})
+		})
+
+		When("route table has headers that don't match the headers of the parent route", func() {
+
+			var (
+				headers []*matchers.HeaderMatcher
+			)
+
+			BeforeEach(func() {
+				headers = []*matchers.HeaderMatcher{
+					{
+						Name:        "headername",
+						Value:       "headerval",
+						Regex:       false,
+						InvertMatch: false,
+					},
+				}
+			})
+
+			It("accepts the route table if its parent has no headers", func() {
+				rt.Routes[0].Matchers = []*matchers.Matcher{
+					{
+						PathSpecifier: &matchers.Matcher_Prefix{
+							Prefix: "/foo/bar",
+						},
+						Headers: headers,
+					},
+					{
+						PathSpecifier: &matchers.Matcher_Prefix{
+							Prefix: "/foo/baz",
+						},
+						Headers: headers,
+					},
+				}
+
+				rpt := reporter.ResourceReports{}
+				converted, err := rv.ConvertVirtualService(vs, rpt)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(converted).To(HaveLen(1))
+				Expect(rpt).To(HaveLen(0))
+				Expect(converted[0].Matchers).To(ConsistOf(
+					[]*matchers.Matcher{
+						{
+							PathSpecifier: &matchers.Matcher_Prefix{Prefix: "/foo/bar"},
+							Headers:       headers,
+						},
+						{
+							PathSpecifier: &matchers.Matcher_Prefix{Prefix: "/foo/baz"},
+							Headers:       headers,
+						},
+					},
+				))
+			})
+
+			Context("virtual service route has headers", func() {
+
+				BeforeEach(func() {
+					vs.VirtualHost.Routes[0].Matchers[0].Headers = headers
+				})
+
+				It("reports error on the route table and on the virtual service if virtual service has headers that aren't on the route table", func() {
+
+					rt.Routes[0].Matchers = []*matchers.Matcher{
 						{
 							PathSpecifier: &matchers.Matcher_Prefix{
 								Prefix: "/foo/bar",
 							},
+							Headers: headers,
 						},
 						{
 							PathSpecifier: &matchers.Matcher_Prefix{
-								Prefix: "/invalid",
+								Prefix: "/foo/baz",
 							},
-						}},
-				}},
-				Metadata: core.Metadata{
-					Name: "rt",
-				},
-			}
+							// This matcher is missing headers that were specified on the parent route, thus should error
+						},
+					}
 
-			rpt := reporter.ResourceReports{}
-			vs := &v1.VirtualService{
-				VirtualHost: &v1.VirtualHost{
-					Routes: []*v1.Route{route},
-				},
-			}
+					rpt := reporter.ResourceReports{}
+					converted, err := rv.ConvertVirtualService(vs, rpt)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(converted).To(BeNil())
+					Expect(rpt).To(HaveLen(2))
 
-			rv := translator.NewRouteConverter(
-				translator.NewRouteTableSelector(v1.RouteTableList{&rt}),
-				translator.NewRouteTableIndexer(),
-				rpt,
+					expectedErr := translator.InvalidRouteTableForDelegateHeadersErr(headers, []*matchers.HeaderMatcher{}).Error()
+
+					_, vsReport := rpt.Find("*v1.VirtualService", vs.Metadata.Ref())
+					Expect(vsReport.Errors).To(MatchError(ContainSubstring(expectedErr)))
+
+					_, rtReport := rpt.Find("*v1.RouteTable", rt.Metadata.Ref())
+					Expect(rtReport.Errors).To(MatchError(ContainSubstring(expectedErr)))
+				})
+
+				It("reports error on the route table and on the virtual service if virtual service has headers that aren't equal on the route table", func() {
+
+					mismatchedHeader := proto.Clone(headers[0]).(*matchers.HeaderMatcher)
+					mismatchedHeader.Value = mismatchedHeader.Value + "invalid"
+
+					rt.Routes[0].Matchers = []*matchers.Matcher{
+						{
+							PathSpecifier: &matchers.Matcher_Prefix{
+								Prefix: "/foo/bar",
+							},
+							Headers: headers,
+						},
+						{
+							PathSpecifier: &matchers.Matcher_Prefix{
+								Prefix: "/foo/baz",
+							},
+							Headers: []*matchers.HeaderMatcher{mismatchedHeader},
+						},
+					}
+
+					rpt := reporter.ResourceReports{}
+					converted, err := rv.ConvertVirtualService(vs, rpt)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(converted).To(BeNil())
+					Expect(rpt).To(HaveLen(2))
+
+					expectedErr := translator.InvalidRouteTableForDelegateHeadersErr(headers, []*matchers.HeaderMatcher{mismatchedHeader}).Error()
+
+					_, vsReport := rpt.Find("*v1.VirtualService", vs.Metadata.Ref())
+					Expect(vsReport.Errors).To(MatchError(ContainSubstring(expectedErr)))
+
+					_, rtReport := rpt.Find("*v1.RouteTable", rt.Metadata.Ref())
+					Expect(rtReport.Errors).To(MatchError(ContainSubstring(expectedErr)))
+				})
+
+			})
+
+		})
+
+		When("route table has query parameters that don't match the query parameters of the parent route", func() {
+
+			var (
+				queryParams []*matchers.QueryParameterMatcher
 			)
-			converted, err := rv.ConvertVirtualService(vs)
-			Expect(err).NotTo(HaveOccurred())
-			expectedErr := translator.InvalidRouteTableForDelegateErr("/foo", "/invalid").Error()
-			Expect(rpt.Validate().Error()).To(ContainSubstring(expectedErr))
-			Expect(converted).To(BeNil())
+
+			BeforeEach(func() {
+				queryParams = []*matchers.QueryParameterMatcher{
+					{
+						Name:  "queryparamname",
+						Value: "queryparamval",
+						Regex: false,
+					},
+				}
+			})
+
+			It("accepts the route table if its parent has no query params", func() {
+				rt.Routes[0].Matchers = []*matchers.Matcher{
+					{
+						PathSpecifier: &matchers.Matcher_Prefix{
+							Prefix: "/foo/bar",
+						},
+						QueryParameters: queryParams,
+					},
+					{
+						PathSpecifier: &matchers.Matcher_Prefix{
+							Prefix: "/foo/baz",
+						},
+						QueryParameters: queryParams,
+					},
+				}
+
+				rpt := reporter.ResourceReports{}
+				converted, err := rv.ConvertVirtualService(vs, rpt)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(converted).To(HaveLen(1))
+				Expect(rpt).To(HaveLen(0))
+				Expect(converted[0].Matchers).To(ConsistOf(
+					[]*matchers.Matcher{
+						{
+							PathSpecifier:   &matchers.Matcher_Prefix{Prefix: "/foo/bar"},
+							QueryParameters: queryParams,
+						},
+						{
+							PathSpecifier:   &matchers.Matcher_Prefix{Prefix: "/foo/baz"},
+							QueryParameters: queryParams,
+						},
+					},
+				))
+			})
+
+			Context("virtual service route has query params", func() {
+
+				BeforeEach(func() {
+					vs.VirtualHost.Routes[0].Matchers[0].QueryParameters = queryParams
+				})
+
+				It("reports error on the route table and on the virtual service if virtual service has query params that aren't on the route table", func() {
+
+					rt.Routes[0].Matchers = []*matchers.Matcher{
+						{
+							PathSpecifier: &matchers.Matcher_Prefix{
+								Prefix: "/foo/bar",
+							},
+							QueryParameters: queryParams,
+						},
+						{
+							PathSpecifier: &matchers.Matcher_Prefix{
+								Prefix: "/foo/baz",
+							},
+							// This matcher is missing query params that were specified on the parent route, thus should error
+						},
+					}
+
+					rpt := reporter.ResourceReports{}
+					converted, err := rv.ConvertVirtualService(vs, rpt)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(converted).To(BeNil())
+					Expect(rpt).To(HaveLen(2))
+
+					expectedErr := translator.InvalidRouteTableForDelegateQueryParamsErr(queryParams, []*matchers.QueryParameterMatcher{}).Error()
+
+					_, vsReport := rpt.Find("*v1.VirtualService", vs.Metadata.Ref())
+					Expect(vsReport.Errors).To(MatchError(ContainSubstring(expectedErr)))
+
+					_, rtReport := rpt.Find("*v1.RouteTable", rt.Metadata.Ref())
+					Expect(rtReport.Errors).To(MatchError(ContainSubstring(expectedErr)))
+				})
+
+				It("reports error on the route table and on the virtual service if virtual service has query params that aren't equal on the route table", func() {
+
+					mismatchedQueryParams := proto.Clone(queryParams[0]).(*matchers.QueryParameterMatcher)
+					mismatchedQueryParams.Value = mismatchedQueryParams.Value + "invalid"
+
+					rt.Routes[0].Matchers = []*matchers.Matcher{
+						{
+							PathSpecifier: &matchers.Matcher_Prefix{
+								Prefix: "/foo/bar",
+							},
+							QueryParameters: queryParams,
+						},
+						{
+							PathSpecifier: &matchers.Matcher_Prefix{
+								Prefix: "/foo/baz",
+							},
+							QueryParameters: []*matchers.QueryParameterMatcher{mismatchedQueryParams},
+						},
+					}
+
+					rpt := reporter.ResourceReports{}
+					converted, err := rv.ConvertVirtualService(vs, rpt)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(converted).To(BeNil())
+					Expect(rpt).To(HaveLen(2))
+
+					expectedErr := translator.InvalidRouteTableForDelegateQueryParamsErr(queryParams, []*matchers.QueryParameterMatcher{mismatchedQueryParams}).Error()
+
+					_, vsReport := rpt.Find("*v1.VirtualService", vs.Metadata.Ref())
+					Expect(vsReport.Errors).To(MatchError(ContainSubstring(expectedErr)))
+
+					_, rtReport := rpt.Find("*v1.RouteTable", rt.Metadata.Ref())
+					Expect(rtReport.Errors).To(MatchError(ContainSubstring(expectedErr)))
+				})
+			})
+
+		})
+
+		When("route table has methods that don't match the methods of the parent route", func() {
+
+			var (
+				methods []string
+			)
+
+			BeforeEach(func() {
+				methods = []string{"GET", "POST"}
+			})
+
+			It("accepts the route table if its parent has no methods", func() {
+				rt.Routes[0].Matchers = []*matchers.Matcher{
+					{
+						PathSpecifier: &matchers.Matcher_Prefix{
+							Prefix: "/foo/bar",
+						},
+						Methods: methods,
+					},
+					{
+						PathSpecifier: &matchers.Matcher_Prefix{
+							Prefix: "/foo/baz",
+						},
+						Methods: methods,
+					},
+				}
+
+				rpt := reporter.ResourceReports{}
+				converted, err := rv.ConvertVirtualService(vs, rpt)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(converted).To(HaveLen(1))
+				Expect(rpt).To(HaveLen(0))
+				Expect(converted[0].Matchers).To(ConsistOf(
+					[]*matchers.Matcher{
+						{
+							PathSpecifier: &matchers.Matcher_Prefix{Prefix: "/foo/bar"},
+							Methods:       methods,
+						},
+						{
+							PathSpecifier: &matchers.Matcher_Prefix{Prefix: "/foo/baz"},
+							Methods:       methods,
+						},
+					},
+				))
+			})
+
+			Context("virtual service route has methods", func() {
+
+				BeforeEach(func() {
+					vs.VirtualHost.Routes[0].Matchers[0].Methods = methods
+				})
+
+				It("reports error on the route table and on the virtual service if virtual service has methods that aren't on the route table", func() {
+
+					rt.Routes[0].Matchers = []*matchers.Matcher{
+						{
+							PathSpecifier: &matchers.Matcher_Prefix{
+								Prefix: "/foo/bar",
+							},
+							Methods: methods,
+						},
+						{
+							PathSpecifier: &matchers.Matcher_Prefix{
+								Prefix: "/foo/baz",
+							},
+							// This matcher is missing methods that were specified on the parent route, thus should error
+						},
+					}
+
+					rpt := reporter.ResourceReports{}
+					converted, err := rv.ConvertVirtualService(vs, rpt)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(converted).To(BeNil())
+					Expect(rpt).To(HaveLen(2))
+
+					expectedErr := translator.InvalidRouteTableForDelegateMethodsErr(methods, []string{}).Error()
+
+					_, vsReport := rpt.Find("*v1.VirtualService", vs.Metadata.Ref())
+					Expect(vsReport.Errors).To(MatchError(ContainSubstring(expectedErr)))
+
+					_, rtReport := rpt.Find("*v1.RouteTable", rt.Metadata.Ref())
+					Expect(rtReport.Errors).To(MatchError(ContainSubstring(expectedErr)))
+				})
+
+				It("reports error on the route table and on the virtual service if virtual service has methods that aren't equal on the route table", func() {
+
+					rt.Routes[0].Matchers = []*matchers.Matcher{
+						{
+							PathSpecifier: &matchers.Matcher_Prefix{
+								Prefix: "/foo/bar",
+							},
+							Methods: methods,
+						},
+						{
+							PathSpecifier: &matchers.Matcher_Prefix{
+								Prefix: "/foo/baz",
+							},
+							// only get the first method, not a superset of parent methods
+							Methods: []string{methods[0]},
+						},
+					}
+
+					rpt := reporter.ResourceReports{}
+					converted, err := rv.ConvertVirtualService(vs, rpt)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(converted).To(BeNil())
+					Expect(rpt).To(HaveLen(2))
+
+					expectedErr := translator.InvalidRouteTableForDelegateMethodsErr(methods, []string{methods[0]}).Error()
+
+					_, vsReport := rpt.Find("*v1.VirtualService", vs.Metadata.Ref())
+					Expect(vsReport.Errors).To(MatchError(ContainSubstring(expectedErr)))
+
+					_, rtReport := rpt.Find("*v1.RouteTable", rt.Metadata.Ref())
+					Expect(rtReport.Errors).To(MatchError(ContainSubstring(expectedErr)))
+				})
+			})
+
+		})
+
+		When("route table has no matchers and the parent route matcher is not the default one", func() {
+			It("reports error on the route table and on the virtual service", func() {
+				rpt := reporter.ResourceReports{}
+				converted, err := rv.ConvertVirtualService(vs, rpt)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(converted).To(BeNil())
+				Expect(rpt).To(HaveLen(2))
+
+				expectedErr := translator.InvalidRouteTableForDelegatePrefixErr("/foo", "/").Error()
+
+				_, vsReport := rpt.Find("*v1.VirtualService", vs.Metadata.Ref())
+				Expect(vsReport.Errors).To(MatchError(ContainSubstring(expectedErr)))
+
+				_, rtReport := rpt.Find("*v1.RouteTable", rt.Metadata.Ref())
+				Expect(rtReport.Errors).To(MatchError(ContainSubstring(expectedErr)))
+			})
+		})
+
+		When("route table has no matchers but the parent route matcher is the default one", func() {
+			It("reports no errors", func() {
+				vs.VirtualHost.Routes[0].Matchers = []*matchers.Matcher{defaults.DefaultMatcher()}
+
+				rpt := reporter.ResourceReports{}
+				converted, err := rv.ConvertVirtualService(vs, rpt)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(converted).To(HaveLen(1))
+				Expect(rpt).To(HaveLen(0))
+			})
 		})
 	})
 
@@ -385,7 +1133,7 @@ var _ = Describe("Route converter", func() {
 
 		buildVirtualService := func(rtSelector *v1.RouteTableSelector) *v1.VirtualService {
 			return &v1.VirtualService{
-				Metadata: core.Metadata{
+				Metadata: &core.Metadata{
 					Name:      "vs-1",
 					Namespace: "ns-1",
 				},
@@ -421,7 +1169,6 @@ var _ = Describe("Route converter", func() {
 			visitor = translator.NewRouteConverter(
 				translator.NewRouteTableSelector(allRouteTables),
 				translator.NewRouteTableIndexer(),
-				reports,
 			)
 		})
 
@@ -441,7 +1188,7 @@ var _ = Describe("Route converter", func() {
 					Namespaces: []string{"ns-1"},
 				})
 
-				converted, err := visitor.ConvertVirtualService(vs)
+				converted, err := visitor.ConvertVirtualService(vs, reports)
 
 				Expect(err).NotTo(HaveOccurred())
 				Expect(converted).To(HaveLen(4))
@@ -453,10 +1200,8 @@ var _ = Describe("Route converter", func() {
 				Expect(reports).NotTo(BeNil())
 				_, vsReport := reports.Find("*v1.VirtualService", vs.Metadata.Ref())
 				Expect(vsReport).NotTo(BeNil())
-				Expect(vsReport.Warnings).To(HaveLen(1))
-				Expect(vsReport.Warnings).To(ConsistOf(
-					translator.RouteTablesWithSameWeightErr(allRouteTables, 0).Error(),
-				))
+				Expect(vsReport.Errors).To(BeNil())
+				Expect(vsReport.Warnings).To(BeNil())
 			})
 		})
 
@@ -468,7 +1213,7 @@ var _ = Describe("Route converter", func() {
 					buildRouteTableWithSimpleAction("rt-2", "ns-1", "/foo/2", map[string]string{"foo": "bar", "team": "dev"}),
 					buildRouteTableWithSimpleAction("rt-3", "ns-2", "/foo/3", map[string]string{"foo": "bar"}),
 					buildRouteTableWithSimpleAction("rt-4", "ns-3", "/foo/4", map[string]string{"foo": "baz"}),
-					buildRouteTableWithDelegateAction("rt-5", "ns-4", "/foo", nil,
+					buildRouteTableWithSelector("rt-5", "ns-4", "/foo", nil,
 						&v1.RouteTableSelector{
 							Labels:     map[string]string{"team": "dev"},
 							Namespaces: []string{"ns-1", "ns-5"},
@@ -480,7 +1225,7 @@ var _ = Describe("Route converter", func() {
 			DescribeTable("selector works as expected",
 				func(selector *v1.RouteTableSelector, expectedPrefixMatchers []string) {
 					vs = buildVirtualService(selector)
-					converted, err := visitor.ConvertVirtualService(vs)
+					converted, err := visitor.ConvertVirtualService(vs, reports)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(converted).To(HaveLen(len(expectedPrefixMatchers)))
 					for i, prefix := range expectedPrefixMatchers {
@@ -536,7 +1281,7 @@ var _ = Describe("Route converter", func() {
 				func(selector *v1.RouteTableSelector, routeName string, expectedNames []string) {
 
 					vs = buildVirtualServiceWithName(selector, routeName)
-					converted, err := visitor.ConvertVirtualService(vs)
+					converted, err := visitor.ConvertVirtualService(vs, reports)
 
 					Expect(err).NotTo(HaveOccurred())
 					Expect(converted).To(HaveLen(len(expectedNames)))
@@ -581,52 +1326,126 @@ var _ = Describe("Route converter", func() {
 
 		When("there are circular references", func() {
 
-			BeforeEach(func() {
-				allRouteTables = v1.RouteTableList{
-					buildRouteTableWithDelegateAction("rt-0", "self", "/foo", nil,
+			Context("using a route table selector", func() {
+				BeforeEach(func() {
+					allRouteTables = v1.RouteTableList{
+						buildRouteTableWithSelector("rt-0", "self", "/foo", nil,
+							&v1.RouteTableSelector{
+								Namespaces: []string{"self"},
+							}),
+
+						buildRouteTableWithSelector("rt-1", "ns-1", "/foo", nil,
+							&v1.RouteTableSelector{
+								Namespaces: []string{"*"},
+								Labels:     map[string]string{"foo": "bar"},
+							}),
+						buildRouteTableWithSelector("rt-2", "ns-2", "/foo/1", map[string]string{"foo": "bar"},
+							&v1.RouteTableSelector{
+								Namespaces: []string{"ns-3"},
+							}),
+						// This one points back to rt-1
+						buildRouteTableWithSelector("rt-3", "ns-3", "/foo/1/2", nil,
+							&v1.RouteTableSelector{
+								Namespaces: []string{"ns-1"},
+							}),
+					}
+				})
+
+				DescribeTable("delegation cycles are detected",
+					func(selector *v1.RouteTableSelector, expectedCycleInfoMessage string, offendingTable core.Metadata) {
+						vs = buildVirtualService(selector)
+						_, err := visitor.ConvertVirtualService(vs, reports)
+						Expect(err).NotTo(HaveOccurred())
+
+						expectedErrStr := translator.DelegationCycleErr(expectedCycleInfoMessage).Error()
+
+						// Verify that error is reported on Route Table and VS
+						Expect(reports).To(HaveLen(2))
+						_, rtReport := reports.Find("*v1.RouteTable", offendingTable.Ref())
+						Expect(rtReport.Errors).To(HaveOccurred())
+						Expect(rtReport.Errors).To(MatchError(ContainSubstring(expectedErrStr)))
+						_, vsReport := reports.Find("*v1.VirtualService", vs.Metadata.Ref())
+						Expect(vsReport.Errors).To(HaveOccurred())
+						Expect(vsReport.Errors).To(MatchError(ContainSubstring(expectedErrStr)))
+					},
+
+					Entry("a route table selects itself",
 						&v1.RouteTableSelector{
 							Namespaces: []string{"self"},
-						}),
+						},
+						"[self.rt-0] -> [self.rt-0]",
+						core.Metadata{Name: "rt-0", Namespace: "self"},
+					),
 
-					buildRouteTableWithDelegateAction("rt-1", "ns-1", "/foo", nil,
-						&v1.RouteTableSelector{
-							Namespaces: []string{"*"},
-							Labels:     map[string]string{"foo": "bar"},
-						}),
-					buildRouteTableWithDelegateAction("rt-2", "ns-2", "/foo/1", map[string]string{"foo": "bar"},
-						&v1.RouteTableSelector{
-							Namespaces: []string{"ns-3"},
-						}),
-					// This one points back to rt-1
-					buildRouteTableWithDelegateAction("rt-3", "ns-3", "/foo/1/2", nil,
+					Entry("multi route table cycle scenario",
 						&v1.RouteTableSelector{
 							Namespaces: []string{"ns-1"},
-						}),
-				}
+						},
+						"[ns-1.rt-1] -> [ns-2.rt-2] -> [ns-3.rt-3] -> [ns-1.rt-1]",
+						core.Metadata{Name: "rt-1", Namespace: "ns-1"},
+					),
+				)
 			})
 
-			DescribeTable("delegation cycles are detected",
-				func(selector *v1.RouteTableSelector, expectedCycleInfoMessage string) {
-					vs = buildVirtualService(selector)
-					_, err := visitor.ConvertVirtualService(vs)
-					Expect(err).To(HaveOccurred())
-					Expect(err).To(testutils.HaveInErrorChain(translator.DelegationCycleErr(expectedCycleInfoMessage)))
-				},
+			Context("using a hard reference", func() {
 
-				Entry("a route table selects itself",
-					&v1.RouteTableSelector{
-						Namespaces: []string{"self"},
-					},
-					"[self.rt-0] -> [self.rt-0]",
-				),
+				BeforeEach(func() {
+					allRouteTables = v1.RouteTableList{
+						buildRouteTableWithDelegateAction("rt-x", "x", "/foo/bar", nil,
+							&v1.DelegateAction{
+								DelegationType: &v1.DelegateAction_Ref{
+									Ref: &core.ResourceRef{
+										Name:      "rt-x",
+										Namespace: "x",
+									},
+								},
+							}),
+						buildRouteTableWithDelegateAction("rt-y", "y", "/foo/baz", nil,
+							&v1.DelegateAction{
+								DelegationType: &v1.DelegateAction_Ref{
+									Ref: &core.ResourceRef{
+										Name:      "rt-y",
+										Namespace: "y",
+									},
+								},
+							}),
+					}
+				})
 
-				Entry("multi route table cycle scenario",
-					&v1.RouteTableSelector{
-						Namespaces: []string{"ns-1"},
+				DescribeTable("delegation cycles are detected",
+					func(selector *v1.RouteTableSelector, expectedCycleInfoMessage string, offendingTable core.Metadata) {
+						vs = buildVirtualService(selector)
+						_, err := visitor.ConvertVirtualService(vs, reports)
+						Expect(err).NotTo(HaveOccurred())
+
+						expectedErrStr := translator.DelegationCycleErr(expectedCycleInfoMessage).Error()
+
+						// Verify that error is reported on Route Table and VS
+						_, rtReport := reports.Find("*v1.RouteTable", offendingTable.Ref())
+						Expect(rtReport.Errors).To(HaveOccurred())
+						Expect(rtReport.Errors).To(MatchError(ContainSubstring(expectedErrStr)))
+						_, vsReport := reports.Find("*v1.VirtualService", vs.Metadata.Ref())
+						Expect(vsReport.Errors).To(HaveOccurred())
+						Expect(vsReport.Errors).To(MatchError(ContainSubstring(expectedErrStr)))
 					},
-					"[ns-1.rt-1] -> [ns-2.rt-2] -> [ns-3.rt-3] -> [ns-1.rt-1]",
-				),
-			)
+
+					Entry("using the new ref format",
+						&v1.RouteTableSelector{
+							Namespaces: []string{"x"},
+						},
+						"[x.rt-x] -> [x.rt-x]",
+						core.Metadata{Name: "rt-x", Namespace: "x"},
+					),
+
+					Entry("using the deprecated ref format",
+						&v1.RouteTableSelector{
+							Namespaces: []string{"y"},
+						},
+						"[y.rt-y] -> [y.rt-y]",
+						core.Metadata{Name: "rt-y", Namespace: "y"},
+					),
+				)
+			})
 		})
 
 		Describe("route tables with weights", func() {
@@ -641,24 +1460,24 @@ var _ = Describe("Route converter", func() {
 				})
 
 				// Matches rt1a, rt1b
-				rt1 = buildRouteTableWithDelegateAction("rt-1", "ns-1", "/foo/a", nil,
+				rt1 = buildRouteTableWithSelector("rt-1", "ns-1", "/foo/a", nil,
 					&v1.RouteTableSelector{
 						Namespaces: []string{"ns-2"},
 					},
 				)
-				rt1.Weight = &types.Int32Value{Value: 20}
+				rt1.Weight = &wrappers.Int32Value{Value: 20}
 
 				// Same weight as rt1
 				rt2 = buildRouteTableWithSimpleAction("rt-2", "ns-1", "/foo/b", nil)
-				rt2.Weight = &types.Int32Value{Value: 20}
+				rt2.Weight = &wrappers.Int32Value{Value: 20}
 
 				// Matches rt3a, rt3b
-				rt3 = buildRouteTableWithDelegateAction("rt-3", "ns-1", "/foo/c", nil,
+				rt3 = buildRouteTableWithSelector("rt-3", "ns-1", "/foo/c", nil,
 					&v1.RouteTableSelector{
 						Namespaces: []string{"ns-3"},
 					},
 				)
-				rt3.Weight = &types.Int32Value{Value: -10}
+				rt3.Weight = &wrappers.Int32Value{Value: -10}
 
 				// No weight
 				rt1a = buildRouteTableWithSimpleAction("rt-1-a", "ns-2", "/foo/a/1", nil)
@@ -666,21 +1485,21 @@ var _ = Describe("Route converter", func() {
 				rt1b = buildRouteTableWithSimpleAction("rt-1-b", "ns-2", "/foo/a/1/2", nil)
 
 				rt3a = buildRouteTableWithSimpleAction("rt-3-a", "ns-3", "/foo/c/1", nil)
-				rt3a.Weight = &types.Int32Value{Value: -20}
+				rt3a.Weight = &wrappers.Int32Value{Value: -20}
 
 				// The following RTs have the same weight. We want to verify that only the routes from rt3b and rt3c
 				// get re-sorted, but that we respect the -10 weight on rt3a.
 				rt3b = buildRouteTableWithSimpleAction("rt-3-b", "ns-3", "/foo/c/1/short-circuited", nil)
-				rt3b.Weight = &types.Int32Value{Value: 0}
+				rt3b.Weight = &wrappers.Int32Value{Value: 0}
 				rt3c = buildRouteTableWithSimpleAction("rt-3-c", "ns-3", "/foo/c/2", nil)
-				rt3c.Weight = &types.Int32Value{Value: 0}
+				rt3c.Weight = &wrappers.Int32Value{Value: 0}
 
 				allRouteTables = v1.RouteTableList{rt1, rt2, rt3, rt1a, rt1b, rt3a, rt3b, rt3c}
 			})
 
 			It("works as expected", func() {
 
-				converted, err := visitor.ConvertVirtualService(vs)
+				converted, err := visitor.ConvertVirtualService(vs, reports)
 
 				Expect(err).NotTo(HaveOccurred())
 				Expect(converted).To(HaveLen(6))
@@ -695,32 +1514,9 @@ var _ = Describe("Route converter", func() {
 				By("virtual service contains all warnings about child route tables with the same weight", func() {
 					_, vsReport := reports.Find("*v1.VirtualService", vs.Metadata.Ref())
 					Expect(vsReport).NotTo(BeNil())
-					Expect(vsReport.Warnings).To(HaveLen(3))
-					Expect(vsReport.Warnings).To(ConsistOf(
-						translator.RouteTablesWithSameWeightErr(v1.RouteTableList{rt1, rt2}, 20).Error(),
-						translator.TopLevelVirtualResourceErr(rt3.GetMetadata(), translator.RouteTablesWithSameWeightErr(v1.RouteTableList{rt3b, rt3c}, 0)).Error(),
-						translator.TopLevelVirtualResourceErr(rt1.GetMetadata(), translator.RouteTablesWithSameWeightErr(v1.RouteTableList{rt1a, rt1b}, 0)).Error(),
-					))
+					Expect(vsReport.Warnings).To(BeNil())
+					Expect(vsReport.Errors).To(BeNil())
 				})
-
-				By("route table 1 contains a warning about two child route tables with the same weight", func() {
-					_, vsReport := reports.Find("*v1.RouteTable", rt1.Metadata.Ref())
-					Expect(vsReport).NotTo(BeNil())
-					Expect(vsReport.Warnings).To(HaveLen(1))
-					Expect(vsReport.Warnings).To(ConsistOf(
-						translator.RouteTablesWithSameWeightErr(v1.RouteTableList{rt1a, rt1b}, 0).Error(),
-					))
-				})
-
-				By("route table 3 contains a warning about two child route tables with the same weight", func() {
-					_, vsReport := reports.Find("*v1.RouteTable", rt3.Metadata.Ref())
-					Expect(vsReport).NotTo(BeNil())
-					Expect(vsReport.Warnings).To(HaveLen(1))
-					Expect(vsReport.Warnings).To(ConsistOf(
-						translator.RouteTablesWithSameWeightErr(v1.RouteTableList{rt3b, rt3c}, 0).Error(),
-					))
-				})
-
 			})
 		})
 	})
@@ -732,7 +1528,7 @@ func getFirstPrefixMatcher(route *gloov1.Route) string {
 
 func buildRouteTableWithSimpleAction(name, namespace, prefix string, labels map[string]string) *v1.RouteTable {
 	return &v1.RouteTable{
-		Metadata: core.Metadata{
+		Metadata: &core.Metadata{
 			Name:      name,
 			Namespace: namespace,
 			Labels:    labels,
@@ -754,9 +1550,17 @@ func buildRouteTableWithSimpleAction(name, namespace, prefix string, labels map[
 	}
 }
 
-func buildRouteTableWithDelegateAction(name, namespace, prefix string, labels map[string]string, selector *v1.RouteTableSelector) *v1.RouteTable {
+func buildRouteTableWithSelector(name, namespace, prefix string, labels map[string]string, selector *v1.RouteTableSelector) *v1.RouteTable {
+	return buildRouteTableWithDelegateAction(name, namespace, prefix, labels, &v1.DelegateAction{
+		DelegationType: &v1.DelegateAction_Selector{
+			Selector: selector,
+		},
+	})
+}
+
+func buildRouteTableWithDelegateAction(name, namespace, prefix string, labels map[string]string, action *v1.DelegateAction) *v1.RouteTable {
 	return &v1.RouteTable{
-		Metadata: core.Metadata{
+		Metadata: &core.Metadata{
 			Name:      name,
 			Namespace: namespace,
 			Labels:    labels,
@@ -771,11 +1575,7 @@ func buildRouteTableWithDelegateAction(name, namespace, prefix string, labels ma
 					},
 				},
 				Action: &v1.Route_DelegateAction{
-					DelegateAction: &v1.DelegateAction{
-						DelegationType: &v1.DelegateAction_Selector{
-							Selector: selector,
-						},
-					},
+					DelegateAction: action,
 				},
 			},
 		},

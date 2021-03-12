@@ -20,13 +20,22 @@ spec:
     metadata:
       labels:
         gloo: gloo
+        {{- if .Values.gloo.deployment.extraGlooLabels }}
+        {{- range $key, $value := .Values.gloo.deployment.extraGlooLabels }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
       {{- if $statsConfig.enabled }}
       annotations:
         prometheus.io/path: /metrics
         prometheus.io/port: "9091"
         prometheus.io/scrape: "true"
+        {{- if .Values.global.istioIntegration.disableAutoinjection }}
+        sidecar.istio.io/inject: "false"
+        {{- end }}
       {{- end}}
     spec:
+      {{- include "gloo.pullSecret" $image | nindent 6 }}
       serviceAccountName: gloo
       volumes:
 {{- if .Values.global.glooMtls.enabled }}
@@ -54,9 +63,17 @@ spec:
         name: envoy-sidecar
         image: {{ template "gloo.image" $envoyImage }}
         imagePullPolicy: {{ $envoyImage.pullPolicy }}
+        securityContext:
+          runAsNonRoot: true
+          {{- if not .Values.gloo.deployment.floatingUserId }}
+          runAsUser: {{ printf "%.0f" (float64 .Values.gloo.deployment.runAsUser)}}
+          {{- end }}
         ports:
         - containerPort: {{ .Values.gloo.deployment.xdsPort }}
           name: grpc-xds
+          protocol: TCP
+        - containerPort: {{ .Values.gloo.deployment.restXdsPort }}
+          name: rest-xds
           protocol: TCP
         readinessProbe:
           tcpSocket:
@@ -70,13 +87,29 @@ spec:
         - mountPath: /etc/envoy/ssl
           name: gloo-mtls-certs
           readOnly: true
+{{- if .Values.global.glooMtls.envoySidecarResources }}
+        resources:
+{{ toYaml .Values.global.glooMtls.envoySidecarResources | indent 10}}
+{{- end}}
       - name: sds
         image: {{ template "gloo.image" $sdsImage }}
         imagePullPolicy: {{ $sdsImage.pullPolicy }}
+        env:
+        - name: GLOO_MTLS_SDS_ENABLED
+          value: "true"
+        securityContext:
+          runAsNonRoot: true
+          {{- if not .Values.gloo.deployment.floatingUserId }}
+          runAsUser: {{ printf "%.0f" (float64 .Values.gloo.deployment.runAsUser)}}
+          {{- end }}
         volumeMounts:
         - mountPath: /etc/envoy/ssl
           name: gloo-mtls-certs
           readOnly: true
+{{- if .Values.global.glooMtls.sdsResources }}
+        resources:
+{{ toYaml .Values.global.glooMtls.sdsResources | indent 10}}
+{{- end}}
 {{- end }}
       - image: {{template "gloo.image" $image }}
         imagePullPolicy: {{ $image.pullPolicy }}
@@ -98,7 +131,7 @@ spec:
           {{- /* see https://github.com/helm/helm/issues/1707#issuecomment-520357573 */ -}}
           {{- /* the user id may be set quite high -- openshift wants userids that may get printed as scientific notation */}}
           {{- if not .Values.gloo.deployment.floatingUserId }}
-          runAsUser: {{ printf "%.0f" .Values.gloo.deployment.runAsUser -}}
+          runAsUser: {{ printf "%.0f" (float64 .Values.gloo.deployment.runAsUser) -}}
           {{- end }}
           capabilities:
             drop:
@@ -107,6 +140,9 @@ spec:
 {{- if not .Values.global.glooMtls.enabled }}
         - containerPort: {{ .Values.gloo.deployment.xdsPort }}
           name: grpc-xds
+          protocol: TCP
+        - containerPort: {{ .Values.gloo.deployment.restXdsPort }}
+          name: rest-xds
           protocol: TCP
 {{- end }}
         - containerPort: {{ .Values.gloo.deployment.validationPort }}
@@ -135,10 +171,10 @@ spec:
           - name: DISABLE_USAGE_REPORTING
             value: "true"
         {{- end}}
-        {{- if .Values.global.wasm.enabled }}
-          - name: WASM_ENABLED
-            value: "true"
-        {{- end }}
+        {{- if .Values.gloo.logLevel }}
+          - name: LOG_LEVEL
+            value: {{ .Values.gloo.logLevel }}
+        {{- end}}
 {{- if not .Values.global.glooMtls.enabled }}
         readinessProbe:
           tcpSocket:
@@ -147,7 +183,3 @@ spec:
           periodSeconds: 2
           failureThreshold: 10
 {{- end }}
-      {{- if $image.pullSecret }}
-      imagePullSecrets:
-        - name: {{ $image.pullSecret }}
-      {{- end}}

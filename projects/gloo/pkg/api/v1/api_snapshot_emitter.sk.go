@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	github_com_solo_io_gloo_projects_gloo_pkg_api_external_solo_ratelimit "github.com/solo-io/gloo/projects/gloo/pkg/api/external/solo/ratelimit"
 	enterprise_gloo_solo_io "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/enterprise/options/extauth/v1"
 
 	"go.opencensus.io/stats"
@@ -89,34 +90,37 @@ type ApiEmitter interface {
 	Secret() SecretClient
 	Upstream() UpstreamClient
 	AuthConfig() enterprise_gloo_solo_io.AuthConfigClient
+	RateLimitConfig() github_com_solo_io_gloo_projects_gloo_pkg_api_external_solo_ratelimit.RateLimitConfigClient
 }
 
-func NewApiEmitter(artifactClient ArtifactClient, endpointClient EndpointClient, proxyClient ProxyClient, upstreamGroupClient UpstreamGroupClient, secretClient SecretClient, upstreamClient UpstreamClient, authConfigClient enterprise_gloo_solo_io.AuthConfigClient) ApiEmitter {
-	return NewApiEmitterWithEmit(artifactClient, endpointClient, proxyClient, upstreamGroupClient, secretClient, upstreamClient, authConfigClient, make(chan struct{}))
+func NewApiEmitter(artifactClient ArtifactClient, endpointClient EndpointClient, proxyClient ProxyClient, upstreamGroupClient UpstreamGroupClient, secretClient SecretClient, upstreamClient UpstreamClient, authConfigClient enterprise_gloo_solo_io.AuthConfigClient, rateLimitConfigClient github_com_solo_io_gloo_projects_gloo_pkg_api_external_solo_ratelimit.RateLimitConfigClient) ApiEmitter {
+	return NewApiEmitterWithEmit(artifactClient, endpointClient, proxyClient, upstreamGroupClient, secretClient, upstreamClient, authConfigClient, rateLimitConfigClient, make(chan struct{}))
 }
 
-func NewApiEmitterWithEmit(artifactClient ArtifactClient, endpointClient EndpointClient, proxyClient ProxyClient, upstreamGroupClient UpstreamGroupClient, secretClient SecretClient, upstreamClient UpstreamClient, authConfigClient enterprise_gloo_solo_io.AuthConfigClient, emit <-chan struct{}) ApiEmitter {
+func NewApiEmitterWithEmit(artifactClient ArtifactClient, endpointClient EndpointClient, proxyClient ProxyClient, upstreamGroupClient UpstreamGroupClient, secretClient SecretClient, upstreamClient UpstreamClient, authConfigClient enterprise_gloo_solo_io.AuthConfigClient, rateLimitConfigClient github_com_solo_io_gloo_projects_gloo_pkg_api_external_solo_ratelimit.RateLimitConfigClient, emit <-chan struct{}) ApiEmitter {
 	return &apiEmitter{
-		artifact:      artifactClient,
-		endpoint:      endpointClient,
-		proxy:         proxyClient,
-		upstreamGroup: upstreamGroupClient,
-		secret:        secretClient,
-		upstream:      upstreamClient,
-		authConfig:    authConfigClient,
-		forceEmit:     emit,
+		artifact:        artifactClient,
+		endpoint:        endpointClient,
+		proxy:           proxyClient,
+		upstreamGroup:   upstreamGroupClient,
+		secret:          secretClient,
+		upstream:        upstreamClient,
+		authConfig:      authConfigClient,
+		rateLimitConfig: rateLimitConfigClient,
+		forceEmit:       emit,
 	}
 }
 
 type apiEmitter struct {
-	forceEmit     <-chan struct{}
-	artifact      ArtifactClient
-	endpoint      EndpointClient
-	proxy         ProxyClient
-	upstreamGroup UpstreamGroupClient
-	secret        SecretClient
-	upstream      UpstreamClient
-	authConfig    enterprise_gloo_solo_io.AuthConfigClient
+	forceEmit       <-chan struct{}
+	artifact        ArtifactClient
+	endpoint        EndpointClient
+	proxy           ProxyClient
+	upstreamGroup   UpstreamGroupClient
+	secret          SecretClient
+	upstream        UpstreamClient
+	authConfig      enterprise_gloo_solo_io.AuthConfigClient
+	rateLimitConfig github_com_solo_io_gloo_projects_gloo_pkg_api_external_solo_ratelimit.RateLimitConfigClient
 }
 
 func (c *apiEmitter) Register() error {
@@ -139,6 +143,9 @@ func (c *apiEmitter) Register() error {
 		return err
 	}
 	if err := c.authConfig.Register(); err != nil {
+		return err
+	}
+	if err := c.rateLimitConfig.Register(); err != nil {
 		return err
 	}
 	return nil
@@ -170,6 +177,10 @@ func (c *apiEmitter) Upstream() UpstreamClient {
 
 func (c *apiEmitter) AuthConfig() enterprise_gloo_solo_io.AuthConfigClient {
 	return c.authConfig
+}
+
+func (c *apiEmitter) RateLimitConfig() github_com_solo_io_gloo_projects_gloo_pkg_api_external_solo_ratelimit.RateLimitConfigClient {
+	return c.rateLimitConfig
 }
 
 func (c *apiEmitter) Snapshots(watchNamespaces []string, opts clients.WatchOpts) (<-chan *ApiSnapshot, <-chan error, error) {
@@ -244,6 +255,14 @@ func (c *apiEmitter) Snapshots(watchNamespaces []string, opts clients.WatchOpts)
 	authConfigChan := make(chan authConfigListWithNamespace)
 
 	var initialAuthConfigList enterprise_gloo_solo_io.AuthConfigList
+	/* Create channel for RateLimitConfig */
+	type rateLimitConfigListWithNamespace struct {
+		list      github_com_solo_io_gloo_projects_gloo_pkg_api_external_solo_ratelimit.RateLimitConfigList
+		namespace string
+	}
+	rateLimitConfigChan := make(chan rateLimitConfigListWithNamespace)
+
+	var initialRateLimitConfigList github_com_solo_io_gloo_projects_gloo_pkg_api_external_solo_ratelimit.RateLimitConfigList
 
 	currentSnapshot := ApiSnapshot{}
 
@@ -374,6 +393,24 @@ func (c *apiEmitter) Snapshots(watchNamespaces []string, opts clients.WatchOpts)
 			defer done.Done()
 			errutils.AggregateErrs(ctx, errs, authConfigErrs, namespace+"-authConfigs")
 		}(namespace)
+		/* Setup namespaced watch for RateLimitConfig */
+		{
+			ratelimitconfigs, err := c.rateLimitConfig.List(namespace, clients.ListOpts{Ctx: opts.Ctx, Selector: opts.Selector})
+			if err != nil {
+				return nil, nil, errors.Wrapf(err, "initial RateLimitConfig list")
+			}
+			initialRateLimitConfigList = append(initialRateLimitConfigList, ratelimitconfigs...)
+		}
+		rateLimitConfigNamespacesChan, rateLimitConfigErrs, err := c.rateLimitConfig.Watch(namespace, opts)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "starting RateLimitConfig watch")
+		}
+
+		done.Add(1)
+		go func(namespace string) {
+			defer done.Done()
+			errutils.AggregateErrs(ctx, errs, rateLimitConfigErrs, namespace+"-ratelimitconfigs")
+		}(namespace)
 
 		/* Watch for changes and update snapshot */
 		go func(namespace string) {
@@ -381,47 +418,77 @@ func (c *apiEmitter) Snapshots(watchNamespaces []string, opts clients.WatchOpts)
 				select {
 				case <-ctx.Done():
 					return
-				case artifactList := <-artifactNamespacesChan:
+				case artifactList, ok := <-artifactNamespacesChan:
+					if !ok {
+						return
+					}
 					select {
 					case <-ctx.Done():
 						return
 					case artifactChan <- artifactListWithNamespace{list: artifactList, namespace: namespace}:
 					}
-				case endpointList := <-endpointNamespacesChan:
+				case endpointList, ok := <-endpointNamespacesChan:
+					if !ok {
+						return
+					}
 					select {
 					case <-ctx.Done():
 						return
 					case endpointChan <- endpointListWithNamespace{list: endpointList, namespace: namespace}:
 					}
-				case proxyList := <-proxyNamespacesChan:
+				case proxyList, ok := <-proxyNamespacesChan:
+					if !ok {
+						return
+					}
 					select {
 					case <-ctx.Done():
 						return
 					case proxyChan <- proxyListWithNamespace{list: proxyList, namespace: namespace}:
 					}
-				case upstreamGroupList := <-upstreamGroupNamespacesChan:
+				case upstreamGroupList, ok := <-upstreamGroupNamespacesChan:
+					if !ok {
+						return
+					}
 					select {
 					case <-ctx.Done():
 						return
 					case upstreamGroupChan <- upstreamGroupListWithNamespace{list: upstreamGroupList, namespace: namespace}:
 					}
-				case secretList := <-secretNamespacesChan:
+				case secretList, ok := <-secretNamespacesChan:
+					if !ok {
+						return
+					}
 					select {
 					case <-ctx.Done():
 						return
 					case secretChan <- secretListWithNamespace{list: secretList, namespace: namespace}:
 					}
-				case upstreamList := <-upstreamNamespacesChan:
+				case upstreamList, ok := <-upstreamNamespacesChan:
+					if !ok {
+						return
+					}
 					select {
 					case <-ctx.Done():
 						return
 					case upstreamChan <- upstreamListWithNamespace{list: upstreamList, namespace: namespace}:
 					}
-				case authConfigList := <-authConfigNamespacesChan:
+				case authConfigList, ok := <-authConfigNamespacesChan:
+					if !ok {
+						return
+					}
 					select {
 					case <-ctx.Done():
 						return
 					case authConfigChan <- authConfigListWithNamespace{list: authConfigList, namespace: namespace}:
+					}
+				case rateLimitConfigList, ok := <-rateLimitConfigNamespacesChan:
+					if !ok {
+						return
+					}
+					select {
+					case <-ctx.Done():
+						return
+					case rateLimitConfigChan <- rateLimitConfigListWithNamespace{list: rateLimitConfigList, namespace: namespace}:
 					}
 				}
 			}
@@ -441,6 +508,8 @@ func (c *apiEmitter) Snapshots(watchNamespaces []string, opts clients.WatchOpts)
 	currentSnapshot.Upstreams = initialUpstreamList.Sort()
 	/* Initialize snapshot for AuthConfigs */
 	currentSnapshot.AuthConfigs = initialAuthConfigList.Sort()
+	/* Initialize snapshot for Ratelimitconfigs */
+	currentSnapshot.Ratelimitconfigs = initialRateLimitConfigList.Sort()
 
 	snapshots := make(chan *ApiSnapshot)
 	go func() {
@@ -479,7 +548,14 @@ func (c *apiEmitter) Snapshots(watchNamespaces []string, opts clients.WatchOpts)
 		secretsByNamespace := make(map[string]SecretList)
 		upstreamsByNamespace := make(map[string]UpstreamList)
 		authConfigsByNamespace := make(map[string]enterprise_gloo_solo_io.AuthConfigList)
-
+		ratelimitconfigsByNamespace := make(map[string]github_com_solo_io_gloo_projects_gloo_pkg_api_external_solo_ratelimit.RateLimitConfigList)
+		defer func() {
+			close(snapshots)
+			// we must wait for done before closing the error chan,
+			// to avoid sending on close channel.
+			done.Wait()
+			close(errs)
+		}()
 		for {
 			record := func() { stats.Record(ctx, mApiSnapshotIn.M(1)) }
 
@@ -487,14 +563,14 @@ func (c *apiEmitter) Snapshots(watchNamespaces []string, opts clients.WatchOpts)
 			case <-timer.C:
 				sync()
 			case <-ctx.Done():
-				close(snapshots)
-				done.Wait()
-				close(errs)
 				return
 			case <-c.forceEmit:
 				sentSnapshot := currentSnapshot.Clone()
 				snapshots <- &sentSnapshot
-			case artifactNamespacedList := <-artifactChan:
+			case artifactNamespacedList, ok := <-artifactChan:
+				if !ok {
+					return
+				}
 				record()
 
 				namespace := artifactNamespacedList.namespace
@@ -513,7 +589,10 @@ func (c *apiEmitter) Snapshots(watchNamespaces []string, opts clients.WatchOpts)
 					artifactList = append(artifactList, artifacts...)
 				}
 				currentSnapshot.Artifacts = artifactList.Sort()
-			case endpointNamespacedList := <-endpointChan:
+			case endpointNamespacedList, ok := <-endpointChan:
+				if !ok {
+					return
+				}
 				record()
 
 				namespace := endpointNamespacedList.namespace
@@ -532,7 +611,10 @@ func (c *apiEmitter) Snapshots(watchNamespaces []string, opts clients.WatchOpts)
 					endpointList = append(endpointList, endpoints...)
 				}
 				currentSnapshot.Endpoints = endpointList.Sort()
-			case proxyNamespacedList := <-proxyChan:
+			case proxyNamespacedList, ok := <-proxyChan:
+				if !ok {
+					return
+				}
 				record()
 
 				namespace := proxyNamespacedList.namespace
@@ -551,7 +633,10 @@ func (c *apiEmitter) Snapshots(watchNamespaces []string, opts clients.WatchOpts)
 					proxyList = append(proxyList, proxies...)
 				}
 				currentSnapshot.Proxies = proxyList.Sort()
-			case upstreamGroupNamespacedList := <-upstreamGroupChan:
+			case upstreamGroupNamespacedList, ok := <-upstreamGroupChan:
+				if !ok {
+					return
+				}
 				record()
 
 				namespace := upstreamGroupNamespacedList.namespace
@@ -570,7 +655,10 @@ func (c *apiEmitter) Snapshots(watchNamespaces []string, opts clients.WatchOpts)
 					upstreamGroupList = append(upstreamGroupList, upstreamGroups...)
 				}
 				currentSnapshot.UpstreamGroups = upstreamGroupList.Sort()
-			case secretNamespacedList := <-secretChan:
+			case secretNamespacedList, ok := <-secretChan:
+				if !ok {
+					return
+				}
 				record()
 
 				namespace := secretNamespacedList.namespace
@@ -589,7 +677,10 @@ func (c *apiEmitter) Snapshots(watchNamespaces []string, opts clients.WatchOpts)
 					secretList = append(secretList, secrets...)
 				}
 				currentSnapshot.Secrets = secretList.Sort()
-			case upstreamNamespacedList := <-upstreamChan:
+			case upstreamNamespacedList, ok := <-upstreamChan:
+				if !ok {
+					return
+				}
 				record()
 
 				namespace := upstreamNamespacedList.namespace
@@ -608,7 +699,10 @@ func (c *apiEmitter) Snapshots(watchNamespaces []string, opts clients.WatchOpts)
 					upstreamList = append(upstreamList, upstreams...)
 				}
 				currentSnapshot.Upstreams = upstreamList.Sort()
-			case authConfigNamespacedList := <-authConfigChan:
+			case authConfigNamespacedList, ok := <-authConfigChan:
+				if !ok {
+					return
+				}
 				record()
 
 				namespace := authConfigNamespacedList.namespace
@@ -627,6 +721,28 @@ func (c *apiEmitter) Snapshots(watchNamespaces []string, opts clients.WatchOpts)
 					authConfigList = append(authConfigList, authConfigs...)
 				}
 				currentSnapshot.AuthConfigs = authConfigList.Sort()
+			case rateLimitConfigNamespacedList, ok := <-rateLimitConfigChan:
+				if !ok {
+					return
+				}
+				record()
+
+				namespace := rateLimitConfigNamespacedList.namespace
+
+				skstats.IncrementResourceCount(
+					ctx,
+					namespace,
+					"rate_limit_config",
+					mApiResourcesIn,
+				)
+
+				// merge lists by namespace
+				ratelimitconfigsByNamespace[namespace] = rateLimitConfigNamespacedList.list
+				var rateLimitConfigList github_com_solo_io_gloo_projects_gloo_pkg_api_external_solo_ratelimit.RateLimitConfigList
+				for _, ratelimitconfigs := range ratelimitconfigsByNamespace {
+					rateLimitConfigList = append(rateLimitConfigList, ratelimitconfigs...)
+				}
+				currentSnapshot.Ratelimitconfigs = rateLimitConfigList.Sort()
 			}
 		}
 	}()

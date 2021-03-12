@@ -1,11 +1,15 @@
 vendor*
 .vendor-new
 _output
+example/proxycontroller/_output
+_local
 _test
 _artifacts
 .idea
+.vscode
 site
 .firebase
+*.code-workspace
 
 themes
 install/gloo.yaml
@@ -21,5 +25,8 @@ docs/helm-values.md
 
 ## START Temporary exclusion while master/v0.20.x branch is supported
 old_docs_temp_dir/
+
 ## END Temporary exclusion while master/v0.20.x branch is supported
 .vscode/launch.json
+.vscode/settings.json
+

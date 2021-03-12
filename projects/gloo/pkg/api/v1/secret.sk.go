@@ -16,14 +16,14 @@ import (
 
 func NewSecret(namespace, name string) *Secret {
 	secret := &Secret{}
-	secret.SetMetadata(core.Metadata{
+	secret.SetMetadata(&core.Metadata{
 		Name:      name,
 		Namespace: namespace,
 	})
 	return secret
 }
 
-func (r *Secret) SetMetadata(meta core.Metadata) {
+func (r *Secret) SetMetadata(meta *core.Metadata) {
 	r.Metadata = meta
 }
 
@@ -41,13 +41,10 @@ func (r *Secret) GroupVersionKind() schema.GroupVersionKind {
 
 type SecretList []*Secret
 
-// namespace is optional, if left empty, names can collide if the list contains more than one with the same name
 func (list SecretList) Find(namespace, name string) (*Secret, error) {
 	for _, secret := range list {
-		if secret.GetMetadata().Name == name {
-			if namespace == "" || secret.GetMetadata().Namespace == namespace {
-				return secret, nil
-			}
+		if secret.GetMetadata().Name == name && secret.GetMetadata().Namespace == namespace {
+			return secret, nil
 		}
 	}
 	return nil, errors.Errorf("list did not find secret %v.%v", namespace, name)
@@ -138,12 +135,6 @@ var (
 		false,
 		&Secret{})
 )
-
-func init() {
-	if err := crd.AddCrd(SecretCrd); err != nil {
-		log.Fatalf("could not add crd to global registry")
-	}
-}
 
 var (
 	SecretGVK = schema.GroupVersionKind{

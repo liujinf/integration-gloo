@@ -12,10 +12,22 @@ import (
 func main() {
 	log.Printf("starting generate")
 
+	protoImports := sk_anyvendor.CreateDefaultMatchOptions(
+		[]string{"projects/**/*.proto", sk_anyvendor.SoloKitMatchPattern},
+	)
+	protoImports.External["github.com/solo-io/solo-apis"] = []string{
+		"api/rate-limiter/**/*.proto", // Import rate limit API
+		"api/gloo-fed/fed/**/*.proto", // Import gloo fed gloo instance API
+	}
+	// Import gloo instance API dependencies
+	protoImports.External["github.com/solo-io/skv2"] = []string{
+		"api/**/**/*.proto",
+	}
+
 	generateOptions := cmd.GenerateOptions{
 		SkipGenMocks: true,
 		CustomCompileProtos: []string{
-			"projects/gloo/api/grpc",
+			"github.com/solo-io/gloo/projects/gloo/api/grpc",
 		},
 		SkipGeneratedTests: true,
 		// helps to cut down on time spent searching for imports, not strictly necessary
@@ -33,9 +45,7 @@ func main() {
 				ApiDir:  "reference/api",
 			},
 		},
-		ExternalImports: sk_anyvendor.CreateDefaultMatchOptions(
-			[]string{"projects/**/*.proto", sk_anyvendor.SoloKitMatchPattern},
-		),
+		ExternalImports: protoImports,
 	}
 	if err := cmd.Generate(generateOptions); err != nil {
 		log.Fatalf("generate failed!: %v", err)

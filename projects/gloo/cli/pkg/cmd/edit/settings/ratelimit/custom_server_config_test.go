@@ -1,7 +1,10 @@
 package ratelimit_test
 
 import (
+	"context"
 	"io"
+
+	rltypes "github.com/solo-io/solo-apis/pkg/api/ratelimit.solo.io/v1alpha1"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -19,14 +22,17 @@ var _ = Describe("CustomServerConfig", func() {
 	var (
 		settings       *gloov1.Settings
 		settingsClient gloov1.SettingsClient
+		ctx            context.Context
+		cancel         context.CancelFunc
 	)
 	BeforeEach(func() {
 		helpers.UseMemoryClients()
+		ctx, cancel = context.WithCancel(context.Background())
 		// create a settings object
-		settingsClient = helpers.MustSettingsClient()
+		settingsClient = helpers.MustSettingsClient(ctx)
 
 		settings = &gloov1.Settings{
-			Metadata: core.Metadata{
+			Metadata: &core.Metadata{
 				Name:      "default",
 				Namespace: "gloo-system",
 			},
@@ -36,6 +42,8 @@ var _ = Describe("CustomServerConfig", func() {
 		settings, err = settingsClient.Write(settings, clients.WriteOpts{})
 		Expect(err).NotTo(HaveOccurred())
 	})
+
+	AfterEach(func() { cancel() })
 
 	Run := func(yaml string) error {
 
@@ -69,27 +77,47 @@ descriptors:
     value: default
     rate_limit:
       unit: second
-      requests_per_unit: 500`)
+      requests_per_unit: 500
+setDescriptors:
+  - simple_descriptors:
+    - key: foo
+      value: bar
+    rate_limit:
+      unit: second
+      requests_per_unit: 50`)
 
-		expectDescriptor := []*ratelimitpb.Descriptor{
+		expectDescriptor := []*rltypes.Descriptor{
 			{
 				Key:   "database",
 				Value: "users",
-				RateLimit: &ratelimitpb.RateLimit{
-					Unit:            ratelimitpb.RateLimit_SECOND,
+				RateLimit: &rltypes.RateLimit{
+					Unit:            rltypes.RateLimit_SECOND,
 					RequestsPerUnit: 500,
 				},
 			}, {
 				Key:   "database",
 				Value: "default",
-				RateLimit: &ratelimitpb.RateLimit{
-					Unit:            ratelimitpb.RateLimit_SECOND,
+				RateLimit: &rltypes.RateLimit{
+					Unit:            rltypes.RateLimit_SECOND,
 					RequestsPerUnit: 500,
+				},
+			},
+		}
+		expectSetDescriptor := []*rltypes.SetDescriptor{
+			{
+				SimpleDescriptors: []*rltypes.SimpleDescriptor{{
+					Key:   "foo",
+					Value: "bar",
+				}},
+				RateLimit: &rltypes.RateLimit{
+					Unit:            rltypes.RateLimit_SECOND,
+					RequestsPerUnit: 50,
 				},
 			},
 		}
 
 		Expect(d.Descriptors).To(BeEquivalentTo(expectDescriptor))
+		Expect(d.SetDescriptors).To(BeEquivalentTo(expectSetDescriptor))
 	})
 
 	It("should parse example 2", func() {
@@ -110,21 +138,21 @@ descriptors:
     unit: day
     requests_per_unit: 100`)
 
-		expectDescriptor := []*ratelimitpb.Descriptor{
+		expectDescriptor := []*rltypes.Descriptor{
 			{
 				Key:   "message_type",
 				Value: "marketing",
-				Descriptors: []*ratelimitpb.Descriptor{{
+				Descriptors: []*rltypes.Descriptor{{
 					Key: "to_number",
-					RateLimit: &ratelimitpb.RateLimit{
-						Unit:            ratelimitpb.RateLimit_DAY,
+					RateLimit: &rltypes.RateLimit{
+						Unit:            rltypes.RateLimit_DAY,
 						RequestsPerUnit: 5,
 					},
 				}},
 			}, {
 				Key: "to_number",
-				RateLimit: &ratelimitpb.RateLimit{
-					Unit:            ratelimitpb.RateLimit_DAY,
+				RateLimit: &rltypes.RateLimit{
+					Unit:            rltypes.RateLimit_DAY,
 					RequestsPerUnit: 100,
 				},
 			},
@@ -146,18 +174,18 @@ descriptors:
     unit: second
     requests_per_unit: 0`)
 
-		expectDescriptor := []*ratelimitpb.Descriptor{
+		expectDescriptor := []*rltypes.Descriptor{
 			{
 				Key: "remote_address",
-				RateLimit: &ratelimitpb.RateLimit{
-					Unit:            ratelimitpb.RateLimit_SECOND,
+				RateLimit: &rltypes.RateLimit{
+					Unit:            rltypes.RateLimit_SECOND,
 					RequestsPerUnit: 10,
 				},
 			}, {
 				Key:   "remote_address",
 				Value: "50.0.0.5",
-				RateLimit: &ratelimitpb.RateLimit{
-					Unit:            ratelimitpb.RateLimit_SECOND,
+				RateLimit: &rltypes.RateLimit{
+					Unit:            rltypes.RateLimit_SECOND,
 					RequestsPerUnit: 0,
 				},
 			},
@@ -177,14 +205,14 @@ descriptors:
              unit: second
 `)
 
-		expectDescriptor := []*ratelimitpb.Descriptor{
+		expectDescriptor := []*rltypes.Descriptor{
 			{
 				Key:   "key",
 				Value: "value",
-				Descriptors: []*ratelimitpb.Descriptor{{
+				Descriptors: []*rltypes.Descriptor{{
 					Key: "subkey",
-					RateLimit: &ratelimitpb.RateLimit{
-						Unit:            ratelimitpb.RateLimit_SECOND,
+					RateLimit: &rltypes.RateLimit{
+						Unit:            rltypes.RateLimit_SECOND,
 						RequestsPerUnit: 300,
 					},
 				}},

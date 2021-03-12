@@ -14,6 +14,7 @@ weight: 5
 - [HttpConnectionManagerSettings](#httpconnectionmanagersettings)
 - [SetCurrentClientCertDetails](#setcurrentclientcertdetails)
 - [ForwardClientCertDetails](#forwardclientcertdetails)
+- [ServerHeaderTransformation](#serverheadertransformation)
   
 
 
@@ -47,36 +48,44 @@ See here for more information: https://www.envoyproxy.io/docs/envoy/v1.9.0/confi
 "serverName": string
 "acceptHttp10": bool
 "defaultHostForHttp10": string
+"properCaseHeaderKeyFormat": bool
 "tracing": .tracing.options.gloo.solo.io.ListenerTracingSettings
 "forwardClientCertDetails": .hcm.options.gloo.solo.io.HttpConnectionManagerSettings.ForwardClientCertDetails
 "setCurrentClientCertDetails": .hcm.options.gloo.solo.io.HttpConnectionManagerSettings.SetCurrentClientCertDetails
 "preserveExternalRequestId": bool
 "upgrades": []protocol_upgrade.options.gloo.solo.io.ProtocolUpgradeConfig
+"maxConnectionDuration": .google.protobuf.Duration
+"maxStreamDuration": .google.protobuf.Duration
+"serverHeaderTransformation": .hcm.options.gloo.solo.io.HttpConnectionManagerSettings.ServerHeaderTransformation
 
 ```
 
-| Field | Type | Description | Default |
-| ----- | ---- | ----------- |----------- | 
-| `skipXffAppend` | `bool` |  |  |
-| `via` | `string` |  |  |
-| `xffNumTrustedHops` | `int` |  |  |
-| `useRemoteAddress` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) |  |  |
-| `generateRequestId` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) |  |  |
-| `proxy100Continue` | `bool` |  |  |
-| `streamIdleTimeout` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) |  |  |
-| `idleTimeout` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) |  |  |
-| `maxRequestHeadersKb` | [.google.protobuf.UInt32Value](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/u-int-32-value) |  |  |
-| `requestTimeout` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) |  |  |
-| `drainTimeout` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) |  |  |
-| `delayedCloseTimeout` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) |  |  |
-| `serverName` | `string` |  |  |
-| `acceptHttp10` | `bool` | For explanation of these settings see: https://www.envoyproxy.io/docs/envoy/latest/api-v2/api/v2/core/protocol.proto#envoy-api-msg-core-http1protocoloptions. |  |
-| `defaultHostForHttp10` | `string` |  |  |
-| `tracing` | [.tracing.options.gloo.solo.io.ListenerTracingSettings](../../tracing/tracing.proto.sk/#listenertracingsettings) |  |  |
-| `forwardClientCertDetails` | [.hcm.options.gloo.solo.io.HttpConnectionManagerSettings.ForwardClientCertDetails](../hcm.proto.sk/#forwardclientcertdetails) |  |  |
-| `setCurrentClientCertDetails` | [.hcm.options.gloo.solo.io.HttpConnectionManagerSettings.SetCurrentClientCertDetails](../hcm.proto.sk/#setcurrentclientcertdetails) |  |  |
-| `preserveExternalRequestId` | `bool` |  |  |
-| `upgrades` | [[]protocol_upgrade.options.gloo.solo.io.ProtocolUpgradeConfig](../../protocol_upgrade/protocol_upgrade.proto.sk/#protocolupgradeconfig) | HttpConnectionManager configuration for protocol upgrade requests. Note: WebSocket upgrades are enabled by default on the HTTP Connection Manager and must be explicitly disabled. |  |
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
+| `skipXffAppend` | `bool` |  |
+| `via` | `string` |  |
+| `xffNumTrustedHops` | `int` |  |
+| `useRemoteAddress` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) |  |
+| `generateRequestId` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) |  |
+| `proxy100Continue` | `bool` |  |
+| `streamIdleTimeout` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) |  |
+| `idleTimeout` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) |  |
+| `maxRequestHeadersKb` | [.google.protobuf.UInt32Value](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/u-int-32-value) |  |
+| `requestTimeout` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) |  |
+| `drainTimeout` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) |  |
+| `delayedCloseTimeout` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) |  |
+| `serverName` | `string` |  |
+| `acceptHttp10` | `bool` | For explanation of these settings see: https://www.envoyproxy.io/docs/envoy/latest/api-v2/api/v2/core/protocol.proto#envoy-api-msg-core-http1protocoloptions. |
+| `defaultHostForHttp10` | `string` |  |
+| `properCaseHeaderKeyFormat` | `bool` |  |
+| `tracing` | [.tracing.options.gloo.solo.io.ListenerTracingSettings](../../tracing/tracing.proto.sk/#listenertracingsettings) |  |
+| `forwardClientCertDetails` | [.hcm.options.gloo.solo.io.HttpConnectionManagerSettings.ForwardClientCertDetails](../hcm.proto.sk/#forwardclientcertdetails) |  |
+| `setCurrentClientCertDetails` | [.hcm.options.gloo.solo.io.HttpConnectionManagerSettings.SetCurrentClientCertDetails](../hcm.proto.sk/#setcurrentclientcertdetails) |  |
+| `preserveExternalRequestId` | `bool` |  |
+| `upgrades` | [[]protocol_upgrade.options.gloo.solo.io.ProtocolUpgradeConfig](../../protocol_upgrade/protocol_upgrade.proto.sk/#protocolupgradeconfig) | HttpConnectionManager configuration for protocol upgrade requests. Note: WebSocket upgrades are enabled by default on the HTTP Connection Manager and must be explicitly disabled. |
+| `maxConnectionDuration` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) | For an explanation of these settings see https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/protocol.proto#config-core-v3-httpprotocoloptions. |
+| `maxStreamDuration` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) |  |
+| `serverHeaderTransformation` | [.hcm.options.gloo.solo.io.HttpConnectionManagerSettings.ServerHeaderTransformation](../hcm.proto.sk/#serverheadertransformation) | For an explanation of the settings see: https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/network/http_connection_manager/v3/http_connection_manager.proto.html#envoy-v3-api-enum-extensions-filters-network-http-connection-manager-v3-httpconnectionmanager-serverheadertransformation. |
 
 
 
@@ -95,13 +104,13 @@ See here for more information: https://www.envoyproxy.io/docs/envoy/v1.9.0/confi
 
 ```
 
-| Field | Type | Description | Default |
-| ----- | ---- | ----------- |----------- | 
-| `subject` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) |  |  |
-| `cert` | `bool` |  |  |
-| `chain` | `bool` |  |  |
-| `dns` | `bool` |  |  |
-| `uri` | `bool` |  |  |
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
+| `subject` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) |  |
+| `cert` | `bool` |  |
+| `chain` | `bool` |  |
+| `dns` | `bool` |  |
+| `uri` | `bool` |  |
 
 
 
@@ -118,6 +127,20 @@ See here for more information: https://www.envoyproxy.io/docs/envoy/v1.9.0/confi
 | `APPEND_FORWARD` |  |
 | `SANITIZE_SET` |  |
 | `ALWAYS_FORWARD_ONLY` |  |
+
+
+
+
+---
+### ServerHeaderTransformation
+
+
+
+| Name | Description |
+| ----- | ----------- | 
+| `OVERWRITE` | (DEFAULT) Overwrite any Server header with the contents of server_name. |
+| `APPEND_IF_ABSENT` | If no Server header is present, append Server server_name If a Server header is present, pass it through. |
+| `PASS_THROUGH` | Pass through the value of the server header, and do not append a header if none is present. |
 
 
 

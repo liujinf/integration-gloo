@@ -3,7 +3,7 @@ title: Listener Configuration
 weight: 20
 ---
 
-**Gateway** definitions set up the protocols and ports on which Gloo listens for traffic.  For example, by default Gloo will have a gateway configured for HTTP and HTTPS traffic. Gloo allows you to configure properties of your gateways with several plugins.
+**Gateway** definitions set up the protocols and ports on which Gloo Edge listens for traffic.  For example, by default Gloo Edge will have a gateway configured for HTTP and HTTPS traffic. Gloo Edge allows you to configure properties of your gateways with several plugins.
 
 These guides show you how to apply these advanced listener configurations to refine your gateways' behavior.
 
@@ -15,29 +15,35 @@ For demonstration purposes, let's edit the default gateways that are installed w
 
 ```bash
 kubectl get gateway --all-namespaces
+```
+
+```bash
 NAMESPACE     NAME                AGE
 gloo-system   gateway-proxy       2d
 gloo-system   gateway-proxy-ssl   2d
 ```
 
-`kubectl edit gateway -n gloo-system gateway`
+```bash
+kubectl edit gateway -n gloo-system gateway-proxy
+```
 
 ### Plugin summary
 
 The listener plugin portion of the gateway Custom Resource (CR) is shown below.
 
-{{< highlight yaml "hl_lines=7-11" >}}
+{{< highlight yaml "hl_lines=7-12" >}}
 apiVersion: gateway.solo.io/v1
 kind: Gateway
 metadata: # collapsed for brevity
 spec:
   bindAddress: '::'
   bindPort: 8080
-  options:
-    grpcWeb:
-      disable: true
-    httpConnectionManagerSettings:
-      via: reference-string
+  httpGateway:
+    options:
+      grpcWeb:
+        disable: true
+      httpConnectionManagerSettings:
+        via: reference-string
   useProxyProto: false
 status: # collapsed for brevity
 {{< /highlight >}}
@@ -90,6 +96,6 @@ metadata: # collapsed for brevity
 
 ## Next Steps
 
-The guide above showed some basics on how to manipulate settings for the gateway listener in Gloo. The following guides provide additional detail around what you may want to change in the gateway CR and how to do so.
+The guide above showed some basics on how to manipulate settings for the gateway listener in Gloo Edge. The following guides provide additional detail around what you may want to change in the gateway CR and how to do so.
 
 {{% children description="true" depth="1" %}}

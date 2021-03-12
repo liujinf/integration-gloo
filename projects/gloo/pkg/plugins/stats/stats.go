@@ -5,10 +5,10 @@ import (
 	"sort"
 	"strings"
 
-	envoycore "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
-	envoyroute "github.com/envoyproxy/go-control-plane/envoy/api/v2/route"
-	envoymatcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher"
+	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoy_config_route_v3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	"github.com/rotisserie/eris"
+	regexutils "github.com/solo-io/gloo/pkg/utils/regexutils"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/stats"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
@@ -39,12 +39,16 @@ func (p *Plugin) Init(params plugins.InitParams) error {
 	return nil
 }
 
-func (p *Plugin) ProcessVirtualHost(params plugins.VirtualHostParams, in *v1.VirtualHost, out *envoyroute.VirtualHost) error {
+func (p *Plugin) ProcessVirtualHost(
+	params plugins.VirtualHostParams,
+	in *v1.VirtualHost,
+	out *envoy_config_route_v3.VirtualHost,
+) error {
 	if in.GetOptions() == nil || in.GetOptions().GetStats() == nil {
 		return nil
 	}
 
-	vClusters, err := converter{ctx: params.Ctx}.convertVirtualClusters(in.GetOptions().GetStats())
+	vClusters, err := converter{ctx: params.Ctx}.convertVirtualClusters(params, in.GetOptions().GetStats())
 	if err != nil {
 		return err
 	}
@@ -57,8 +61,11 @@ type converter struct {
 	ctx context.Context
 }
 
-func (c converter) convertVirtualClusters(statsConfig *stats.Stats) ([]*envoyroute.VirtualCluster, error) {
-	var result []*envoyroute.VirtualCluster
+func (c converter) convertVirtualClusters(
+	params plugins.VirtualHostParams,
+	statsConfig *stats.Stats,
+) ([]*envoy_config_route_v3.VirtualCluster, error) {
+	var result []*envoy_config_route_v3.VirtualCluster
 	for _, virtualCluster := range statsConfig.VirtualClusters {
 
 		name, err := c.validateName(virtualCluster.Name)
@@ -75,29 +82,24 @@ func (c converter) convertVirtualClusters(statsConfig *stats.Stats) ([]*envoyrou
 			return nil, invalidVirtualClusterErr(err, virtualCluster.Name)
 		}
 
-		headermatcher := []*envoyroute.HeaderMatcher{{
+		headermatcher := []*envoy_config_route_v3.HeaderMatcher{{
 			Name: ":path",
-			HeaderMatchSpecifier: &envoyroute.HeaderMatcher_SafeRegexMatch{
-				SafeRegexMatch: &envoymatcher.RegexMatcher{
-					EngineType: &envoymatcher.RegexMatcher_GoogleRe2{
-						GoogleRe2: &envoymatcher.RegexMatcher_GoogleRE2{},
-					},
-					Regex: virtualCluster.Pattern,
-				},
+			HeaderMatchSpecifier: &envoy_config_route_v3.HeaderMatcher_SafeRegexMatch{
+				SafeRegexMatch: regexutils.NewRegex(params.Ctx, virtualCluster.Pattern),
 			},
 		}}
 
 		if method != "" {
-			headermatcher = append(headermatcher, &envoyroute.HeaderMatcher{
+			headermatcher = append(headermatcher, &envoy_config_route_v3.HeaderMatcher{
 				Name: ":method",
-				HeaderMatchSpecifier: &envoyroute.HeaderMatcher_ExactMatch{
+				HeaderMatchSpecifier: &envoy_config_route_v3.HeaderMatcher_ExactMatch{
 					ExactMatch: method,
 				},
 			})
 		}
 
 		// method and path must be not empty
-		result = append(result, &envoyroute.VirtualCluster{
+		result = append(result, &envoy_config_route_v3.VirtualCluster{
 			Name:    name,
 			Headers: headermatcher,
 		})
@@ -117,7 +119,7 @@ func (c converter) validateHttpMethod(methodName string) (string, error) {
 		return "", nil
 	}
 	key := strings.ToUpper(methodName)
-	_, ok := envoycore.RequestMethod_value[key]
+	_, ok := envoy_config_core_v3.RequestMethod_value[key]
 	if !ok {
 		return "", invalidMethodErr(methodName)
 	}
@@ -126,7 +128,7 @@ func (c converter) validateHttpMethod(methodName string) (string, error) {
 
 func validMethodNames() string {
 	var names []string
-	for methodName := range envoycore.RequestMethod_value {
+	for methodName := range envoy_config_core_v3.RequestMethod_value {
 		names = append(names, methodName)
 	}
 	sort.Strings(names)

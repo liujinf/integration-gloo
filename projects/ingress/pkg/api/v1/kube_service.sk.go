@@ -16,14 +16,14 @@ import (
 
 func NewKubeService(namespace, name string) *KubeService {
 	kubeservice := &KubeService{}
-	kubeservice.SetMetadata(core.Metadata{
+	kubeservice.SetMetadata(&core.Metadata{
 		Name:      name,
 		Namespace: namespace,
 	})
 	return kubeservice
 }
 
-func (r *KubeService) SetMetadata(meta core.Metadata) {
+func (r *KubeService) SetMetadata(meta *core.Metadata) {
 	r.Metadata = meta
 }
 
@@ -41,13 +41,10 @@ func (r *KubeService) GroupVersionKind() schema.GroupVersionKind {
 
 type KubeServiceList []*KubeService
 
-// namespace is optional, if left empty, names can collide if the list contains more than one with the same name
 func (list KubeServiceList) Find(namespace, name string) (*KubeService, error) {
 	for _, kubeService := range list {
-		if kubeService.GetMetadata().Name == name {
-			if namespace == "" || kubeService.GetMetadata().Namespace == namespace {
-				return kubeService, nil
-			}
+		if kubeService.GetMetadata().Name == name && kubeService.GetMetadata().Namespace == namespace {
+			return kubeService, nil
 		}
 	}
 	return nil, errors.Errorf("list did not find kubeService %v.%v", namespace, name)
@@ -138,12 +135,6 @@ var (
 		false,
 		&KubeService{})
 )
-
-func init() {
-	if err := crd.AddCrd(KubeServiceCrd); err != nil {
-		log.Fatalf("could not add crd to global registry")
-	}
-}
 
 var (
 	KubeServiceGVK = schema.GroupVersionKind{

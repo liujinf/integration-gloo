@@ -1,6 +1,7 @@
 package secret_test
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
@@ -18,20 +19,27 @@ import (
 
 var _ = Describe("ExtauthApiKey", func() {
 
+	var (
+		ctx    context.Context
+		cancel context.CancelFunc
+	)
+
 	BeforeEach(func() {
 		helpers.UseMemoryClients()
+		ctx, cancel = context.WithCancel(context.Background())
 	})
+
+	AfterEach(func() { cancel() })
 
 	It("should create secret without labels", func() {
 		err := testutils.Glooctl("create secret apikey --name user --namespace gloo-system --apikey secretApiKey")
 		Expect(err).NotTo(HaveOccurred())
 
-		secret, err := helpers.MustSecretClient().Read("gloo-system", "user", clients.ReadOpts{})
+		secret, err := helpers.MustSecretClient(ctx).Read("gloo-system", "user", clients.ReadOpts{})
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(secret.GetApiKey()).To(Equal(&extauthpb.ApiKeySecret{
 			ApiKey: "secretApiKey",
-			Labels: []string{},
 		}))
 	})
 
@@ -39,13 +47,17 @@ var _ = Describe("ExtauthApiKey", func() {
 		err := testutils.Glooctl("create secret apikey --name user --namespace gloo-system --apikey secretApiKey --apikey-labels k1=v1,k2=v2")
 		Expect(err).NotTo(HaveOccurred())
 
-		secret, err := helpers.MustSecretClient().Read("gloo-system", "user", clients.ReadOpts{})
+		secret, err := helpers.MustSecretClient(ctx).Read("gloo-system", "user", clients.ReadOpts{})
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect(secret.GetApiKey()).To(Equal(&extauthpb.ApiKeySecret{
 			ApiKey: "secretApiKey",
-			Labels: []string{"k1=v1", "k2=v2"},
 		}))
+		Expect(secret.Metadata.Labels).To(Equal(
+			map[string]string{
+				"k1": "v1",
+				"k2": "v2",
+			}))
 	})
 
 	It("should error when no apikey provided", func() {
@@ -64,17 +76,16 @@ var _ = Describe("ExtauthApiKey", func() {
 		out, err := testutils.GlooctlOut("create secret apikey --name user --namespace gloo-system --apikey secretApiKey --apikey-labels k1=v1,k2=v2 --dry-run")
 		Expect(err).NotTo(HaveOccurred())
 		fmt.Print(out)
-		Expect(out).To(Equal(`data:
-  apiKey: YXBpS2V5OiBzZWNyZXRBcGlLZXkKbGFiZWxzOgotIGsxPXYxCi0gazI9djIK
-metadata:
-  annotations:
-    resource_kind: '*v1.Secret'
+		Expect(out).To(Equal(`metadata:
   creationTimestamp: null
   labels:
     k1: v1
     k2: v2
   name: user
   namespace: gloo-system
+stringData:
+  api-key: secretApiKey
+type: extauth.solo.io/apikey
 `))
 	})
 

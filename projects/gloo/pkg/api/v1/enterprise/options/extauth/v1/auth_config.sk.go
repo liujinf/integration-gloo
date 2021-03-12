@@ -16,18 +16,18 @@ import (
 
 func NewAuthConfig(namespace, name string) *AuthConfig {
 	authconfig := &AuthConfig{}
-	authconfig.SetMetadata(core.Metadata{
+	authconfig.SetMetadata(&core.Metadata{
 		Name:      name,
 		Namespace: namespace,
 	})
 	return authconfig
 }
 
-func (r *AuthConfig) SetMetadata(meta core.Metadata) {
+func (r *AuthConfig) SetMetadata(meta *core.Metadata) {
 	r.Metadata = meta
 }
 
-func (r *AuthConfig) SetStatus(status core.Status) {
+func (r *AuthConfig) SetStatus(status *core.Status) {
 	r.Status = status
 }
 
@@ -45,13 +45,10 @@ func (r *AuthConfig) GroupVersionKind() schema.GroupVersionKind {
 
 type AuthConfigList []*AuthConfig
 
-// namespace is optional, if left empty, names can collide if the list contains more than one with the same name
 func (list AuthConfigList) Find(namespace, name string) (*AuthConfig, error) {
 	for _, authConfig := range list {
-		if authConfig.GetMetadata().Name == name {
-			if namespace == "" || authConfig.GetMetadata().Namespace == namespace {
-				return authConfig, nil
-			}
+		if authConfig.GetMetadata().Name == name && authConfig.GetMetadata().Namespace == namespace {
+			return authConfig, nil
 		}
 	}
 	return nil, errors.Errorf("list did not find authConfig %v.%v", namespace, name)
@@ -150,12 +147,6 @@ var (
 		false,
 		&AuthConfig{})
 )
-
-func init() {
-	if err := crd.AddCrd(AuthConfigCrd); err != nil {
-		log.Fatalf("could not add crd to global registry")
-	}
-}
 
 var (
 	AuthConfigGVK = schema.GroupVersionKind{

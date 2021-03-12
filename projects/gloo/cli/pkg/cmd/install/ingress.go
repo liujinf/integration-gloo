@@ -2,6 +2,7 @@ package install
 
 import (
 	"github.com/rotisserie/eris"
+	"github.com/solo-io/gloo/projects/gloo/cli/pkg/flagutils"
 	"helm.sh/helm/v3/pkg/chartutil"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
@@ -26,12 +27,14 @@ func ingressCmd(opts *options.Options) *cobra.Command {
 				InstallCliArgs: &opts.Install,
 				ExtraValues:    ingressOverrides,
 				Verbose:        opts.Top.Verbose,
+				Ctx:            opts.Top.Ctx,
 			}); err != nil {
-				return eris.Wrapf(err, "installing gloo in ingress mode")
+				return eris.Wrapf(err, "installing gloo edge in ingress mode")
 			}
 
 			return nil
 		},
 	}
+	flagutils.AddGlooInstallFlags(cmd.Flags(), &opts.Install)
 	return cmd
 }

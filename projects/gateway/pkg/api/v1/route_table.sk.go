@@ -16,18 +16,18 @@ import (
 
 func NewRouteTable(namespace, name string) *RouteTable {
 	routetable := &RouteTable{}
-	routetable.SetMetadata(core.Metadata{
+	routetable.SetMetadata(&core.Metadata{
 		Name:      name,
 		Namespace: namespace,
 	})
 	return routetable
 }
 
-func (r *RouteTable) SetMetadata(meta core.Metadata) {
+func (r *RouteTable) SetMetadata(meta *core.Metadata) {
 	r.Metadata = meta
 }
 
-func (r *RouteTable) SetStatus(status core.Status) {
+func (r *RouteTable) SetStatus(status *core.Status) {
 	r.Status = status
 }
 
@@ -45,13 +45,10 @@ func (r *RouteTable) GroupVersionKind() schema.GroupVersionKind {
 
 type RouteTableList []*RouteTable
 
-// namespace is optional, if left empty, names can collide if the list contains more than one with the same name
 func (list RouteTableList) Find(namespace, name string) (*RouteTable, error) {
 	for _, routeTable := range list {
-		if routeTable.GetMetadata().Name == name {
-			if namespace == "" || routeTable.GetMetadata().Namespace == namespace {
-				return routeTable, nil
-			}
+		if routeTable.GetMetadata().Name == name && routeTable.GetMetadata().Namespace == namespace {
+			return routeTable, nil
 		}
 	}
 	return nil, errors.Errorf("list did not find routeTable %v.%v", namespace, name)
@@ -150,12 +147,6 @@ var (
 		false,
 		&RouteTable{})
 )
-
-func init() {
-	if err := crd.AddCrd(RouteTableCrd); err != nil {
-		log.Fatalf("could not add crd to global registry")
-	}
-}
 
 var (
 	RouteTableGVK = schema.GroupVersionKind{
