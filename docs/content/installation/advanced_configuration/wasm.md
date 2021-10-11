@@ -106,6 +106,10 @@ In some circumstances, using [WebAssembly Hub](https://webassemblyhub.io/) as yo
 
 ### Prerequisites
 
+{{% notice note %}}
+In Enterprise Gloo 1.7.2 and above, C++ WASM filters require upgrading to proxy-wasm-cpp-sdk-b2e6b0759d34d760e527dadca413a285614f9e99 to work.
+{{% /notice %}}
+
 We are assuming you already have a wasm filter created and built locally. You can replicate this by running the two commands below. Alternatively, you can follow the more in-depth guide in the WebAssembly Hub docs [here](https://docs.solo.io/web-assembly-hub/latest/tutorial_code/build_tutorials/building_cpp_filters/).
 
 ```bash
@@ -267,7 +271,7 @@ spec:
             value: "my test config"
           filePath: /wasm-filters/filter.wasm
           name: myfilter
-          root_id: add_header_root_id
+          rootId: add_header_root_id
   proxyNames:
   - gateway-proxy
   ssl: false

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	gloostatusutils "github.com/solo-io/gloo/pkg/utils/statusutils"
+
 	"github.com/solo-io/gloo/projects/gloo/pkg/syncer"
 
 	"github.com/golang/protobuf/ptypes/duration"
@@ -71,7 +73,7 @@ func NewSetupFunc() setuputils.SetupFunc {
 //noinspection GoUnusedExportedFunction
 func NewSetupFuncWithExtensions(extensions Extensions) setuputils.SetupFunc {
 	runWithExtensions := func(opts bootstrap.Opts) error {
-		return RunGlooWithExtensions(opts, extensions)
+		return RunGlooWithExtensions(opts, extensions, make(chan struct{}))
 	}
 	return NewSetupFuncWithRunAndExtensions(runWithExtensions, &extensions)
 }
@@ -84,17 +86,20 @@ func NewSetupFuncWithRun(runFunc RunFunc) setuputils.SetupFunc {
 func NewSetupFuncWithRunAndExtensions(runFunc RunFunc, extensions *Extensions) setuputils.SetupFunc {
 	s := &setupSyncer{
 		extensions: extensions,
-		makeGrpcServer: func(ctx context.Context) *grpc.Server {
-			return grpc.NewServer(grpc.StreamInterceptor(
-				grpc_middleware.ChainStreamServer(
-					grpc_ctxtags.StreamServerInterceptor(),
-					grpc_zap.StreamServerInterceptor(zap.NewNop()),
-					func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-						contextutils.LoggerFrom(ctx).Debugf("gRPC call: %v", info.FullMethod)
-						return handler(srv, ss)
-					},
-				)),
-			)
+		makeGrpcServer: func(ctx context.Context, options ...grpc.ServerOption) *grpc.Server {
+			serverOpts := []grpc.ServerOption{
+				grpc.StreamInterceptor(
+					grpc_middleware.ChainStreamServer(
+						grpc_ctxtags.StreamServerInterceptor(),
+						grpc_zap.StreamServerInterceptor(zap.NewNop()),
+						func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+							contextutils.LoggerFrom(ctx).Debugf("gRPC call: %v", info.FullMethod)
+							return handler(srv, ss)
+						},
+					)),
+			}
+			serverOpts = append(serverOpts, options...)
+			return grpc.NewServer(serverOpts...)
 		},
 		runFunc: runFunc,
 	}
@@ -109,7 +114,7 @@ type grpcServer struct {
 type setupSyncer struct {
 	extensions               *Extensions
 	runFunc                  RunFunc
-	makeGrpcServer           func(ctx context.Context) *grpc.Server
+	makeGrpcServer           func(ctx context.Context, options ...grpc.ServerOption) *grpc.Server
 	previousXdsServer        grpcServer
 	previousValidationServer grpcServer
 	controlPlane             bootstrap.ControlPlane
@@ -193,11 +198,11 @@ func (s *setupSyncer) Setup(ctx context.Context, kubeCache kube.SharedCache, mem
 		refreshRate = prototime.DurationFromProto(settings.GetRefreshRate())
 	}
 
-	writeNamespace := settings.DiscoveryNamespace
+	writeNamespace := settings.GetDiscoveryNamespace()
 	if writeNamespace == "" {
 		writeNamespace = defaults.GlooSystem
 	}
-	watchNamespaces := utils.ProcessWatchNamespaces(settings.WatchNamespaces, writeNamespace)
+	watchNamespaces := utils.ProcessWatchNamespaces(settings.GetWatchNamespaces(), writeNamespace)
 
 	emptyControlPlane := bootstrap.ControlPlane{}
 	emptyValidationServer := bootstrap.ValidationServer{}
@@ -235,7 +240,15 @@ func (s *setupSyncer) Setup(ctx context.Context, kubeCache kube.SharedCache, mem
 	if s.validationServer == emptyValidationServer {
 		// create new context as the grpc server might survive multiple iterations of this loop.
 		ctx, cancel := context.WithCancel(context.Background())
-		s.validationServer = NewValidationServer(ctx, s.makeGrpcServer(ctx), validationTcpAddress, true)
+		var validationGrpcServerOpts []grpc.ServerOption
+		if maxGrpcMsgSize := settings.GetGateway().GetValidation().GetValidationServerGrpcMaxSizeBytes(); maxGrpcMsgSize != nil {
+			if maxGrpcMsgSize.GetValue() < 0 {
+				cancel()
+				return errors.Errorf("validationServerGrpcMaxSizeBytes in settings CRD must be non-negative, current value: %v", maxGrpcMsgSize.GetValue())
+			}
+			validationGrpcServerOpts = append(validationGrpcServerOpts, grpc.MaxRecvMsgSize(int(maxGrpcMsgSize.GetValue())))
+		}
+		s.validationServer = NewValidationServer(ctx, s.makeGrpcServer(ctx, validationGrpcServerOpts...), validationTcpAddress, true)
 		s.previousValidationServer.cancel = cancel
 		s.previousValidationServer.addr = validationAddr
 	}
@@ -266,6 +279,7 @@ func (s *setupSyncer) Setup(ctx context.Context, kubeCache kube.SharedCache, mem
 		return err
 	}
 	opts.WriteNamespace = writeNamespace
+	opts.StatusReporterNamespace = gloostatusutils.GetStatusReporterNamespaceOrDefault(writeNamespace)
 	opts.WatchNamespaces = watchNamespaces
 	opts.WatchOpts = clients.WatchOpts{
 		Ctx:         ctx,
@@ -275,7 +289,7 @@ func (s *setupSyncer) Setup(ctx context.Context, kubeCache kube.SharedCache, mem
 	opts.ValidationServer = s.validationServer
 	// if nil, kube plugin disabled
 	opts.KubeClient = clientset
-	opts.DevMode = settings.DevMode
+	opts.DevMode = settings.GetDevMode()
 	opts.Settings = settings
 
 	opts.Consul.DnsServer = settings.GetConsul().GetDnsAddress()
@@ -364,15 +378,18 @@ func GetPluginsWithExtensions(opts bootstrap.Opts, extensions Extensions) func()
 }
 
 func RunGloo(opts bootstrap.Opts) error {
-	return RunGlooWithExtensions(opts, Extensions{
-		SyncerExtensions: []syncer.TranslatorSyncerExtensionFactory{
-			ratelimitExt.NewTranslatorSyncerExtension,
-			extauthExt.NewTranslatorSyncerExtension,
-		},
-	})
+	return RunGlooWithExtensions(
+		opts,
+		Extensions{
+			SyncerExtensions: []syncer.TranslatorSyncerExtensionFactory{
+				ratelimitExt.NewTranslatorSyncerExtension,
+				extauthExt.NewTranslatorSyncerExtension,
+			}},
+		make(chan struct{}),
+	)
 }
 
-func RunGlooWithExtensions(opts bootstrap.Opts, extensions Extensions) error {
+func RunGlooWithExtensions(opts bootstrap.Opts, extensions Extensions, apiEmitterChan chan struct{}) error {
 	watchOpts := opts.WatchOpts.WithDefaults()
 	opts.WatchOpts.Ctx = contextutils.WithLogger(opts.WatchOpts.Ctx, "gloo")
 
@@ -462,7 +479,9 @@ func RunGlooWithExtensions(opts bootstrap.Opts, extensions Extensions) error {
 
 	errs := make(chan error)
 
-	disc := discovery.NewEndpointDiscovery(opts.WatchNamespaces, opts.WriteNamespace, endpointClient, discoveryPlugins)
+	statusClient := gloostatusutils.GetStatusClientForNamespace(opts.StatusReporterNamespace)
+
+	disc := discovery.NewEndpointDiscovery(opts.WatchNamespaces, opts.WriteNamespace, endpointClient, statusClient, discoveryPlugins)
 	edsSync := discovery.NewEdsSyncer(disc, discovery.Opts{}, watchOpts.RefreshRate)
 	discoveryCache := v1.NewEdsEmitter(hybridUsClient)
 	edsEventLoop := v1.NewEdsEventLoop(discoveryCache, edsSync)
@@ -478,7 +497,7 @@ func RunGlooWithExtensions(opts bootstrap.Opts, extensions Extensions) error {
 			Seconds: 5 * 60,
 		}
 	}
-	if warmTimeout.Seconds != 0 || warmTimeout.Nanos != 0 {
+	if warmTimeout.GetSeconds() != 0 || warmTimeout.GetNanos() != 0 {
 		warmTimeoutDuration := prototime.DurationFromProto(warmTimeout)
 		ctx := opts.WatchOpts.Ctx
 		err = channelutils.WaitForReady(ctx, warmTimeoutDuration, edsEventLoop.Ready(), disc.Ready())
@@ -495,7 +514,7 @@ func RunGlooWithExtensions(opts bootstrap.Opts, extensions Extensions) error {
 
 	go errutils.AggregateErrs(watchOpts.Ctx, errs, edsErrs, "eds.gloo")
 
-	apiCache := v1.NewApiEmitter(
+	apiCache := v1.NewApiEmitterWithEmit(
 		artifactClient,
 		endpointClient,
 		proxyClient,
@@ -504,9 +523,11 @@ func RunGlooWithExtensions(opts bootstrap.Opts, extensions Extensions) error {
 		hybridUsClient,
 		authConfigClient,
 		rlClient,
+		apiEmitterChan,
 	)
 
 	rpt := reporter.NewReporter("gloo",
+		statusClient,
 		hybridUsClient.BaseClient(),
 		proxyClient.BaseClient(),
 		upstreamGroupClient.BaseClient(),
@@ -516,11 +537,6 @@ func RunGlooWithExtensions(opts bootstrap.Opts, extensions Extensions) error {
 
 	t := translator.NewTranslator(sslutils.NewSslConfigTranslator(), opts.Settings, getPlugins)
 
-	validator := validation.NewValidator(watchOpts.Ctx, t)
-	if opts.ValidationServer.Server != nil {
-		opts.ValidationServer.Server.SetValidator(validator)
-	}
-
 	routeReplacingSanitizer, err := sanitizer.NewRouteReplacingSanitizer(opts.Settings.GetGloo().GetInvalidConfigPolicy())
 	if err != nil {
 		return err
@@ -529,6 +545,11 @@ func RunGlooWithExtensions(opts bootstrap.Opts, extensions Extensions) error {
 	xdsSanitizer := sanitizer.XdsSanitizers{
 		sanitizer.NewUpstreamRemovingSanitizer(),
 		routeReplacingSanitizer,
+	}
+
+	validator := validation.NewValidator(watchOpts.Ctx, t, xdsSanitizer)
+	if opts.ValidationServer.Server != nil {
+		opts.ValidationServer.Server.SetValidator(validator)
 	}
 
 	params := syncer.TranslatorSyncerExtensionParams{
@@ -667,7 +688,6 @@ func startRestXdsServer(opts bootstrap.Opts) {
 		contextutils.LoggerFrom(opts.WatchOpts.Ctx),
 		opts.ControlPlane.XDSServer,
 		map[string]string{
-			resource.FetchEndpointsV2: resource.EndpointTypeV2,
 			resource.FetchEndpointsV3: resource.EndpointTypeV3,
 		},
 	)

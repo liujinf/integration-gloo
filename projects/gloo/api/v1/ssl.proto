@@ -2,13 +2,15 @@ syntax = "proto3";
 package gloo.solo.io;
 option go_package = "github.com/solo-io/gloo/projects/gloo/pkg/api/v1";
 
+import "google/protobuf/wrappers.proto";
+
 import "extproto/ext.proto";
 option (extproto.equal_all) = true;
 option (extproto.hash_all) = true;
 
 import "github.com/solo-io/solo-kit/api/v1/ref.proto";
 
-// SslConfig contains the options necessary to configure a virtual host or listener to use TLS
+// SslConfig contains the options necessary to configure a virtual host or listener to use TLS termination
 message SslConfig {
     oneof ssl_secrets {
         // SecretRef contains the secret ref to a gloo tls secret or a kubernetes tls secret.
@@ -31,6 +33,14 @@ message SslConfig {
     // Set Application Level Protocol Negotiation
     // If empty, defaults to ["h2", "http/1.1"].
     repeated string alpn_protocols = 7;
+
+    // If the SSL config has the ca.crt (root CA) provided, Gloo uses it to perform mTLS by default.
+    // Set oneWayTls to true to disable mTLS in favor of server-only TLS (one-way TLS), even if Gloo has the root CA.
+    // If unset, defaults to false.
+    google.protobuf.BoolValue one_way_tls = 8;
+
+    // If set to true, the TLS session resumption will be deactivated, note that it deactivates only the tickets based tls session resumption (not the cache).
+    google.protobuf.BoolValue disable_tls_session_resumption = 9;
 }
 
 // SSLFiles reference paths to certificates which can be read by the proxy off of its local filesystem
@@ -93,7 +103,7 @@ message CallCredentials {
     FileCredentialSource file_credential_source = 1;
 }
 
-// General TLS parameters. See the [envoy docs](https://www.envoyproxy.io/docs/envoy/latest/api-v2/api/v2/auth/cert.proto#envoy-api-enum-auth-tlsparameters-tlsprotocol)
+// General TLS parameters. See the [envoy docs](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/transport_sockets/tls/v3/common.proto#extensions-transport-sockets-tls-v3-tlsparameters)
 // for more information on the meaning of these values.
 message SslParameters {
     enum ProtocolVersion {

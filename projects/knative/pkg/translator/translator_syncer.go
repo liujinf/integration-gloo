@@ -17,6 +17,7 @@ import (
 	v1 "github.com/solo-io/gloo/projects/knative/pkg/api/v1"
 	"github.com/solo-io/go-utils/contextutils"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
+	"github.com/solo-io/solo-kit/pkg/api/v1/resources"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 	v1machinery "k8s.io/apimachinery/pkg/apis/meta/v1"
 	knativev1alpha1 "knative.dev/networking/pkg/apis/networking/v1alpha1"
@@ -33,11 +34,13 @@ type translatorSyncer struct {
 	ingressClient        knativeclient.IngressesGetter
 	requireIngressClass  bool
 
+	statusClient resources.StatusClient
+
 	// injection for testing
 	translateProxy func(ctx context.Context, proxyName, proxyNamespace string, ingresses v1alpha1.IngressList) (*gloov1.Proxy, error)
 }
 
-func NewSyncer(externalProxyAddress, internalProxyAddress, writeNamespace string, proxyClient gloov1.ProxyClient, ingressClient knativeclient.IngressesGetter, writeErrs chan error, requireIngressClass bool) v1.TranslatorSyncer {
+func NewSyncer(externalProxyAddress, internalProxyAddress, writeNamespace string, proxyClient gloov1.ProxyClient, ingressClient knativeclient.IngressesGetter, writeErrs chan error, requireIngressClass bool, statusClient resources.StatusClient) v1.TranslatorSyncer {
 	return &translatorSyncer{
 		externalProxyAddress: externalProxyAddress,
 		internalProxyAddress: internalProxyAddress,
@@ -45,8 +48,9 @@ func NewSyncer(externalProxyAddress, internalProxyAddress, writeNamespace string
 		writeErrs:            writeErrs,
 		proxyClient:          proxyClient,
 		ingressClient:        ingressClient,
-		proxyReconciler:      gloov1.NewProxyReconciler(proxyClient),
+		proxyReconciler:      gloov1.NewProxyReconciler(proxyClient, statusClient),
 		requireIngressClass:  requireIngressClass,
+		statusClient:         statusClient,
 		translateProxy:       translateProxy,
 	}
 }
@@ -117,18 +121,20 @@ func (s *translatorSyncer) Sync(ctx context.Context, snap *v1.TranslatorSnapshot
 
 	var desiredResources gloov1.ProxyList
 	if externalProxy != nil {
-		logger.Infof("creating external proxy %v", externalProxy.Metadata.Ref())
-		externalProxy.Metadata.Labels = labels
+		logger.Infof("creating external proxy %v", externalProxy.GetMetadata().Ref())
+		externalProxy.GetMetadata().Labels = labels
 		desiredResources = append(desiredResources, externalProxy)
 	}
 
 	if internalProxy != nil {
-		logger.Infof("creating internal proxy %v", internalProxy.Metadata.Ref())
-		internalProxy.Metadata.Labels = labels
+		logger.Infof("creating internal proxy %v", internalProxy.GetMetadata().Ref())
+		internalProxy.GetMetadata().Labels = labels
 		desiredResources = append(desiredResources, internalProxy)
 	}
 
-	if err := s.proxyReconciler.Reconcile(s.writeNamespace, desiredResources, utils.TransitionFunction, clients.ListOpts{
+	proxyTransitionFunction := utils.TransitionFunction(s.statusClient)
+
+	if err := s.proxyReconciler.Reconcile(s.writeNamespace, desiredResources, proxyTransitionFunction, clients.ListOpts{
 		Ctx:      ctx,
 		Selector: labels,
 	}); err != nil {
@@ -166,16 +172,17 @@ func (s *translatorSyncer) propagateProxyStatus(ctx context.Context, proxy *gloo
 			return nil
 		case <-ticker:
 			// poll the proxy for an accepted or rejected status
-			updatedProxy, err := s.proxyClient.Read(proxy.Metadata.Namespace, proxy.Metadata.Name, clients.ReadOpts{Ctx: ctx})
+			updatedProxy, err := s.proxyClient.Read(proxy.GetMetadata().GetNamespace(), proxy.GetMetadata().GetName(), clients.ReadOpts{Ctx: ctx})
 			if err != nil {
 				return err
 			}
-			switch updatedProxy.Status.State {
+
+			updatedProxyStatus := s.statusClient.GetStatus(updatedProxy)
+			switch updatedProxyStatus.GetState() {
 			case core.Status_Pending:
 				continue
 			case core.Status_Rejected:
-				contextutils.LoggerFrom(ctx).Errorf("proxy was rejected by gloo: %v",
-					updatedProxy.Status.Reason)
+				contextutils.LoggerFrom(ctx).Errorf("proxy was rejected by gloo: %v", updatedProxyStatus.GetReason())
 				continue
 			case core.Status_Accepted:
 				return s.markIngressesReady(ctx, ingresses)

@@ -14,15 +14,11 @@ Note: For certain providers with more strict multi-tenant security, like OpenShi
 {{< readfile file="installation/glooctl_setup.md" markdown="true" >}}
 
 {{% notice note %}}
-To install Gloo Edge Enterprise you need a License Key. If you don't have one, go to [**https://solo.io/gloo**](https://www.solo.io/products/gloo/#enterprise-trial) and
-request a trial now. Once you request a trial, an e-mail will be sent to you with your unique License Key that you will
-need as part of installing Gloo Edge.
+To install Gloo Edge Enterprise, you need a license key. If you don't have one already, you may request a trial license key [here](https://www.solo.io/products/gloo/#enterprise-trial).
 {{% /notice %}}
 
 {{% notice info %}}
-Each Key is valid for **31 days**. You can request a new key if your current key has expired.
-The License Key is required only during the installation process. Once you install, a `secret` will be created to hold
-your unique key.
+Each trial license key is typically valid for **30 days**. You can request a new key if your current key has expired. When the license key expires, you can request a new license key by contacting your Account Representative or filling out [this form](https://lp.solo.io/request-trial). You must provide the license key during the installation process. When you install Gloo Edge, a Kubernetes secret is created to store the license key. When the key is about to expire, see [Updating Enterprise Licenses]({{< versioned_link_path fromRoot="/operations/updating_license/" >}}).
 {{% /notice %}}
 
 Before starting installation, please ensure that you've prepared your Kubernetes cluster per the community
@@ -39,7 +35,7 @@ glooctl install gateway enterprise --license-key YOUR_LICENSE_KEY
 
 <details>
 <summary>Special Instructions to Install Gloo Edge Enterprise on Kind</summary>
-If you followed the cluster setup instructions for Kind [here]({{< versioned_link_path fromRoot="/installation/platform_configuration/cluster_setup/#kind" >}}), then you should have exposed custom ports 31500 (for http) and 32500 (https) from your cluster's Docker container to its host machine. The purpose of this is to make it easier to access your service endpoints from your host workstation.  Use the following custom installation for Gloo Edge to publish those same ports from the proxy as well.
+If you followed the cluster setup instructions for Kind <a href="{{< versioned_link_path fromRoot="/installation/platform_configuration/cluster_setup/#kind" >}}">here</a>, then you should have exposed custom ports 31500 (for http) and 32500 (https) from your cluster's Docker container to its host machine. The purpose of this is to make it easier to access your service endpoints from your host workstation.  Use the following custom installation for Gloo Edge to publish those same ports from the proxy as well.
 
 ```bash
 cat <<EOF | glooctl install gateway enterprise --license-key YOUR_LICENSE_KEY --values -
@@ -94,21 +90,19 @@ the Gloo Edge control plane and the proxies Gloo Edge manages.
 As a first step, you have to add the Gloo Edge repository to the list of known chart repositories:
 
 ```shell
-helm repo add glooe http://storage.googleapis.com/gloo-ee-helm
+helm repo add glooe https://storage.googleapis.com/gloo-ee-helm
 ```
 
 Finally, install Gloo Edge using the following command:
 
-{{< tabs >}}
-{{< tab name="Helm 2" codelang="shell">}}
-helm install glooe/gloo-ee --name gloo --namespace gloo-system \
-  --set gloo.crds.create=true --set-string license_key=YOUR_LICENSE_KEY
-{{< /tab >}}
-{{< tab name="Helm 3" codelang="shell">}}
+```shell
 helm install gloo glooe/gloo-ee --namespace gloo-system \
   --create-namespace --set-string license_key=YOUR_LICENSE_KEY
-{{< /tab >}}
-{{< /tabs >}}
+```
+
+{{% notice warning %}}
+Using Helm 2 is not supported in Gloo Edge v1.8.0.
+{{% /notice %}}
 
 Once you've installed Gloo Edge, please be sure [to verify your installation](#verify-your-installation).
 
@@ -128,18 +122,16 @@ settings:
   writeNamespace: my-custom-namespace
 ```
 
-and use it to override default values in the Gloo Edge Helm chart:
+and use it to override default values in the Gloo Edge Helm chart with Helm 3:
 
-{{< tabs >}}
-{{< tab name="Helm 2" codelang="shell">}}
-helm install glooe/gloo-ee --name gloo --namespace gloo-system \
-  -f value-overrides.yaml --set gloo.crds.create=true --set-string license_key=YOUR_LICENSE_KEY
-{{< /tab >}}
-{{< tab name="Helm 3" codelang="shell">}}
+```shell
 helm install gloo glooe/gloo-ee --namespace gloo-system \
   -f value-overrides.yaml --create-namespace --set-string license_key=YOUR_LICENSE_KEY
-{{< /tab >}}
-{{< /tabs >}}
+```
+
+{{% notice warning %}}
+Using Helm 2 is not supported in Gloo Edge v1.8.0.
+{{% /notice %}}
 
 #### List of Gloo Edge Helm chart values
 
@@ -164,7 +156,6 @@ Open source helm values in Gloo Edge enterprise must be prefixed with `gloo`, un
 | observability.customGrafana.password                      | string   | set this and the `username` field to authenticate to the custom grafana instance using basic auth
 | observability.customGrafana.apiKey                        | string   | authenticate to the custom grafana instance using this api key
 | observability.customGrafana.url                           | string   | the URL for the custom grafana instance
-| apiServer.enterprise                                      | bool     | deploy UI with permissions to modify Gloo Edge resources. default is `true`
 ---
 ## Verify your Installation
 
@@ -192,7 +183,6 @@ pod/rate-limit-6b847b95c8-kwcbd                            1/1     Running   1  
 pod/redis-7f6954b84d-ff4ck                                 1/1     Running   0          5m21s
 
 NAME                                          TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)                      AGE
-service/apiserver-ui                          NodePort       10.107.135.104   <none>        8088:31160/TCP               5m22s
 service/extauth                               ClusterIP      10.109.93.97     <none>        8080/TCP                     5m22s
 service/gateway-proxy                         LoadBalancer   10.106.26.131    <pending>     80:31627/TCP,443:30931/TCP   5m22s
 service/gloo                                  ClusterIP      10.103.56.88     <none>        9977/TCP                     5m22s
@@ -229,6 +219,27 @@ replicaset.apps/glooe-prometheus-server-6bd6f4667d               1         1    
 replicaset.apps/observability-6db6c659dd                         1         1         1       5m21s
 replicaset.apps/rate-limit-6b847b95c8                            1         1         1       5m21s
 replicaset.apps/redis-7f6954b84d                                 1         1         1       5m21s
+```
+
+```shell script
+kubectl --namespace gloo-fed get all
+```
+
+```noop
+NAME                                    READY   STATUS    RESTARTS   AGE
+pod/gloo-fed-695d6dd44c-v2l64           1/1     Running   0          57m
+pod/gloo-fed-console-774f958867-j7bwc   3/3     Running   0          57m
+
+NAME                       TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)                       AGE
+service/gloo-fed-console   ClusterIP   10.96.107.54   <none>        10101/TCP,8090/TCP,8081/TCP   72m
+
+NAME                               READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/gloo-fed           1/1     1            1           72m
+deployment.apps/gloo-fed-console   1/1     1            1           72m
+
+NAME                                          DESIRED   CURRENT   READY   AGE
+replicaset.apps/gloo-fed-695d6dd44c           1         1         1       72m
+replicaset.apps/gloo-fed-console-774f958867   1         1         1       72m
 ```
 
 #### Looking for opened ports?

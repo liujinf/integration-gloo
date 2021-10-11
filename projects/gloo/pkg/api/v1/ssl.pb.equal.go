@@ -89,6 +89,26 @@ func (m *SslConfig) Equal(that interface{}) bool {
 
 	}
 
+	if h, ok := interface{}(m.GetOneWayTls()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetOneWayTls()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetOneWayTls(), target.GetOneWayTls()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetDisableTlsSessionResumption()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetDisableTlsSessionResumption()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetDisableTlsSessionResumption(), target.GetDisableTlsSessionResumption()) {
+			return false
+		}
+	}
+
 	switch m.SslSecrets.(type) {
 
 	case *SslConfig_SecretRef:

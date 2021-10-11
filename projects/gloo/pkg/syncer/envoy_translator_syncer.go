@@ -113,7 +113,7 @@ func (s *translatorSyncer) syncEnvoy(ctx context.Context, snap *v1.ApiSnapshot, 
 
 	for _, proxy := range snap.Proxies {
 		proxyCtx := ctx
-		if ctxWithTags, err := tag.New(proxyCtx, tag.Insert(syncerstats.ProxyNameKey, proxy.Metadata.Ref().Key())); err == nil {
+		if ctxWithTags, err := tag.New(proxyCtx, tag.Insert(syncerstats.ProxyNameKey, proxy.GetMetadata().Ref().Key())); err == nil {
 			proxyCtx = ctxWithTags
 		}
 
@@ -130,29 +130,29 @@ func (s *translatorSyncer) syncEnvoy(ctx context.Context, snap *v1.ApiSnapshot, 
 		}
 
 		if validateErr := reports.ValidateStrict(); validateErr != nil {
-			logger.Warnw("Proxy had invalid config", zap.Any("proxy", proxy.Metadata.Ref()), zap.Error(validateErr))
+			logger.Warnw("Proxy had invalid config", zap.Any("proxy", proxy.GetMetadata().Ref()), zap.Error(validateErr))
 		}
-
-		allReports.Merge(reports)
 
 		key := xds.SnapshotKey(proxy)
 
 		sanitizedSnapshot, err := s.sanitizer.SanitizeSnapshot(ctx, snap, xdsSnapshot, reports)
 		if err != nil {
-			logger.Warnf("proxy %v was rejected due to invalid config: %v\n"+
-				"Attempting to update only EDS information", proxy.Metadata.Ref().Key(), err)
+			logger.Errorf("proxy %v was rejected due to invalid config: %v\n"+
+				"Attempting to update only EDS information", proxy.GetMetadata().Ref().Key(), err)
 
 			// If the snapshot is invalid, attempt at least to update the EDS information. This is important because
 			// endpoints are relatively ephemeral entities and the previous snapshot Envoy got might be stale by now.
 			sanitizedSnapshot, err = s.updateEndpointsOnly(key, xdsSnapshot)
 			if err != nil {
-				logger.Warnf("endpoint update failed. xDS snapshot for proxy %v will not be updated. "+
-					"Error is: %s", proxy.Metadata.Ref().Key(), err)
+				logger.Errorf("endpoint update failed. xDS snapshot for proxy %v will not be updated. "+
+					"Error is: %s", proxy.GetMetadata().Ref().Key(), err)
 				continue
 			}
-			logger.Infof("successfully updated EDS information for proxy %v", proxy.Metadata.Ref().Key())
+			logger.Infof("successfully updated EDS information for proxy %v", proxy.GetMetadata().Ref().Key())
 		}
 
+		// Merge reports after sanitization to capture changes made by the sanitizers
+		allReports.Merge(reports)
 		if err := s.xdsCache.SetSnapshot(key, sanitizedSnapshot); err != nil {
 			err := eris.Wrapf(err, "failed while updating xDS snapshot cache")
 			logger.DPanicw("", zap.Error(err))
@@ -176,7 +176,7 @@ func (s *translatorSyncer) syncEnvoy(ctx context.Context, snap *v1.ApiSnapshot, 
 			"routes", routesLen,
 			"endpoints", endpointsLen)
 
-		logger.Debugf("Full snapshot for proxy %v: %+v", proxy.Metadata.Name, xdsSnapshot)
+		logger.Debugf("Full snapshot for proxy %v: %+v", proxy.GetMetadata().GetName(), xdsSnapshot)
 	}
 
 	logger.Debugf("gloo reports to be written: %v", allReports)
@@ -202,20 +202,26 @@ func (s *translatorSyncer) ServeXdsSnapshots() error {
 // - EDS from the Gloo API snapshot translated curing this sync
 // The resulting snapshot will be checked for consistency before being returned.
 func (s *translatorSyncer) updateEndpointsOnly(snapshotKey string, current envoycache.Snapshot) (envoycache.Snapshot, error) {
+	var newSnapshot cache.Snapshot
+
 	// Get a copy of the last successful snapshot
 	previous, err := s.xdsCache.GetSnapshot(snapshotKey)
 	if err != nil {
-		return nil, err
+		// if no previous snapshot exists
+		newSnapshot = xds.NewEndpointsSnapshotFromResources(
+			current.GetResources(resource.EndpointTypeV3),
+			current.GetResources(resource.ClusterTypeV3),
+		)
+	} else {
+		newSnapshot = xds.NewSnapshotFromResources(
+			// Set endpoints and clusters calculated during this sync
+			current.GetResources(resource.EndpointTypeV3),
+			current.GetResources(resource.ClusterTypeV3),
+			// Keep other resources from previous snapshot
+			previous.GetResources(resource.RouteTypeV3),
+			previous.GetResources(resource.ListenerTypeV3),
+		)
 	}
-
-	newSnapshot := xds.NewSnapshotFromResources(
-		// Set endpoints and clusters calculated during this sync
-		current.GetResources(resource.EndpointTypeV3),
-		current.GetResources(resource.ClusterTypeV3),
-		// Keep other resources from previous snapshot
-		previous.GetResources(resource.RouteTypeV3),
-		previous.GetResources(resource.ListenerTypeV3),
-	)
 
 	if err := newSnapshot.Consistent(); err != nil {
 		return nil, err

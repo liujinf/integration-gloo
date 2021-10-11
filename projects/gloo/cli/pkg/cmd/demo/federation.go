@@ -53,10 +53,10 @@ if [ "$4" == "" ]; then
   exit 1
 fi
 
-kind create cluster --name "$1"
+kind create cluster --name "$1" --image kindest/node:v1.17.17@sha256:66f1d0d91a88b8a001811e2f1054af60eef3b669a9a74f9b6db871f2f1eeed00
 
 # Add locality labels to remote kind cluster for discovery
-(cat <<EOF | kind create cluster --name "$2" --config=-
+(cat <<EOF | kind create cluster --name "$2" --image kindest/node:v1.17.17@sha256:66f1d0d91a88b8a001811e2f1054af60eef3b669a9a74f9b6db871f2f1eeed00 --config=-
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -139,7 +139,7 @@ gloo:
       service:
         type: NodePort
 EOF
-glooctl install gateway enterprise --version $3 --values basic-enterprise.yaml --license-key=$4
+glooctl install gateway enterprise --version $3 --values basic-enterprise.yaml --license-key=$4 --with-gloo-fed=false
 rm basic-enterprise.yaml
 kubectl -n gloo-system rollout status deployment gloo --timeout=2m || true
 kubectl -n gloo-system rollout status deployment discovery --timeout=2m || true

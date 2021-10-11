@@ -17,7 +17,6 @@ As of **Gloo Edge Enterprise** release 1.5.0-beta1, you can see Gloo Edge's vers
 {{% /notice %}}
 
 ## Table of Contents
-- [Setup](#setup)
 - [OPA policy overview](#opa-policy-overview)
     - [OPA input structure](#opa-input-structure)
 - [Validate requests attributes with Open Policy Agent](#validate-requests-attributes-with-open-policy-agent)
@@ -154,7 +153,7 @@ metadata:
   namespace: gloo-system
 spec:
   configs:
-  - opa_auth:
+  - opaAuth:
       modules:
       - name: allow-get-users
         namespace: gloo-system
@@ -196,7 +195,7 @@ spec:
 EOF
 {{< /highlight >}}
 
-In the above example we have added the configuration to the Virtual Host. Each route belonging to a Virtual Host will inherit its `AuthConfig`, unless it [overwrites or disables]({{% versioned_link_path fromRoot="/guides/security/auth#inheritance-rules" %}}) it.
+In the above example we have added the configuration to the Virtual Host. Each route belonging to a Virtual Host will inherit its `AuthConfig`, unless it [overwrites or disables]({{% versioned_link_path fromRoot="/guides/security/auth/extauth/#inheritance-rules" %}}) it.
 
 ### Testing the configuration
 Paths that don't start with `/api/pets` are not authorized (should return 403):
@@ -294,7 +293,7 @@ kubectl -n gloo-system port-forward svc/gateway-proxy 8080:80
 
 If you open your browser and navigate to [http://localhost:8080](http://localhost:8080) you should see the following page:
 
-![Pet Clinic app homepage](petclinic-home.png)
+![Pet Clinic app homepage]({{% versioned_link_path fromRoot="/img/petclinic-home.png" %}})
 
 ### Secure the Virtual Service
 As we just saw, we were able to reach the service without having to provide any credentials. This is because by default 
@@ -332,12 +331,12 @@ config:
   staticPasswords:
   - email: "admin@example.com"
     # bcrypt hash of the string "password"
-    hash: "\$2a\$10\$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+    hash: $2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W
     username: "admin"
     userID: "08a8684b-db88-4b73-90a9-3cd1661f5466"
   - email: "user@example.com"
     # bcrypt hash of the string "password"
-    hash: "\$2a\$10\$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+    hash: $2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W
     username: "user"
     userID: "123456789-db88-4b73-90a9-3cd1661f5466"
 EOF
@@ -350,7 +349,7 @@ Using this configuration, we can deploy Dex to our cluster using Helm.
 If `help repo list` doesn't list the `stable` repo, invoke:
 
 ```shell
-helm repo add stable https://kubernetes-charts.storage.googleapis.com
+helm repo add stable https://charts.helm.sh/stable
 ```
 
 And then install dex (helm 3 command follows):
@@ -430,7 +429,7 @@ kubectl --namespace=gloo-system create configmap allow-jwt --from-file=check-jwt
 {{% /notice %}}
 
 Now that all the necessary resources are in place we can create the `AuthConfig` resource that we will use to secure our 
-Virtual Service.
+Virtual Service.  Save the code block below as `jwt-opa.yaml`.
 
 {{< highlight shell "hl_lines=8-22" >}}
 apiVersion: enterprise.gloo.solo.io/v1
@@ -442,24 +441,28 @@ spec:
   configs:
   - oauth2:
       oidcAuthorizationCode:
-        app_url: http://localhost:8080
-        callback_path: /callback
-        client_id: gloo
-        client_secret_ref:
+        appUrl: http://localhost:8080
+        callbackPath: /callback
+        clientId: gloo
+        clientSecretRef:
           name: oauth
           namespace: gloo-system
-        issuer_url: http://dex.gloo-system.svc.cluster.local:32000/
+        issuerUrl: http://dex.gloo-system.svc.cluster.local:32000/
         session:
           cookieOptions:
             notSecure: true
         scopes:
         - email
-  - opa_auth:
+  - opaAuth:
       modules:
       - name: allow-jwt
         namespace: gloo-system
       query: "data.test.allow == true"
 {{< /highlight >}}
+
+```
+kubectl apply -f jwt-opa.yaml
+```
 
 The above `AuthConfig` defines two configurations that Gloo Edge will execute in order: 
 
@@ -527,7 +530,7 @@ portForwardPid2=$!
 Now we are ready to test our complete setup! Open you browser and navigate to
 [http://localhost:8080](http://localhost:8080). You should see the following login page:
 
-![Dex login page](./dex-login.png)
+![Dex login page]({{% versioned_link_path fromRoot="/img/dex-login.png" %}})
 
 {{% notice note %}}
 As the demo app doesn't have a sign-out button, use a private browser window (also known as incognito mode) to access the demo app. This will make it easy to change the user we logged in with.

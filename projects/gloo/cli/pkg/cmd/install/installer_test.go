@@ -34,7 +34,6 @@ var _ = Describe("Install", func() {
 		glooOsVersion          = "test"
 		glooOsChartUri         = "https://storage.googleapis.com/solo-public-helm/charts/gloo-test.tgz"
 		glooEnterpriseChartUri = "https://storage.googleapis.com/gloo-ee-helm/charts/gloo-ee-test.tgz"
-		glooFederationChartUri = "https://storage.googleapis.com/gloo-fed-helm/gloo-fed-test.tgz"
 		testCrdContent         = "test-crd-content"
 		testHookContent        = `
 kind: ClusterRoleBinding
@@ -121,9 +120,6 @@ rules:
 		}
 
 		helmInstallConfig := installConfig.Gloo
-		if mode == install.Federation {
-			helmInstallConfig = installConfig.Federation
-		}
 
 		mockHelmInstallation.EXPECT().
 			Run(chart, expectedValues).
@@ -166,27 +162,13 @@ rules:
 			},
 			Version: "test",
 		}
-		if mode == install.Federation {
-			installConfig = &options.Install{
-				Federation: options.HelmInstall{
-					Namespace:       defaults.GlooFed,
-					HelmReleaseName: constants.GlooFedReleaseName,
-					CreateNamespace: true,
-				},
-				Version: "test",
-			}
-		}
 
 		installWithConfig(mode, expectedValues, expectedChartUri, installConfig)
 	}
 
 	It("installs cleanly by default", func() {
 		defaultInstall(install.Gloo,
-			map[string]interface{}{
-				"crds": map[string]interface{}{
-					"create": false,
-				},
-			},
+			map[string]interface{}{},
 			glooOsChartUri)
 	})
 
@@ -194,21 +176,15 @@ rules:
 
 		chart.AddDependency(&helmchart.Chart{Metadata: &helmchart.Metadata{Name: constants.GlooReleaseName}})
 		defaultInstall(install.Enterprise,
-			map[string]interface{}{
-				"gloo": map[string]interface{}{
-					"crds": map[string]interface{}{
-						"create": false,
-					},
-				},
-			},
+			map[string]interface{}{},
 			glooEnterpriseChartUri)
 	})
 
 	It("installs federation cleanly by default", func() {
-
-		defaultInstall(install.Federation,
+		chart.AddDependency(&helmchart.Chart{Metadata: &helmchart.Metadata{Name: constants.GlooReleaseName}})
+		defaultInstall(install.Enterprise,
 			map[string]interface{}{},
-			glooFederationChartUri)
+			glooEnterpriseChartUri)
 	})
 
 	It("installs as enterprise cleanly if passed enterprise helmchart override", func() {
@@ -224,13 +200,7 @@ rules:
 
 		chart.AddDependency(&helmchart.Chart{Metadata: &helmchart.Metadata{Name: constants.GlooReleaseName}})
 		installWithConfig(install.Gloo,
-			map[string]interface{}{
-				"gloo": map[string]interface{}{
-					"crds": map[string]interface{}{
-						"create": false,
-					},
-				},
-			},
+			map[string]interface{}{},
 			glooEnterpriseChartUri,
 			installConfig)
 	})
@@ -247,11 +217,7 @@ rules:
 		}
 
 		installWithConfig(install.Gloo,
-			map[string]interface{}{
-				"crds": map[string]interface{}{
-					"create": false,
-				},
-			},
+			map[string]interface{}{},
 			glooOsChartUri,
 			installConfig)
 	})
@@ -271,11 +237,7 @@ rules:
 		}
 
 		mockHelmInstallation.EXPECT().
-			Run(chart, map[string]interface{}{
-				"crds": map[string]interface{}{
-					"create": false,
-				},
-			}).
+			Run(chart, map[string]interface{}{}).
 			Return(helmRelease, nil)
 
 		mockHelmClient.EXPECT().

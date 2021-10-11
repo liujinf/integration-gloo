@@ -17,6 +17,7 @@ weight: 5
 - [Transformation](#transformation)
 - [DlpTransformation](#dlptransformation)
 - [Action](#action)
+- [RegexAction](#regexaction)
   
 
 
@@ -72,6 +73,7 @@ weight: 5
 "requestTransformation": .envoy.config.filter.http.transformation_ee.v2.Transformation
 "clearRouteCache": bool
 "responseTransformation": .envoy.config.filter.http.transformation_ee.v2.Transformation
+"onStreamCompletionTransformation": .envoy.config.filter.http.transformation_ee.v2.Transformation
 
 ```
 
@@ -80,6 +82,7 @@ weight: 5
 | `requestTransformation` | [.envoy.config.filter.http.transformation_ee.v2.Transformation](../transformation.proto.sk/#transformation) |  |
 | `clearRouteCache` | `bool` | clear the route cache if the request transformation was applied. |
 | `responseTransformation` | [.envoy.config.filter.http.transformation_ee.v2.Transformation](../transformation.proto.sk/#transformation) |  |
+| `onStreamCompletionTransformation` | [.envoy.config.filter.http.transformation_ee.v2.Transformation](../transformation.proto.sk/#transformation) | Apply a transformation in the onStreamComplete callback (for modifying headers and dynamic metadata for access logs). |
 
 
 
@@ -108,12 +111,16 @@ weight: 5
 
 ```yaml
 "actions": []envoy.config.filter.http.transformation_ee.v2.Action
+"enableHeaderTransformation": bool
+"enableDynamicMetadataTransformation": bool
 
 ```
 
 | Field | Type | Description |
 | ----- | ---- | ----------- | 
 | `actions` | [[]envoy.config.filter.http.transformation_ee.v2.Action](../transformation.proto.sk/#action) | list of actions to apply. |
+| `enableHeaderTransformation` | `bool` | If true, headers will be transformed. Should only be true for the on_stream_complete_transformation route transformation type. |
+| `enableDynamicMetadataTransformation` | `bool` | If true, dynamic metadata will be transformed. Should only be used for the on_stream_complete_transformation route transformation type. |
 
 
 
@@ -126,6 +133,7 @@ weight: 5
 ```yaml
 "name": string
 "regex": []string
+"regexActions": []envoy.config.filter.http.transformation_ee.v2.RegexAction
 "shadow": bool
 "percent": .solo.io.envoy.type.Percent
 "maskChar": string
@@ -136,9 +144,29 @@ weight: 5
 | ----- | ---- | ----------- | 
 | `name` | `string` | Identifier for this action. Used mostly to help ID specific actions in logs. If left null will default to unknown. |
 | `regex` | `[]string` | List of regexes to apply to the response body to match data which should be masked They will be applied iteratively in the order which they are specified. |
+| `regexActions` | [[]envoy.config.filter.http.transformation_ee.v2.RegexAction](../transformation.proto.sk/#regexaction) | List of regexes to apply to the response body to match data which should be masked. They will be applied iteratively in the order which they are specified. If this field and `regex` are both provided, all the regexes will be applied iteratively in the order provided, starting with the ones from `regex`. |
 | `shadow` | `bool` | If specified, this rule will not actually be applied, but only logged. |
 | `percent` | [.solo.io.envoy.type.Percent](../../../../../../../../../solo-kit/api/external/envoy/type/percent.proto.sk/#percent) | The percent of the string which should be masked. If not set, defaults to 75%. |
 | `maskChar` | `string` | The character which should overwrite the masked data If left empty, defaults to "X". |
+
+
+
+
+---
+### RegexAction
+
+
+
+```yaml
+"regex": string
+"subgroup": int
+
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
+| `regex` | `string` | The regex to match for masking. |
+| `subgroup` | `int` | If provided and not 0, only this specific subgroup of the regex will be masked. |
 
 
 

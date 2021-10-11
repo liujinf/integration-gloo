@@ -79,10 +79,10 @@ weight: 5
 | `healthyThreshold` | [.google.protobuf.UInt32Value](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/u-int-32-value) | The number of healthy health checks required before a host is marked healthy. Note that during startup, only a single successful health check is required to mark a host healthy. |
 | `altPort` | [.google.protobuf.UInt32Value](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/u-int-32-value) | [#not-implemented-hide:] Non-serving port for health checking. |
 | `reuseConnection` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | Reuse health check connection between health checks. Default is true. |
-| `httpHealthCheck` | [.solo.io.envoy.config.core.v3.HealthCheck.HttpHealthCheck](../health_check.proto.sk/#httphealthcheck) | HTTP health check. Only one of `httpHealthCheck`, `tcpHealthCheck`, or `customHealthCheck` can be set. |
-| `tcpHealthCheck` | [.solo.io.envoy.config.core.v3.HealthCheck.TcpHealthCheck](../health_check.proto.sk/#tcphealthcheck) | TCP health check. Only one of `tcpHealthCheck`, `httpHealthCheck`, or `customHealthCheck` can be set. |
-| `grpcHealthCheck` | [.solo.io.envoy.config.core.v3.HealthCheck.GrpcHealthCheck](../health_check.proto.sk/#grpchealthcheck) | gRPC health check. Only one of `grpcHealthCheck`, `httpHealthCheck`, or `customHealthCheck` can be set. |
-| `customHealthCheck` | [.solo.io.envoy.config.core.v3.HealthCheck.CustomHealthCheck](../health_check.proto.sk/#customhealthcheck) | Custom health check. Only one of `customHealthCheck`, `httpHealthCheck`, or `grpcHealthCheck` can be set. |
+| `httpHealthCheck` | [.solo.io.envoy.config.core.v3.HealthCheck.HttpHealthCheck](../health_check.proto.sk/#httphealthcheck) | HTTP health check. Only one of `httpHealthCheck`, `tcpHealthCheck`, `grpcHealthCheck`, or `customHealthCheck` can be set. |
+| `tcpHealthCheck` | [.solo.io.envoy.config.core.v3.HealthCheck.TcpHealthCheck](../health_check.proto.sk/#tcphealthcheck) | TCP health check. Only one of `tcpHealthCheck`, `httpHealthCheck`, `grpcHealthCheck`, or `customHealthCheck` can be set. |
+| `grpcHealthCheck` | [.solo.io.envoy.config.core.v3.HealthCheck.GrpcHealthCheck](../health_check.proto.sk/#grpchealthcheck) | gRPC health check. Only one of `grpcHealthCheck`, `httpHealthCheck`, `tcpHealthCheck`, or `customHealthCheck` can be set. |
+| `customHealthCheck` | [.solo.io.envoy.config.core.v3.HealthCheck.CustomHealthCheck](../health_check.proto.sk/#customhealthcheck) | Custom health check. Only one of `customHealthCheck`, `httpHealthCheck`, `tcpHealthCheck`, or `grpcHealthCheck` can be set. |
 | `noTrafficInterval` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) | The "no traffic interval" is a special health check interval that is used when a cluster has never had traffic routed to it. This lower interval allows cluster information to be kept up to date, without sending a potentially large amount of active health checking traffic for no reason. Once a cluster has been used for traffic routing, Envoy will shift back to using the standard health check interval that is defined. Note that this interval takes precedence over any other. The default value for "no traffic interval" is 60 seconds. |
 | `unhealthyInterval` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) | The "unhealthy interval" is a health check interval that is used for hosts that are marked as unhealthy. As soon as the host is marked as healthy, Envoy will shift back to using the standard health check interval that is defined. The default value for "unhealthy interval" is the same as "interval". |
 | `unhealthyEdgeInterval` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) | The "unhealthy edge interval" is a special health check interval that is used for the first health check right after a host is marked as unhealthy. For subsequent health checks Envoy will shift back to using either "unhealthy interval" if present or the standard health check interval that is defined. The default value for "unhealthy edge interval" is the same as "unhealthy interval". |
@@ -120,7 +120,7 @@ Describes the encoding of the payload bytes in the payload.
 ### HttpHealthCheck
 
  
-[#next-free-field: 12]
+[#next-free-field: 13]
 
 ```yaml
 "host": string
@@ -132,6 +132,7 @@ Describes the encoding of the payload bytes in the payload.
 "expectedStatuses": []solo.io.envoy.type.v3.Int64Range
 "codecClientType": .solo.io.envoy.type.v3.CodecClientType
 "serviceNameMatcher": .solo.io.envoy.type.matcher.v3.StringMatcher
+"responseAssertions": .advancedhttp.options.gloo.solo.io.ResponseAssertions
 
 ```
 
@@ -146,6 +147,7 @@ Describes the encoding of the payload bytes in the payload.
 | `expectedStatuses` | [[]solo.io.envoy.type.v3.Int64Range](../../../../type/v3/range.proto.sk/#int64range) | Specifies a list of HTTP response statuses considered healthy. If provided, replaces default 200-only policy - 200 must be included explicitly as needed. Ranges follow half-open semantics of :ref:`Int64Range <envoy_api_msg_type.v3.Int64Range>`. The start and end of each range are required. Only statuses in the range [100, 600) are allowed. |
 | `codecClientType` | [.solo.io.envoy.type.v3.CodecClientType](../../../../type/v3/http.proto.sk/#codecclienttype) | Use specified application protocol for health checks. |
 | `serviceNameMatcher` | [.solo.io.envoy.type.matcher.v3.StringMatcher](../../../../type/matcher/v3/string.proto.sk/#stringmatcher) | An optional service name parameter which is used to validate the identity of the health checked cluster using a :ref:`StringMatcher <envoy_api_msg_type.matcher.v3.StringMatcher>`. See the :ref:`architecture overview <arch_overview_health_checking_identity>` for more information. |
+| `responseAssertions` | [.advancedhttp.options.gloo.solo.io.ResponseAssertions](../../../../../../v1/options/advanced_http/advanced_http.proto.sk/#responseassertions) | (Enterprise Only): If defined, the response health check rules take precedence over the http `expected_statuses`. |
 
 
 

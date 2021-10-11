@@ -25,7 +25,7 @@ ratelimitBasic:
 ```
 
 - Rate limits can be set for anonymous requests, authorized requests, both, or neither.
-- `authorized_requests` represent the rate limits imposed on requests that are associated with a known user id
+- `authorized_requests` represent the rate limits imposed on requests that are associated with a known user id. Note that this user id is included in the [external auth service's]({{% versioned_link_path fromRoot="/guides/security/auth/extauth" %}}) [AuthorizationResponse]({{% versioned_link_path fromRoot="/guides/dev/writing_auth_plugins/#header-propagation" %}}) in the `UserInfo.UserID` field.
 - `anonymous_requests` represent the rate limits imposed on requests that are not associated with a known user id. In this case, the limit is applied to the request's remote address.
 - `requests_per_unit` takes an integer value
 - `unit` must be one of these strings: `SECOND`, `MINUTE`, `HOUR`, `DAY`
@@ -66,18 +66,18 @@ spec:
             namespace: gloo-system
     options:
       ratelimitBasic:
-        anonymous_limits:
-          requests_per_unit: 1000
+        anonymousLimits:
+          requestsPerUnit: 1000
           unit: HOUR
-        authorized_limits:
-          requests_per_unit: 200
+        authorizedLimits:
+          requestsPerUnit: 200
           unit: MINUTE
     # extauth:
     #   oauth:
     #     # your OAuth settings here to authorize users
 {{< /highlight >}}
 
-You can also just set rate limits for just anonymous users (rate limit by remote address) or just authorized users (rate limit by user id). For example, to rate limit for anonymous users, you would configure the `anonymous_limits` section like as follows.
+You can also just set rate limits for just anonymous users (rate limit by remote address) or just authorized users (rate limit by user id). For example, to rate limit for anonymous users, you would configure the `anonymousLimits` section like as follows.
 
 {{< highlight yaml "hl_lines=20-23" >}}
 apiVersion: gateway.solo.io/v1
@@ -100,8 +100,8 @@ spec:
             namespace: gloo-system
     options:
       ratelimitBasic:
-        anonymous_limits:
-          requests_per_unit: 1000
+        anonymousLimits:
+          requestsPerUnit: 1000
           unit: HOUR
 {{< /highlight >}}
 
@@ -128,8 +128,8 @@ spec:
       name: example-route
       options:
         ratelimitBasic:
-          anonymous_limits:
-            requests_per_unit: 1000
+          anonymousLimits:
+            requestsPerUnit: 1000
             unit: HOUR
       routeAction:
         single:

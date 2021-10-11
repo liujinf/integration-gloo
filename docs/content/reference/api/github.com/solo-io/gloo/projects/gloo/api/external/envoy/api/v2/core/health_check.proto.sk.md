@@ -72,10 +72,10 @@ weight: 5
 | `unhealthyThreshold` | [.google.protobuf.UInt32Value](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/u-int-32-value) | The number of unhealthy health checks required before a host is marked unhealthy. Note that for *http* health checking if a host responds with 503 this threshold is ignored and the host is considered unhealthy immediately. |
 | `healthyThreshold` | [.google.protobuf.UInt32Value](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/u-int-32-value) | The number of healthy health checks required before a host is marked healthy. Note that during startup, only a single successful health check is required to mark a host healthy. |
 | `reuseConnection` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | Reuse health check connection between health checks. Default is true. |
-| `httpHealthCheck` | [.solo.io.envoy.api.v2.core.HealthCheck.HttpHealthCheck](../health_check.proto.sk/#httphealthcheck) | HTTP health check. Only one of `httpHealthCheck`, `tcpHealthCheck`, or `customHealthCheck` can be set. |
-| `tcpHealthCheck` | [.solo.io.envoy.api.v2.core.HealthCheck.TcpHealthCheck](../health_check.proto.sk/#tcphealthcheck) | TCP health check. Only one of `tcpHealthCheck`, `httpHealthCheck`, or `customHealthCheck` can be set. |
-| `grpcHealthCheck` | [.solo.io.envoy.api.v2.core.HealthCheck.GrpcHealthCheck](../health_check.proto.sk/#grpchealthcheck) | gRPC health check. Only one of `grpcHealthCheck`, `httpHealthCheck`, or `customHealthCheck` can be set. |
-| `customHealthCheck` | [.solo.io.envoy.api.v2.core.HealthCheck.CustomHealthCheck](../health_check.proto.sk/#customhealthcheck) | Custom health check. Only one of `customHealthCheck`, `httpHealthCheck`, or `grpcHealthCheck` can be set. |
+| `httpHealthCheck` | [.solo.io.envoy.api.v2.core.HealthCheck.HttpHealthCheck](../health_check.proto.sk/#httphealthcheck) | HTTP health check. Only one of `httpHealthCheck`, `tcpHealthCheck`, `grpcHealthCheck`, or `customHealthCheck` can be set. |
+| `tcpHealthCheck` | [.solo.io.envoy.api.v2.core.HealthCheck.TcpHealthCheck](../health_check.proto.sk/#tcphealthcheck) | TCP health check. Only one of `tcpHealthCheck`, `httpHealthCheck`, `grpcHealthCheck`, or `customHealthCheck` can be set. |
+| `grpcHealthCheck` | [.solo.io.envoy.api.v2.core.HealthCheck.GrpcHealthCheck](../health_check.proto.sk/#grpchealthcheck) | gRPC health check. Only one of `grpcHealthCheck`, `httpHealthCheck`, `tcpHealthCheck`, or `customHealthCheck` can be set. |
+| `customHealthCheck` | [.solo.io.envoy.api.v2.core.HealthCheck.CustomHealthCheck](../health_check.proto.sk/#customhealthcheck) | Custom health check. Only one of `customHealthCheck`, `httpHealthCheck`, `tcpHealthCheck`, or `grpcHealthCheck` can be set. |
 | `noTrafficInterval` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) | The "no traffic interval" is a special health check interval that is used when a cluster has never had traffic routed to it. This lower interval allows cluster information to be kept up to date, without sending a potentially large amount of active health checking traffic for no reason. Once a cluster has been used for traffic routing, Envoy will shift back to using the standard health check interval that is defined. Note that this interval takes precedence over any other. The default value for "no traffic interval" is 60 seconds. |
 | `unhealthyInterval` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) | The "unhealthy interval" is a health check interval that is used for hosts that are marked as unhealthy. As soon as the host is marked as healthy, Envoy will shift back to using the standard health check interval that is defined. The default value for "unhealthy interval" is the same as "interval". |
 | `unhealthyEdgeInterval` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) | The "unhealthy edge interval" is a special health check interval that is used for the first health check right after a host is marked as unhealthy. For subsequent health checks Envoy will shift back to using either "unhealthy interval" if present or the standard health check interval that is defined. The default value for "unhealthy edge interval" is the same as "unhealthy interval". |
@@ -108,7 +108,7 @@ Describes the encoding of the payload bytes in the payload.
 ### HttpHealthCheck
 
  
-[#comment:next free field: 10]
+[#comment:next free field: 11]
 
 ```yaml
 "host": string
@@ -118,6 +118,7 @@ Describes the encoding of the payload bytes in the payload.
 "requestHeadersToRemove": []string
 "useHttp2": bool
 "expectedStatuses": []solo.io.envoy.type.Int64Range
+"responseAssertions": .advancedhttp.options.gloo.solo.io.ResponseAssertions
 
 ```
 
@@ -130,6 +131,7 @@ Describes the encoding of the payload bytes in the payload.
 | `requestHeadersToRemove` | `[]string` | Specifies a list of HTTP headers that should be removed from each request that is sent to the health checked cluster. |
 | `useHttp2` | `bool` | If set, health checks will be made using http/2. |
 | `expectedStatuses` | [[]solo.io.envoy.type.Int64Range](../../../../type/range.proto.sk/#int64range) | Specifies a list of HTTP response statuses considered healthy. If provided, replaces default 200-only policy - 200 must be included explicitly as needed. Ranges follow half-open semantics of `Int64Range (envoy_api_msg_type.Int64Range)`. |
+| `responseAssertions` | [.advancedhttp.options.gloo.solo.io.ResponseAssertions](../../../../../../v1/options/advanced_http/advanced_http.proto.sk/#responseassertions) | (Enterprise Only): If defined, the response health check rules take precedence over the http `expected_statuses`. |
 
 
 

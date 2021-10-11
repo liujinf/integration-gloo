@@ -12,6 +12,7 @@ weight: 5
 
 
 - [ListenerOptions](#listeneroptions)
+- [RouteConfigurationOptions](#routeconfigurationoptions)
 - [HttpListenerOptions](#httplisteneroptions)
 - [TcpListenerOptions](#tcplisteneroptions)
 - [VirtualHostOptions](#virtualhostoptions)
@@ -50,7 +51,24 @@ to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 | `accessLoggingService` | [.als.options.gloo.solo.io.AccessLoggingService](../options/als/als.proto.sk/#accessloggingservice) |  |
 | `extensions` | [.gloo.solo.io.Extensions](../extensions.proto.sk/#extensions) | Extensions will be passed along from Listeners, Gateways, VirtualServices, Routes, and Route tables to the underlying Proxy, making them useful for controllers, validation tools, etc. which interact with kubernetes yaml. Some sample use cases: * controllers, deployment pipelines, helm charts, etc. which wish to use extensions as a kind of opaque metadata. * In the future, Gloo may support gRPC-based plugins which communicate with the Gloo translator out-of-process. Opaque Extensions enables development of out-of-process plugins without requiring recompiling & redeploying Gloo's API. |
 | `perConnectionBufferLimitBytes` | [.google.protobuf.UInt32Value](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/u-int-32-value) | Soft limit on size of the listener's new connection read and write buffers. If unspecified, defaults to 1MiB For more info, check out the [Envoy docs](https://www.envoyproxy.io/docs/envoy/v1.14.1/api-v2/api/v2/listener.proto). |
-| `socketOptions` | [[]solo.io.envoy.api.v2.core.SocketOption](../../../../../../solo-kit/api/external/envoy/api/v2/core/base.proto.sk/#socketoption) | Additional socket options that may not be present in Envoy source code or precompiled binaries. |
+| `socketOptions` | [[]solo.io.envoy.api.v2.core.SocketOption](../../../../../../solo-kit/api/external/envoy/api/v2/core/socket_option.proto.sk/#socketoption) | Additional socket options that may not be present in Envoy source code or precompiled binaries. |
+
+
+
+
+---
+### RouteConfigurationOptions
+
+
+
+```yaml
+"maxDirectResponseBodySizeBytes": .google.protobuf.UInt32Value
+
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
+| `maxDirectResponseBodySizeBytes` | [.google.protobuf.UInt32Value](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/u-int-32-value) | The maximum bytes of the response direct response body size. If not specified the default is 4096. Please refer to the [Envoy documentation](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/route/v3/route.proto#envoy-v3-api-field-config-route-v3-routeconfiguration-max-direct-response-body-size-bytes) for more details about the `max_direct_response_body_size_bytes` attribute. |
 
 
 
@@ -126,7 +144,7 @@ Optional, feature-specific configuration that lives on tcp listeners
 
  
 Optional, feature-specific configuration that lives on virtual hosts.
-Each VirtualHostPlugin object contains configuration for a specific feature.
+Each VirtualHostOptions object contains configuration for a specific feature.
 Note to developers: new Virtual Host plugins must be added to this struct
 to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 
@@ -185,7 +203,7 @@ to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 
  
 Optional, feature-specific configuration that lives on routes.
-Each RouteOption object contains configuration for a specific feature.
+Each RouteOptions object contains configuration for a specific feature.
 Note to developers: new Route plugins must be added to this struct
 to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 
@@ -229,7 +247,7 @@ to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 | `timeout` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) | Specifies the upstream timeout for the route. If not specified, the default is 15s. This spans between the point at which the entire downstream request (i.e. end-of-stream) has been processed and when the upstream response has been completely processed. A value of 0 will disable the route’s timeout. |
 | `retries` | [.retries.options.gloo.solo.io.RetryPolicy](../options/retries/retries.proto.sk/#retrypolicy) |  |
 | `extensions` | [.gloo.solo.io.Extensions](../extensions.proto.sk/#extensions) | Extensions will be passed along from Listeners, Gateways, VirtualServices, Routes, and Route tables to the underlying Proxy, making them useful for controllers, validation tools, etc. which interact with kubernetes yaml. Some sample use cases: * controllers, deployment pipelines, helm charts, etc. which wish to use extensions as a kind of opaque metadata. * In the future, Gloo may support gRPC-based plugins which communicate with the Gloo translator out-of-process. Opaque Extensions enables development of out-of-process plugins without requiring recompiling & redeploying Gloo's API. |
-| `tracing` | [.tracing.options.gloo.solo.io.RouteTracingSettings](../options/tracing/tracing.proto.sk/#routetracingsettings) | Defines route-specific tracing configuration. See here for additional information on Envoy's tracing capabilities: https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/observability/tracing.html See here for additional information about configuring tracing with Gloo: https://gloo.solo.io/observability/tracing/. |
+| `tracing` | [.tracing.options.gloo.solo.io.RouteTracingSettings](../options/tracing/tracing.proto.sk/#routetracingsettings) | Defines route-specific tracing configuration. See here for additional information on Envoy's tracing capabilities: https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/observability/tracing.html See [here](https://docs.solo.io/gloo-edge/latest/guides/observability/tracing/) for additional information about configuring tracing with Gloo Edge. |
 | `shadowing` | [.shadowing.options.gloo.solo.io.RouteShadowing](../options/shadowing/shadowing.proto.sk/#routeshadowing) | Specifies traffic shadowing configuration for the route. See here for additional information on Envoy's shadowing capabilities: https://www.envoyproxy.io/docs/envoy/latest/api-v2/api/v2/route/route.proto#envoy-api-msg-route-routeaction-requestmirrorpolicy. |
 | `headerManipulation` | [.headers.options.gloo.solo.io.HeaderManipulation](../options/headers/headers.proto.sk/#headermanipulation) | Append/Remove headers on Requests or Responses on this Route. |
 | `hostRewrite` | `string` | Indicates that during forwarding, the host header will be swapped with this value. Only one of `hostRewrite` or `autoHostRewrite` can be set. |
@@ -271,10 +289,10 @@ Configuration for Destinations that are tied to the UpstreamSpec or ServiceSpec 
 
 | Field | Type | Description |
 | ----- | ---- | ----------- | 
-| `aws` | [.aws.options.gloo.solo.io.DestinationSpec](../options/aws/aws.proto.sk/#destinationspec) |  Only one of `aws`, `azure`, or `grpc` can be set. |
-| `azure` | [.azure.options.gloo.solo.io.DestinationSpec](../options/azure/azure.proto.sk/#destinationspec) |  Only one of `azure`, `aws`, or `grpc` can be set. |
-| `rest` | [.rest.options.gloo.solo.io.DestinationSpec](../options/rest/rest.proto.sk/#destinationspec) |  Only one of `rest`, `aws`, or `grpc` can be set. |
-| `grpc` | [.grpc.options.gloo.solo.io.DestinationSpec](../options/grpc/grpc.proto.sk/#destinationspec) |  Only one of `grpc`, `aws`, or `rest` can be set. |
+| `aws` | [.aws.options.gloo.solo.io.DestinationSpec](../options/aws/aws.proto.sk/#destinationspec) |  Only one of `aws`, `azure`, `rest`, or `grpc` can be set. |
+| `azure` | [.azure.options.gloo.solo.io.DestinationSpec](../options/azure/azure.proto.sk/#destinationspec) |  Only one of `azure`, `aws`, `rest`, or `grpc` can be set. |
+| `rest` | [.rest.options.gloo.solo.io.DestinationSpec](../options/rest/rest.proto.sk/#destinationspec) |  Only one of `rest`, `aws`, `azure`, or `grpc` can be set. |
+| `grpc` | [.grpc.options.gloo.solo.io.DestinationSpec](../options/grpc/grpc.proto.sk/#destinationspec) |  Only one of `grpc`, `aws`, `azure`, or `rest` can be set. |
 
 
 

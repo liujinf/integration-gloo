@@ -81,7 +81,7 @@ Create a cluster issuer for Let's Encrypt with Route 53.
 
 ```shell
 cat << EOF | kubectl apply -f -
-apiVersion: cert-manager.io/v1alpha2
+apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
   name: letsencrypt-staging
@@ -115,7 +115,7 @@ Ready
 Create the certificate for the Gloo Edge ingress:
 ```shell
 cat << EOF | kubectl apply -f -
-apiVersion: cert-manager.io/v1alpha2
+apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: test-123456789.solo.io
@@ -160,13 +160,13 @@ spec:
     routes:
     - matchers:
        - prefix: /
-      route_action:
+      routeAction:
         single:
           upstream:
               name: default-petclinic-80
               namespace: gloo-system
-  ssl_config:
-    secret_ref:
+  sslConfig:
+    secretRef:
       name: test-123456789.solo.io
       namespace: gloo-system
 EOF
@@ -198,7 +198,7 @@ These steps are specific for Gloo Edge running in gateway mode. When running in 
 First, create a `ClusterIssuer` which will utilize the `http01` solver:
 ```shell
 cat << EOF | kubectl apply -f -
-apiVersion: cert-manager.io/v1alpha2
+apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
   name: letsencrypt-staging-http01
@@ -229,7 +229,7 @@ Next we will create the actual `Certificate` which will utilize the `ClusterIssu
 
 ```shell
 cat << EOF | kubectl apply -f -
-apiVersion: cert-manager.io/v1alpha2
+apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: nip-io

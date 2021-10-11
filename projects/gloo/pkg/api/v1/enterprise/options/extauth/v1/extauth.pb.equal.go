@@ -46,12 +46,12 @@ func (m *AuthConfig) Equal(that interface{}) bool {
 		return false
 	}
 
-	if h, ok := interface{}(m.GetStatus()).(equality.Equalizer); ok {
-		if !h.Equal(target.GetStatus()) {
+	if h, ok := interface{}(m.GetNamespacedStatuses()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetNamespacedStatuses()) {
 			return false
 		}
 	} else {
-		if !proto.Equal(m.GetStatus(), target.GetStatus()) {
+		if !proto.Equal(m.GetNamespacedStatuses(), target.GetNamespacedStatuses()) {
 			return false
 		}
 	}
@@ -249,6 +249,10 @@ func (m *Settings) Equal(that interface{}) bool {
 		return false
 	}
 
+	if strings.Compare(m.GetStatPrefix(), target.GetStatPrefix()) != 0 {
+		return false
+	}
+
 	return true
 }
 
@@ -366,6 +370,10 @@ func (m *CustomAuth) Equal(that interface{}) bool {
 			return false
 		}
 
+	}
+
+	if strings.Compare(m.GetName(), target.GetName()) != 0 {
+		return false
 	}
 
 	return true
@@ -838,6 +846,78 @@ func (m *DiscoveryOverride) Equal(that interface{}) bool {
 }
 
 // Equal function
+func (m *JwksOnDemandCacheRefreshPolicy) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*JwksOnDemandCacheRefreshPolicy)
+	if !ok {
+		that2, ok := that.(JwksOnDemandCacheRefreshPolicy)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	switch m.Policy.(type) {
+
+	case *JwksOnDemandCacheRefreshPolicy_Never:
+		if _, ok := target.Policy.(*JwksOnDemandCacheRefreshPolicy_Never); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetNever()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetNever()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetNever(), target.GetNever()) {
+				return false
+			}
+		}
+
+	case *JwksOnDemandCacheRefreshPolicy_Always:
+		if _, ok := target.Policy.(*JwksOnDemandCacheRefreshPolicy_Always); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetAlways()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetAlways()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetAlways(), target.GetAlways()) {
+				return false
+			}
+		}
+
+	case *JwksOnDemandCacheRefreshPolicy_MaxIdpReqPerPollingInterval:
+		if _, ok := target.Policy.(*JwksOnDemandCacheRefreshPolicy_MaxIdpReqPerPollingInterval); !ok {
+			return false
+		}
+
+		if m.GetMaxIdpReqPerPollingInterval() != target.GetMaxIdpReqPerPollingInterval() {
+			return false
+		}
+
+	default:
+		// m is nil but target is not nil
+		if m.Policy != target.Policy {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Equal function
 func (m *OidcAuthorizationCode) Equal(that interface{}) bool {
 	if that == nil {
 		return m == nil
@@ -887,6 +967,17 @@ func (m *OidcAuthorizationCode) Equal(that interface{}) bool {
 
 	}
 
+	if len(m.GetTokenEndpointQueryParams()) != len(target.GetTokenEndpointQueryParams()) {
+		return false
+	}
+	for k, v := range m.GetTokenEndpointQueryParams() {
+
+		if strings.Compare(v, target.GetTokenEndpointQueryParams()[k]) != 0 {
+			return false
+		}
+
+	}
+
 	if strings.Compare(m.GetAppUrl(), target.GetAppUrl()) != 0 {
 		return false
 	}
@@ -896,6 +987,10 @@ func (m *OidcAuthorizationCode) Equal(that interface{}) bool {
 	}
 
 	if strings.Compare(m.GetLogoutPath(), target.GetLogoutPath()) != 0 {
+		return false
+	}
+
+	if strings.Compare(m.GetAfterLogoutUrl(), target.GetAfterLogoutUrl()) != 0 {
 		return false
 	}
 
@@ -938,6 +1033,30 @@ func (m *OidcAuthorizationCode) Equal(that interface{}) bool {
 		if !proto.Equal(m.GetDiscoveryOverride(), target.GetDiscoveryOverride()) {
 			return false
 		}
+	}
+
+	if h, ok := interface{}(m.GetDiscoveryPollInterval()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetDiscoveryPollInterval()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetDiscoveryPollInterval(), target.GetDiscoveryPollInterval()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetJwksCacheRefreshPolicy()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetJwksCacheRefreshPolicy()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetJwksCacheRefreshPolicy(), target.GetJwksCacheRefreshPolicy()) {
+			return false
+		}
+	}
+
+	if strings.Compare(m.GetSessionIdHeaderName(), target.GetSessionIdHeaderName()) != 0 {
+		return false
 	}
 
 	return true
@@ -1000,6 +1119,21 @@ func (m *AccessTokenValidation) Equal(that interface{}) bool {
 			}
 		} else {
 			if !proto.Equal(m.GetJwt(), target.GetJwt()) {
+				return false
+			}
+		}
+
+	case *AccessTokenValidation_Introspection:
+		if _, ok := target.ValidationType.(*AccessTokenValidation_Introspection); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetIntrospection()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetIntrospection()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetIntrospection(), target.GetIntrospection()) {
 				return false
 			}
 		}
@@ -1235,6 +1369,44 @@ func (m *OpaAuth) Equal(that interface{}) bool {
 		return false
 	}
 
+	if h, ok := interface{}(m.GetOptions()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetOptions()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetOptions(), target.GetOptions()) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Equal function
+func (m *OpaAuthOptions) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*OpaAuthOptions)
+	if !ok {
+		that2, ok := that.(OpaAuthOptions)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if m.GetFastInputConversion() != target.GetFastInputConversion() {
+		return false
+	}
+
 	return true
 }
 
@@ -1343,6 +1515,21 @@ func (m *PassThroughAuth) Equal(that interface{}) bool {
 			}
 		}
 
+	case *PassThroughAuth_Http:
+		if _, ok := target.Protocol.(*PassThroughAuth_Http); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetHttp()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetHttp()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetHttp(), target.GetHttp()) {
+				return false
+			}
+		}
+
 	default:
 		// m is nil but target is not nil
 		if m.Protocol != target.Protocol {
@@ -1376,6 +1563,64 @@ func (m *PassThroughGrpc) Equal(that interface{}) bool {
 
 	if strings.Compare(m.GetAddress(), target.GetAddress()) != 0 {
 		return false
+	}
+
+	if h, ok := interface{}(m.GetConnectionTimeout()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetConnectionTimeout()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetConnectionTimeout(), target.GetConnectionTimeout()) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Equal function
+func (m *PassThroughHttp) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*PassThroughHttp)
+	if !ok {
+		that2, ok := that.(PassThroughHttp)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if strings.Compare(m.GetUrl(), target.GetUrl()) != 0 {
+		return false
+	}
+
+	if h, ok := interface{}(m.GetRequest()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetRequest()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetRequest(), target.GetRequest()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetResponse()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetResponse()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetResponse(), target.GetResponse()) {
+			return false
+		}
 	}
 
 	if h, ok := interface{}(m.GetConnectionTimeout()).(equality.Equalizer); ok {
@@ -1985,6 +2230,52 @@ func (m *AccessTokenValidation_JwtValidation) Equal(that interface{}) bool {
 }
 
 // Equal function
+func (m *AccessTokenValidation_IntrospectionValidation) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*AccessTokenValidation_IntrospectionValidation)
+	if !ok {
+		that2, ok := that.(AccessTokenValidation_IntrospectionValidation)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if strings.Compare(m.GetIntrospectionUrl(), target.GetIntrospectionUrl()) != 0 {
+		return false
+	}
+
+	if strings.Compare(m.GetClientId(), target.GetClientId()) != 0 {
+		return false
+	}
+
+	if h, ok := interface{}(m.GetClientSecretRef()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetClientSecretRef()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetClientSecretRef(), target.GetClientSecretRef()) {
+			return false
+		}
+	}
+
+	if strings.Compare(m.GetUserIdAttributeName(), target.GetUserIdAttributeName()) != 0 {
+		return false
+	}
+
+	return true
+}
+
+// Equal function
 func (m *AccessTokenValidation_ScopeList) Equal(that interface{}) bool {
 	if that == nil {
 		return m == nil
@@ -2162,6 +2453,114 @@ func (m *Ldap_ConnectionPool) Equal(that interface{}) bool {
 }
 
 // Equal function
+func (m *PassThroughHttp_Request) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*PassThroughHttp_Request)
+	if !ok {
+		that2, ok := that.(PassThroughHttp_Request)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if len(m.GetAllowedHeaders()) != len(target.GetAllowedHeaders()) {
+		return false
+	}
+	for idx, v := range m.GetAllowedHeaders() {
+
+		if strings.Compare(v, target.GetAllowedHeaders()[idx]) != 0 {
+			return false
+		}
+
+	}
+
+	if len(m.GetHeadersToAdd()) != len(target.GetHeadersToAdd()) {
+		return false
+	}
+	for k, v := range m.GetHeadersToAdd() {
+
+		if strings.Compare(v, target.GetHeadersToAdd()[k]) != 0 {
+			return false
+		}
+
+	}
+
+	if m.GetPassThroughState() != target.GetPassThroughState() {
+		return false
+	}
+
+	if m.GetPassThroughFilterMetadata() != target.GetPassThroughFilterMetadata() {
+		return false
+	}
+
+	if m.GetPassThroughBody() != target.GetPassThroughBody() {
+		return false
+	}
+
+	return true
+}
+
+// Equal function
+func (m *PassThroughHttp_Response) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*PassThroughHttp_Response)
+	if !ok {
+		that2, ok := that.(PassThroughHttp_Response)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if len(m.GetAllowedUpstreamHeaders()) != len(target.GetAllowedUpstreamHeaders()) {
+		return false
+	}
+	for idx, v := range m.GetAllowedUpstreamHeaders() {
+
+		if strings.Compare(v, target.GetAllowedUpstreamHeaders()[idx]) != 0 {
+			return false
+		}
+
+	}
+
+	if len(m.GetAllowedClientHeadersOnDenied()) != len(target.GetAllowedClientHeadersOnDenied()) {
+		return false
+	}
+	for idx, v := range m.GetAllowedClientHeadersOnDenied() {
+
+		if strings.Compare(v, target.GetAllowedClientHeadersOnDenied()[idx]) != 0 {
+			return false
+		}
+
+	}
+
+	if m.GetReadStateFromResponse() != target.GetReadStateFromResponse() {
+		return false
+	}
+
+	return true
+}
+
+// Equal function
 func (m *ExtAuthConfig_OAuthConfig) Equal(that interface{}) bool {
 	if that == nil {
 		return m == nil
@@ -2271,6 +2670,17 @@ func (m *ExtAuthConfig_OidcAuthorizationCodeConfig) Equal(that interface{}) bool
 
 	}
 
+	if len(m.GetTokenEndpointQueryParams()) != len(target.GetTokenEndpointQueryParams()) {
+		return false
+	}
+	for k, v := range m.GetTokenEndpointQueryParams() {
+
+		if strings.Compare(v, target.GetTokenEndpointQueryParams()[k]) != 0 {
+			return false
+		}
+
+	}
+
 	if strings.Compare(m.GetAppUrl(), target.GetAppUrl()) != 0 {
 		return false
 	}
@@ -2280,6 +2690,10 @@ func (m *ExtAuthConfig_OidcAuthorizationCodeConfig) Equal(that interface{}) bool
 	}
 
 	if strings.Compare(m.GetLogoutPath(), target.GetLogoutPath()) != 0 {
+		return false
+	}
+
+	if strings.Compare(m.GetAfterLogoutUrl(), target.GetAfterLogoutUrl()) != 0 {
 		return false
 	}
 
@@ -2320,6 +2734,140 @@ func (m *ExtAuthConfig_OidcAuthorizationCodeConfig) Equal(that interface{}) bool
 		}
 	} else {
 		if !proto.Equal(m.GetDiscoveryOverride(), target.GetDiscoveryOverride()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetDiscoveryPollInterval()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetDiscoveryPollInterval()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetDiscoveryPollInterval(), target.GetDiscoveryPollInterval()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetJwksCacheRefreshPolicy()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetJwksCacheRefreshPolicy()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetJwksCacheRefreshPolicy(), target.GetJwksCacheRefreshPolicy()) {
+			return false
+		}
+	}
+
+	if strings.Compare(m.GetSessionIdHeaderName(), target.GetSessionIdHeaderName()) != 0 {
+		return false
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ExtAuthConfig_AccessTokenValidationConfig) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ExtAuthConfig_AccessTokenValidationConfig)
+	if !ok {
+		that2, ok := that.(ExtAuthConfig_AccessTokenValidationConfig)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if strings.Compare(m.GetUserinfoUrl(), target.GetUserinfoUrl()) != 0 {
+		return false
+	}
+
+	if h, ok := interface{}(m.GetCacheTimeout()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetCacheTimeout()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetCacheTimeout(), target.GetCacheTimeout()) {
+			return false
+		}
+	}
+
+	switch m.ValidationType.(type) {
+
+	case *ExtAuthConfig_AccessTokenValidationConfig_IntrospectionUrl:
+		if _, ok := target.ValidationType.(*ExtAuthConfig_AccessTokenValidationConfig_IntrospectionUrl); !ok {
+			return false
+		}
+
+		if strings.Compare(m.GetIntrospectionUrl(), target.GetIntrospectionUrl()) != 0 {
+			return false
+		}
+
+	case *ExtAuthConfig_AccessTokenValidationConfig_Jwt:
+		if _, ok := target.ValidationType.(*ExtAuthConfig_AccessTokenValidationConfig_Jwt); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetJwt()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetJwt()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetJwt(), target.GetJwt()) {
+				return false
+			}
+		}
+
+	case *ExtAuthConfig_AccessTokenValidationConfig_Introspection:
+		if _, ok := target.ValidationType.(*ExtAuthConfig_AccessTokenValidationConfig_Introspection); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetIntrospection()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetIntrospection()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetIntrospection(), target.GetIntrospection()) {
+				return false
+			}
+		}
+
+	default:
+		// m is nil but target is not nil
+		if m.ValidationType != target.ValidationType {
+			return false
+		}
+	}
+
+	switch m.ScopeValidation.(type) {
+
+	case *ExtAuthConfig_AccessTokenValidationConfig_RequiredScopes:
+		if _, ok := target.ScopeValidation.(*ExtAuthConfig_AccessTokenValidationConfig_RequiredScopes); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetRequiredScopes()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetRequiredScopes()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetRequiredScopes(), target.GetRequiredScopes()) {
+				return false
+			}
+		}
+
+	default:
+		// m is nil but target is not nil
+		if m.ScopeValidation != target.ScopeValidation {
 			return false
 		}
 	}
@@ -2365,17 +2913,17 @@ func (m *ExtAuthConfig_OAuth2Config) Equal(that interface{}) bool {
 			}
 		}
 
-	case *ExtAuthConfig_OAuth2Config_AccessTokenValidation:
-		if _, ok := target.OauthType.(*ExtAuthConfig_OAuth2Config_AccessTokenValidation); !ok {
+	case *ExtAuthConfig_OAuth2Config_AccessTokenValidationConfig:
+		if _, ok := target.OauthType.(*ExtAuthConfig_OAuth2Config_AccessTokenValidationConfig); !ok {
 			return false
 		}
 
-		if h, ok := interface{}(m.GetAccessTokenValidation()).(equality.Equalizer); ok {
-			if !h.Equal(target.GetAccessTokenValidation()) {
+		if h, ok := interface{}(m.GetAccessTokenValidationConfig()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetAccessTokenValidationConfig()) {
 				return false
 			}
 		} else {
-			if !proto.Equal(m.GetAccessTokenValidation(), target.GetAccessTokenValidation()) {
+			if !proto.Equal(m.GetAccessTokenValidationConfig(), target.GetAccessTokenValidationConfig()) {
 				return false
 			}
 		}
@@ -2480,6 +3028,16 @@ func (m *ExtAuthConfig_OpaAuthConfig) Equal(that interface{}) bool {
 
 	if strings.Compare(m.GetQuery(), target.GetQuery()) != 0 {
 		return false
+	}
+
+	if h, ok := interface{}(m.GetOptions()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetOptions()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetOptions(), target.GetOptions()) {
+			return false
+		}
 	}
 
 	return true
@@ -2658,6 +3216,214 @@ func (m *ExtAuthConfig_Config) Equal(that interface{}) bool {
 		if m.AuthConfig != target.AuthConfig {
 			return false
 		}
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ExtAuthConfig_AccessTokenValidationConfig_JwtValidation) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ExtAuthConfig_AccessTokenValidationConfig_JwtValidation)
+	if !ok {
+		that2, ok := that.(ExtAuthConfig_AccessTokenValidationConfig_JwtValidation)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if strings.Compare(m.GetIssuer(), target.GetIssuer()) != 0 {
+		return false
+	}
+
+	switch m.JwksSourceSpecifier.(type) {
+
+	case *ExtAuthConfig_AccessTokenValidationConfig_JwtValidation_RemoteJwks_:
+		if _, ok := target.JwksSourceSpecifier.(*ExtAuthConfig_AccessTokenValidationConfig_JwtValidation_RemoteJwks_); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetRemoteJwks()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetRemoteJwks()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetRemoteJwks(), target.GetRemoteJwks()) {
+				return false
+			}
+		}
+
+	case *ExtAuthConfig_AccessTokenValidationConfig_JwtValidation_LocalJwks_:
+		if _, ok := target.JwksSourceSpecifier.(*ExtAuthConfig_AccessTokenValidationConfig_JwtValidation_LocalJwks_); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetLocalJwks()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetLocalJwks()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetLocalJwks(), target.GetLocalJwks()) {
+				return false
+			}
+		}
+
+	default:
+		// m is nil but target is not nil
+		if m.JwksSourceSpecifier != target.JwksSourceSpecifier {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ExtAuthConfig_AccessTokenValidationConfig_IntrospectionValidation) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ExtAuthConfig_AccessTokenValidationConfig_IntrospectionValidation)
+	if !ok {
+		that2, ok := that.(ExtAuthConfig_AccessTokenValidationConfig_IntrospectionValidation)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if strings.Compare(m.GetIntrospectionUrl(), target.GetIntrospectionUrl()) != 0 {
+		return false
+	}
+
+	if strings.Compare(m.GetClientId(), target.GetClientId()) != 0 {
+		return false
+	}
+
+	if strings.Compare(m.GetClientSecret(), target.GetClientSecret()) != 0 {
+		return false
+	}
+
+	if strings.Compare(m.GetUserIdAttributeName(), target.GetUserIdAttributeName()) != 0 {
+		return false
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ExtAuthConfig_AccessTokenValidationConfig_ScopeList) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ExtAuthConfig_AccessTokenValidationConfig_ScopeList)
+	if !ok {
+		that2, ok := that.(ExtAuthConfig_AccessTokenValidationConfig_ScopeList)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if len(m.GetScope()) != len(target.GetScope()) {
+		return false
+	}
+	for idx, v := range m.GetScope() {
+
+		if strings.Compare(v, target.GetScope()[idx]) != 0 {
+			return false
+		}
+
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ExtAuthConfig_AccessTokenValidationConfig_JwtValidation_RemoteJwks) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ExtAuthConfig_AccessTokenValidationConfig_JwtValidation_RemoteJwks)
+	if !ok {
+		that2, ok := that.(ExtAuthConfig_AccessTokenValidationConfig_JwtValidation_RemoteJwks)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if strings.Compare(m.GetUrl(), target.GetUrl()) != 0 {
+		return false
+	}
+
+	if h, ok := interface{}(m.GetRefreshInterval()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetRefreshInterval()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetRefreshInterval(), target.GetRefreshInterval()) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ExtAuthConfig_AccessTokenValidationConfig_JwtValidation_LocalJwks) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ExtAuthConfig_AccessTokenValidationConfig_JwtValidation_LocalJwks)
+	if !ok {
+		that2, ok := that.(ExtAuthConfig_AccessTokenValidationConfig_JwtValidation_LocalJwks)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if strings.Compare(m.GetInlineString(), target.GetInlineString()) != 0 {
+		return false
 	}
 
 	return true

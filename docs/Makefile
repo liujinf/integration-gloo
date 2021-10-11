@@ -10,21 +10,27 @@ VERSION ?= $(shell echo $(TAGGED_VERSION) | cut -c 2-)
 
 HUGO_VERSION := 0.69.2
 
-SOLO_HUGO_THEME_REVISION := 3817a468af3ee13f4d0fb9e645290a413cdf5e93
+SOLO_HUGO_THEME_REVISION := $(shell curl --silent "https://api.github.com/repos/solo-io/hugo-theme-soloio/releases/latest" | jq -esr 'if . == [] then null else .[] | .tag_name end')
+
+SECURITY_SCAN_MIN_VERSION ?= v1.6.0
 
 #----------------------------------------------------------------------------------
 # Docs
 #----------------------------------------------------------------------------------
 
+
 .PHONY: site-common
-site-common: clean
+site-common: clean gloo-enterprise-version
 	if [ ! -d themes/hugo-theme-soloio ]; then git clone https://github.com/solo-io/hugo-theme-soloio themes/hugo-theme-soloio; fi
 	git -C themes/hugo-theme-soloio checkout $(SOLO_HUGO_THEME_REVISION)
-	GO111MODULE=on go run cmd/generate_docs.go gen-changelog-md gloo > content/static/content/gloo-changelog.docgen
-	GO111MODULE=on go run cmd/generate_docs.go gen-minor-releases-changelog-md gloo> content/static/content/gloo-minor-release-changelog.docgen
-	GO111MODULE=on go run cmd/generate_docs.go gen-changelog-md glooe > content/static/content/glooe-changelog.docgen
-	GO111MODULE=on go run cmd/generate_docs.go gen-minor-releases-changelog-md glooe> content/static/content/glooe-minor-release-changelog.docgen
-	GO111MODULE=on go run cmd/generate_docs.go gen-security-scan-md > content/static/content/gloo-security-scan.docgen
+	GO111MODULE=on go run cmd/generate_docs.go gen-releases -r gloo > opensource.out
+	GO111MODULE=on go run cmd/generate_docs.go gen-releases -r glooe > enterprise.out
+	GO111MODULE=on go run cmd/generate_docs.go gen-changelog-md -r gloo > content/static/content/gloo-changelog.docgen
+	GO111MODULE=on go run cmd/generate_docs.go gen-changelog-md -r glooe > content/static/content/glooe-changelog.docgen
+	MIN_SCANNED_VERSION=$(SECURITY_SCAN_MIN_VERSION) GO111MODULE=on go run cmd/generate_docs.go gen-security-scan-md -r gloo > content/static/content/gloo-security-scan.docgen
+	MIN_SCANNED_VERSION=$(SECURITY_SCAN_MIN_VERSION) GO111MODULE=on go run cmd/generate_docs.go gen-security-scan-md -r glooe > content/static/content/glooe-security-scan.docgen
+	GO111MODULE=on go run cmd/generate_docs.go get-enterprise-helm-values > content/static/content/glooe-values.docgen
+	rm -f opensource.out enterprise.out
 
 .PHONY: site-test
 site-test: site-common
@@ -72,3 +78,18 @@ install-tools:
 .PHONY: build-site
 build-site: clean
 	./build-docs.sh
+
+# Generate _output/gloo-enterprise-version.
+# NOTE: file paths in hack/find_latest_enterprise_version.go assume the current working 
+# directory is the root of the project, so we need to navigate up one level first.
+.PHONY: gloo-enterprise-version
+gloo-enterprise-version:
+	cd .. && GO111MODULE=on go run hack/find_latest_enterprise_version.go
+
+#----------------------------------------------------------------------------------
+# Printing makefile variables utility
+#----------------------------------------------------------------------------------
+
+# use `make print-MAKEFILE_VAR` to print the value of MAKEFILE_VAR
+
+print-%  : ; @echo $($*)

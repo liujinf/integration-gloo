@@ -507,7 +507,7 @@ func (ei *EnvoyInstance) runWithAll(eic EnvoyInstanceConfig, bootstrapBuilder En
 		return ei.runContainer(eic.Context())
 	}
 
-	args := []string{"--config-yaml", ei.envoycfg, "--disable-hot-restart", "--log-level", "debug"}
+	args := []string{"--config-yaml", ei.envoycfg, "--disable-hot-restart", "--log-level", "debug", "--bootstrap-version", "3"}
 
 	// run directly
 	cmd := exec.CommandContext(eic.Context(), ei.envoypath, args...)
@@ -595,7 +595,9 @@ func (ei *EnvoyInstance) runContainer(ctx context.Context) error {
 	args = append(args,
 		"--entrypoint=envoy",
 		image,
-		"--disable-hot-restart", "--log-level", "debug",
+		"--disable-hot-restart",
+		"--log-level", "debug",
+		"--bootstrap-version", "3",
 		"--config-yaml", ei.envoycfg,
 	)
 
@@ -614,7 +616,7 @@ func (ei *EnvoyInstance) runContainer(ctx context.Context) error {
 
 func (ei *EnvoyInstance) waitForEnvoyToBeRunning() error {
 	pingInterval := time.Tick(time.Second)
-	pingDuration := time.Second * 5
+	pingDuration := time.Second * 15
 	pingEndpoint := fmt.Sprintf("localhost:%d", ei.AdminPort)
 
 	ctx, cancel := context.WithTimeout(context.Background(), pingDuration)

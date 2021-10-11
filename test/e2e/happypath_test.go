@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/solo-io/solo-kit/pkg/api/v1/resources"
+
 	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	. "github.com/onsi/ginkgo"
@@ -36,8 +38,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	kubecore "k8s.io/kubernetes/pkg/apis/core"
-	"k8s.io/kubernetes/pkg/apis/core/validation"
 )
 
 var _ = Describe("Happy path", func() {
@@ -307,6 +307,7 @@ var _ = Describe("Happy path", func() {
 					})
 
 					Context("sni", func() {
+
 						BeforeEach(func() {
 							upSsl.GetStatic().GetHosts()[0].SniAddr = "solo-sni-test"
 							upSsl.GetStatic().GetHosts()[1].SniAddr = "solo-sni-test2"
@@ -314,6 +315,7 @@ var _ = Describe("Happy path", func() {
 							_, err := testClients.UpstreamClient.Write(upSsl, clients.WriteOpts{})
 							Expect(err).NotTo(HaveOccurred())
 						})
+
 						It("should work with ssl", func() {
 							proxycli := testClients.ProxyClient
 							proxy := getTrivialProxyForUpstream(defaults.GlooSystem, envoyPort, upSsl.Metadata.Ref())
@@ -351,30 +353,18 @@ var _ = Describe("Happy path", func() {
 
 				Context("sad path", func() {
 					It("should error the proxy with two listeners with the same bind address", func() {
-
-						proxycli := testClients.ProxyClient
+						// create a proxy with two identical listeners to see errors come up
 						proxy := getTrivialProxyForUpstream(defaults.GlooSystem, envoyPort, up.Metadata.Ref())
-						// add two identical listeners two see errors come up
 						proxy.Listeners = append(proxy.Listeners, proxy.Listeners[0])
-						_, err := proxycli.Write(proxy, clients.WriteOpts{})
+
+						// persist the proxy
+						_, err := testClients.ProxyClient.Write(proxy, clients.WriteOpts{})
 						Expect(err).NotTo(HaveOccurred())
 
-						getStatus := func() (core.Status_State, error) {
-							updatedProxy, err := proxycli.Read(proxy.Metadata.Namespace, proxy.Metadata.Name, clients.ReadOpts{})
-							if err != nil {
-								return 0, err
-							}
-							if updatedProxy.GetStatus() == nil {
-								return 0, nil
-							}
-							return updatedProxy.GetStatus().GetState(), nil
-						}
-
-						Eventually(getStatus, "10s").ShouldNot(Equal(core.Status_Pending))
-						st, err := getStatus()
-						Expect(err).NotTo(HaveOccurred())
-						Expect(st).To(Equal(core.Status_Rejected))
-
+						// eventually the proxy is rejected
+						gloohelpers.EventuallyResourceRejected(func() (resources.InputResource, error) {
+							return testClients.ProxyClient.Read(proxy.Metadata.Namespace, proxy.Metadata.Name, clients.ReadOpts{})
+						})
 					})
 				})
 			})
@@ -446,7 +436,7 @@ var _ = Describe("Happy path", func() {
 						},
 						Subsets: []kubev1.EndpointSubset{{
 							Addresses: []kubev1.EndpointAddress{{
-								IP:       getIpThatsNotLocalhost(envoyInstance),
+								IP:       getNonSpecialIP(envoyInstance),
 								Hostname: "localhost",
 							}},
 							Ports: []kubev1.EndpointPort{{
@@ -468,14 +458,6 @@ var _ = Describe("Happy path", func() {
 						}
 					}
 					return nil, fmt.Errorf("not found")
-				}
-
-				getStatus := func() (core.Status_State, error) {
-					u, err := getUpstream()
-					if err != nil {
-						return core.Status_Pending, err
-					}
-					return u.GetStatus().GetState(), nil
 				}
 
 				Context("specific namespace", func() {
@@ -502,7 +484,9 @@ var _ = Describe("Happy path", func() {
 						err := envoyInstance.RunWithRole(role, testClients.GlooPort)
 						Expect(err).NotTo(HaveOccurred())
 
-						Eventually(getStatus, "20s", "0.5s").Should(Equal(core.Status_Accepted))
+						gloohelpers.EventuallyResourceAccepted(func() (resources.InputResource, error) {
+							return getUpstream()
+						}, "20s", ".5s")
 					})
 
 					It("should discover service", func() {
@@ -519,7 +503,7 @@ var _ = Describe("Happy path", func() {
 					})
 
 					It("correctly routes requests to a service destination", func() {
-						svcRef := skkubeutils.FromKubeMeta(svc.ObjectMeta).Ref()
+						svcRef := skkubeutils.FromKubeMeta(svc.ObjectMeta, true).Ref()
 						svcPort := svc.Spec.Ports[0].Port
 						proxy := getTrivialProxyForService(namespace, envoyPort, svcRef, uint32(svcPort))
 
@@ -558,7 +542,9 @@ var _ = Describe("Happy path", func() {
 					})
 
 					It("watch all namespaces", func() {
-						Eventually(getStatus, "20s", "0.5s").Should(Equal(core.Status_Accepted))
+						gloohelpers.EventuallyResourceAccepted(func() (resources.InputResource, error) {
+							return getUpstream()
+						})
 
 						up, err := getUpstream()
 						Expect(err).NotTo(HaveOccurred())
@@ -633,17 +619,8 @@ func getTrivialProxy(ns string, bindPort uint32) *gloov1.Proxy {
 	}
 }
 
-func getIpThatsNotLocalhost(instance *services.EnvoyInstance) string {
-	// kubernetes endpoints doesn't like localhost, so we just give it some other local address
-	// from: k8s.io/kubernetes/pkg/apis/core/validation/validation.go
-	/*
-		func validateNonSpecialIP(ipAddress string, fldPath *field.Path) field.ErrorList {
-		        // We disallow some IPs as endpoints or external-ips.  Specifically,
-		        // unspecified and loopback addresses are nonsensical and link-local
-		        // addresses tend to be used for node-centric purposes (e.g. metadata
-		        // service).
-	*/
-
+// getNonSpecialIP returns a non-special IP that Kubernetes will allow in an endpoint.
+func getNonSpecialIP(instance *services.EnvoyInstance) string {
 	if instance.UseDocker {
 		return instance.LocalAddr()
 	}
@@ -669,33 +646,34 @@ func getIpThatsNotLocalhost(instance *services.EnvoyInstance) string {
 			default:
 				continue
 			}
-
-			// make sure that kubernetes like this endpoint:
-			endpoints := &kubecore.Endpoints{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: "validate",
-					Name:      "validate",
-				},
-				Subsets: []kubecore.EndpointSubset{{
-					Addresses: []kubecore.EndpointAddress{{
-						IP:       ip.String(),
-						Hostname: "localhost",
-					}},
-					Ports: []kubecore.EndpointPort{{
-						Port:     int32(5555),
-						Protocol: kubecore.ProtocolTCP,
-					}},
-				}},
+			if isNonSpecialIP(ip) {
+				return ip.String()
 			}
-
-			errs := validation.ValidateEndpoints(endpoints, false)
-			if len(errs) != 0 {
-				continue
-			}
-
-			return ip.String()
 		}
 	}
 	Fail("no ip address available", 1)
 	return ""
+}
+
+// isNonSpecialIP is adapted from ValidateNonSpecialIP in k8s.io/kubernetes/pkg/apis/core/validation/validation.go
+//
+// Specifically disallowed are unspecified, loopback addresses, and link-local addresses
+// which tend to be used for node-centric purposes (e.g. metadata service).
+func isNonSpecialIP(ip net.IP) bool {
+	if ip == nil {
+		return false // must be a valid IP address
+	}
+	if ip.IsUnspecified() {
+		return false // may not be unspecified
+	}
+	if ip.IsLoopback() {
+		return false // may not be in the loopback range (127.0.0.0/8, ::1/128)
+	}
+	if ip.IsLinkLocalUnicast() {
+		return false // may not be in the link-local range (169.254.0.0/16, fe80::/10)
+	}
+	if ip.IsLinkLocalMulticast() {
+		return false // may not be in the link-local multicast range (224.0.0.0/24, ff02::/10)
+	}
+	return true
 }

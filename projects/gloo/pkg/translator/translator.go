@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"hash/fnv"
 
-	proto2 "google.golang.org/protobuf/proto"
-
 	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoy_config_endpoint_v3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoy_config_listener_v3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	envoy_config_route_v3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	"github.com/golang/protobuf/proto"
+	"github.com/mitchellh/hashstructure"
+	errors "github.com/rotisserie/eris"
 	validationapi "github.com/solo-io/gloo/projects/gloo/pkg/api/grpc/validation"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
@@ -22,10 +22,8 @@ import (
 	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/resource"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 	"github.com/solo-io/solo-kit/pkg/api/v2/reporter"
-
-	"github.com/mitchellh/hashstructure"
-	errors "github.com/rotisserie/eris"
 	"go.opencensus.io/trace"
+	proto2 "google.golang.org/protobuf/proto"
 )
 
 type Translator interface {
@@ -107,15 +105,15 @@ func (t *translatorInstance) Translate(
 
 	reports := make(reporter.ResourceReports)
 
-	logger.Debugf("verifying upstream groups: %v", proxy.Metadata.Name)
+	logger.Debugf("verifying upstream groups: %v", proxy.GetMetadata().GetName())
 	t.verifyUpstreamGroups(params, reports)
 
 	upstreamRefKeyToEndpoints := createUpstreamToEndpointsMap(params.Snapshot.Upstreams, params.Snapshot.Endpoints)
 
 	// endpoints and listeners are shared between listeners
-	logger.Debugf("computing envoy clusters for proxy: %v", proxy.Metadata.Name)
-	clusters := t.computeClusters(params, reports, upstreamRefKeyToEndpoints, proxy)
-	logger.Debugf("computing envoy endpoints for proxy: %v", proxy.Metadata.Name)
+	logger.Debugf("computing envoy clusters for proxy: %v", proxy.GetMetadata().GetName())
+	clusters, clusterToUpstreamMap := t.computeClusters(params, reports, upstreamRefKeyToEndpoints, proxy)
+	logger.Debugf("computing envoy endpoints for proxy: %v", proxy.GetMetadata().GetName())
 
 	endpoints := t.computeClusterEndpoints(params, upstreamRefKeyToEndpoints, reports)
 
@@ -126,20 +124,32 @@ ClusterLoop:
 		if c.GetType() != envoy_config_cluster_v3.Cluster_EDS {
 			continue
 		}
+		// get upstream that generated this cluster
+		upstream := clusterToUpstreamMap[c]
+		endpointClusterName, err := getEndpointClusterName(c.GetName(), upstream)
+		if err != nil {
+			reports.AddError(upstream, errors.Wrapf(err, "could not marshal upstream to JSON"))
+		}
+		// Workaround for envoy bug: https://github.com/envoyproxy/envoy/issues/13009
+		// Change the cluster eds config, forcing envoy to re-request latest EDS config
+		c.GetEdsClusterConfig().ServiceName = endpointClusterName
 		for _, ep := range endpoints {
-			if ep.ClusterName == c.Name {
+			if ep.GetClusterName() == c.GetName() {
+
+				// the endpoint ClusterName needs to match the cluster's EdsClusterConfig ServiceName
+				ep.ClusterName = endpointClusterName
 				continue ClusterLoop
 			}
 		}
 		emptyendpointlist := &envoy_config_endpoint_v3.ClusterLoadAssignment{
-			ClusterName: c.Name,
+			ClusterName: endpointClusterName,
 		}
 		// make sure to call EndpointPlugin with empty endpoint
 		for _, upstream := range params.Snapshot.Upstreams {
 			if UpstreamToClusterName(&core.ResourceRef{
-				Name:      upstream.Metadata.Name,
-				Namespace: upstream.Metadata.Namespace,
-			}) == c.Name {
+				Name:      upstream.GetMetadata().GetName(),
+				Namespace: upstream.GetMetadata().GetNamespace(),
+			}) == c.GetName() {
 				for _, plugin := range t.plugins {
 					ep, ok := plugin.(plugins.EndpointPlugin)
 					if ok {
@@ -161,10 +171,10 @@ ClusterLoop:
 
 	proxyRpt := validation.MakeReport(proxy)
 
-	for i, listener := range proxy.Listeners {
-		listenerReport := proxyRpt.ListenerReports[i]
+	for i, listener := range proxy.GetListeners() {
+		listenerReport := proxyRpt.GetListenerReports()[i]
 
-		logger.Infof("computing envoy resources for listener: %v", listener.Name)
+		logger.Infof("computing envoy resources for listener: %v", listener.GetName())
 
 		envoyResources := t.computeListenerResources(params, proxy, listener, listenerReport)
 		if envoyResources != nil {
@@ -257,7 +267,7 @@ func (t *translatorInstance) generateXDSSnapshot(
 	}
 	for _, listener := range listeners {
 		// don't add empty listeners, envoy will complain
-		if len(listener.FilterChains) < 1 {
+		if len(listener.GetFilterChains()) < 1 {
 			continue
 		}
 		listenersProto = append(listenersProto, resource.NewEnvoyResource(proto.Clone(listener)))
@@ -278,7 +288,7 @@ func (t *translatorInstance) generateXDSSnapshot(
 }
 
 func EnvoyCacheResourcesListToFnvHash(resources []envoycache.Resource) uint64 {
-	hasher := fnv.New32()
+	hasher := fnv.New64()
 	// 8kb capacity, consider raising if we find the buffer is frequently being
 	// re-allocated by MarshalAppend to fit larger protos.
 	// the goal is to keep allocations constant for GC, without allocating an
@@ -299,7 +309,7 @@ func EnvoyCacheResourcesListToFnvHash(resources []envoycache.Resource) uint64 {
 			panic(errors.Wrap(err, "constructing hash for envoy snapshot components"))
 		}
 	}
-	return uint64(hasher.Sum32())
+	return hasher.Sum64()
 }
 
 // deprecated, slower than EnvoyCacheResourcesListToFnvHash
@@ -316,7 +326,7 @@ func MakeRdsResources(routeConfigs []*envoy_config_route_v3.RouteConfiguration) 
 
 	for _, routeCfg := range routeConfigs {
 		// don't add empty route configs, envoy will complain
-		if len(routeCfg.VirtualHosts) < 1 {
+		if len(routeCfg.GetVirtualHosts()) < 1 {
 			continue
 		}
 		routesProto = append(routesProto, resource.NewEnvoyResource(proto.Clone(routeCfg)))
@@ -327,4 +337,13 @@ func MakeRdsResources(routeConfigs []*envoy_config_route_v3.RouteConfiguration) 
 		panic(errors.Wrap(err, "constructing version hash for routes envoy snapshot components"))
 	}
 	return envoycache.NewResources(fmt.Sprintf("%v", routesVersion), routesProto)
+}
+
+func getEndpointClusterName(clusterName string, upstream *v1.Upstream) (string, error) {
+	hash, err := upstream.Hash(nil)
+	if err != nil {
+		return "", err
+	}
+	endpointClusterName := fmt.Sprintf("%s-%d", clusterName, hash)
+	return endpointClusterName, nil
 }

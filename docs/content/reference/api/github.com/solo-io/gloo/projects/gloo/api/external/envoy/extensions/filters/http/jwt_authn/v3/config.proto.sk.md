@@ -13,6 +13,7 @@ weight: 5
 
 - [JwtProvider](#jwtprovider)
 - [RemoteJwks](#remotejwks)
+- [JwksAsyncFetch](#jwksasyncfetch)
 - [JwtHeader](#jwtheader)
 - [ProviderWithAudiences](#providerwithaudiences)
 - [JwtRequirement](#jwtrequirement)
@@ -107,6 +108,7 @@ This message specifies how to fetch JWKS from remote and how to cache it.
 ```yaml
 "httpUri": .solo.io.envoy.config.core.v3.HttpUri
 "cacheDuration": .google.protobuf.Duration
+"asyncFetch": .solo.io.envoy.extensions.filters.http.jwt_authn.v3.JwksAsyncFetch
 
 ```
 
@@ -114,6 +116,28 @@ This message specifies how to fetch JWKS from remote and how to cache it.
 | ----- | ---- | ----------- | 
 | `httpUri` | [.solo.io.envoy.config.core.v3.HttpUri](../../../../../../config/core/v3/http_uri.proto.sk/#httpuri) | The HTTP URI to fetch the JWKS. For example: .. code-block:: yaml http_uri: uri: https://www.googleapis.com/oauth2/v1/certs cluster: jwt.www.googleapis.com|443 timeout: 1s. |
 | `cacheDuration` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) | Duration after which the cached JWKS should be expired. If not specified, default cache duration is 5 minutes. |
+| `asyncFetch` | [.solo.io.envoy.extensions.filters.http.jwt_authn.v3.JwksAsyncFetch](../config.proto.sk/#jwksasyncfetch) | Fetch Jwks asynchronously in the main thread before the listener is activated. Fetched Jwks can be used by all worker threads. If this feature is not enabled: * The Jwks is fetched on-demand when the requests come. During the fetching, first few requests are paused until the Jwks is fetched. * Each worker thread fetches its own Jwks since Jwks cache is per worker thread. If this feature is enabled: * Fetched Jwks is done in the main thread before the listener is activated. Its fetched Jwks can be used by all worker threads. Each worker thread doesn't need to fetch its own. * Jwks is ready when the requests come, not need to wait for the Jwks fetching. |
+
+
+
+
+---
+### JwksAsyncFetch
+
+ 
+Fetch Jwks asynchronously in the main thread when the filter config is parsed.
+The listener is activated only after the Jwks is fetched.
+When the Jwks is expired in the cache, it is fetched again in the main thread.
+The fetched Jwks from the main thread can be used by all worker threads.
+
+```yaml
+"fastListener": bool
+
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
+| `fastListener` | `bool` | If false, the listener is activated after the initial fetch is completed. The initial fetch result can be either successful or failed. If true, it is activated without waiting for the initial fetch to complete. Default is false. |
 
 
 
@@ -232,12 +256,12 @@ required. Here are some config examples:
 
 | Field | Type | Description |
 | ----- | ---- | ----------- | 
-| `providerName` | `string` | Specify a required provider name. Only one of `providerName`, `providerAndAudiences`, `requiresAny`, `requiresAll`, or `allowMissing` can be set. |
-| `providerAndAudiences` | [.solo.io.envoy.extensions.filters.http.jwt_authn.v3.ProviderWithAudiences](../config.proto.sk/#providerwithaudiences) | Specify a required provider with audiences. Only one of `providerAndAudiences`, `providerName`, `requiresAny`, `requiresAll`, or `allowMissing` can be set. |
-| `requiresAny` | [.solo.io.envoy.extensions.filters.http.jwt_authn.v3.JwtRequirementOrList](../config.proto.sk/#jwtrequirementorlist) | Specify list of JwtRequirement. Their results are OR-ed. If any one of them passes, the result is passed. Only one of `requiresAny`, `providerName`, `providerAndAudiences`, `requiresAll`, or `allowMissing` can be set. |
-| `requiresAll` | [.solo.io.envoy.extensions.filters.http.jwt_authn.v3.JwtRequirementAndList](../config.proto.sk/#jwtrequirementandlist) | Specify list of JwtRequirement. Their results are AND-ed. All of them must pass, if one of them fails or missing, it fails. Only one of `requiresAll`, `providerName`, `providerAndAudiences`, `requiresAny`, or `allowMissing` can be set. |
-| `allowMissingOrFailed` | [.google.protobuf.Empty](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/empty) | The requirement is always satisfied even if JWT is missing or the JWT verification fails. A typical usage is: this filter is used to only verify JWTs and pass the verified JWT payloads to another filter, the other filter will make decision. In this mode, all JWT tokens will be verified. Only one of `allowMissingOrFailed`, `providerName`, `providerAndAudiences`, `requiresAny`, or `allowMissing` can be set. |
-| `allowMissing` | [.google.protobuf.Empty](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/empty) | The requirement is satisfied if JWT is missing, but failed if JWT is presented but invalid. Similar to allow_missing_or_failed, this is used to only verify JWTs and pass the verified payload to another filter. The different is this mode will reject requests with invalid tokens. Only one of `allowMissing`, `providerName`, `providerAndAudiences`, `requiresAny`, or `allowMissingOrFailed` can be set. |
+| `providerName` | `string` | Specify a required provider name. Only one of `providerName`, `providerAndAudiences`, `requiresAny`, `requiresAll`, `allowMissingOrFailed`, or `allowMissing` can be set. |
+| `providerAndAudiences` | [.solo.io.envoy.extensions.filters.http.jwt_authn.v3.ProviderWithAudiences](../config.proto.sk/#providerwithaudiences) | Specify a required provider with audiences. Only one of `providerAndAudiences`, `providerName`, `requiresAny`, `requiresAll`, `allowMissingOrFailed`, or `allowMissing` can be set. |
+| `requiresAny` | [.solo.io.envoy.extensions.filters.http.jwt_authn.v3.JwtRequirementOrList](../config.proto.sk/#jwtrequirementorlist) | Specify list of JwtRequirement. Their results are OR-ed. If any one of them passes, the result is passed. Only one of `requiresAny`, `providerName`, `providerAndAudiences`, `requiresAll`, `allowMissingOrFailed`, or `allowMissing` can be set. |
+| `requiresAll` | [.solo.io.envoy.extensions.filters.http.jwt_authn.v3.JwtRequirementAndList](../config.proto.sk/#jwtrequirementandlist) | Specify list of JwtRequirement. Their results are AND-ed. All of them must pass, if one of them fails or missing, it fails. Only one of `requiresAll`, `providerName`, `providerAndAudiences`, `requiresAny`, `allowMissingOrFailed`, or `allowMissing` can be set. |
+| `allowMissingOrFailed` | [.google.protobuf.Empty](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/empty) | The requirement is always satisfied even if JWT is missing or the JWT verification fails. A typical usage is: this filter is used to only verify JWTs and pass the verified JWT payloads to another filter, the other filter will make decision. In this mode, all JWT tokens will be verified. Only one of `allowMissingOrFailed`, `providerName`, `providerAndAudiences`, `requiresAny`, `requiresAll`, or `allowMissing` can be set. |
+| `allowMissing` | [.google.protobuf.Empty](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/empty) | The requirement is satisfied if JWT is missing, but failed if JWT is presented but invalid. Similar to allow_missing_or_failed, this is used to only verify JWTs and pass the verified payload to another filter. The different is this mode will reject requests with invalid tokens. Only one of `allowMissing`, `providerName`, `providerAndAudiences`, `requiresAny`, `requiresAll`, or `allowMissingOrFailed` can be set. |
 
 
 

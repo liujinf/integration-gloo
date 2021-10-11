@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/onsi/ginkgo/extensions/table"
+
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 
 	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
@@ -80,6 +82,7 @@ var _ = Describe("Translator", func() {
 		endpoints          envoycache.Resources
 		hcmCfg             *envoyhttp.HttpConnectionManager
 		routeConfiguration *envoy_config_route_v3.RouteConfiguration
+		virtualHostName    string
 	)
 
 	beforeEach := func() {
@@ -158,6 +161,7 @@ var _ = Describe("Translator", func() {
 				},
 			},
 		}}
+		virtualHostName = "virt1"
 	}
 	BeforeEach(beforeEach)
 
@@ -173,7 +177,7 @@ var _ = Describe("Translator", func() {
 			ListenerType: &v1.Listener_HttpListener{
 				HttpListener: &v1.HttpListener{
 					VirtualHosts: []*v1.VirtualHost{{
-						Name:    "virt1",
+						Name:    virtualHostName,
 						Domains: []string{"*"},
 						Routes:  routes,
 					}},
@@ -235,6 +239,7 @@ var _ = Describe("Translator", func() {
 		return report
 	}
 
+	// returns md5 Sum of current snapshot
 	translate := func() {
 		snap, errs, report, err := translator.Translate(params, proxy)
 		ExpectWithOffset(1, err).NotTo(HaveOccurred())
@@ -266,6 +271,7 @@ var _ = Describe("Translator", func() {
 		endpoints = snap.GetResources(resource.EndpointTypeV3)
 
 		snapshot = snap
+
 	}
 
 	It("sanitizes an invalid virtual host name", func() {
@@ -358,12 +364,13 @@ var _ = Describe("Translator", func() {
 			_, errs, report, err := translator.Translate(params, proxy)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(errs.Validate()).To(HaveOccurred())
-			Expect(errs.Validate().Error()).To(ContainSubstring("Route Error: InvalidMatcherError. Reason: no path specifier provided"))
+			invalidMatcherName := fmt.Sprintf("%s-route-0", virtualHostName)
+			Expect(errs.Validate().Error()).To(ContainSubstring(fmt.Sprintf("Route Error: InvalidMatcherError. Reason: no path specifier provided. Route Name: %s", invalidMatcherName)))
 			expectedReport := validationutils.MakeReport(proxy)
 			expectedReport.ListenerReports[0].ListenerTypeReport.(*validation.ListenerReport_HttpListenerReport).HttpListenerReport.VirtualHostReports[0].RouteReports[0].Errors = []*validation.RouteReport_Error{
 				{
 					Type:   validation.RouteReport_Error_InvalidMatcherError,
-					Reason: "no path specifier provided",
+					Reason: fmt.Sprintf("no path specifier provided. Route Name: %s", invalidMatcherName),
 				},
 			}
 			Expect(report).To(Equal(expectedReport))
@@ -382,17 +389,24 @@ var _ = Describe("Translator", func() {
 			_, errs, report, err := translator.Translate(params, proxy)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(errs.Validate()).To(HaveOccurred())
-			Expect(errs.Validate().Error()).To(ContainSubstring("Route Error: InvalidMatcherError. Reason: no path specifier provided; Route Error: ProcessingError. Reason: *grpc.plugin: missing path for grpc route"))
+			invalidMatcherName := fmt.Sprintf("%s-route-0", virtualHostName)
+			processingErrorName := fmt.Sprintf("%s-route-0-%s-matcher-0", virtualHostName, routes[0].Name)
+			Expect(errs.Validate().Error()).To(ContainSubstring(
+				fmt.Sprintf(
+					"Route Error: InvalidMatcherError. Reason: no path specifier provided. Route Name: %s; Route Error: ProcessingError. Reason: *grpc.plugin: missing path for grpc route. Route Name: %s",
+					invalidMatcherName,
+					processingErrorName,
+				)))
 
 			expectedReport := validationutils.MakeReport(proxy)
 			expectedReport.ListenerReports[0].ListenerTypeReport.(*validation.ListenerReport_HttpListenerReport).HttpListenerReport.VirtualHostReports[0].RouteReports[0].Errors = []*validation.RouteReport_Error{
 				{
 					Type:   validation.RouteReport_Error_InvalidMatcherError,
-					Reason: "no path specifier provided",
+					Reason: fmt.Sprintf("no path specifier provided. Route Name: %s", invalidMatcherName),
 				},
 				{
 					Type:   validation.RouteReport_Error_ProcessingError,
-					Reason: "*grpc.plugin: missing path for grpc route",
+					Reason: fmt.Sprintf("*grpc.plugin: missing path for grpc route. Route Name: %s", processingErrorName),
 				},
 			}
 			Expect(report).To(Equal(expectedReport))
@@ -1245,7 +1259,8 @@ var _ = Describe("Translator", func() {
 
 			endpoints := snapshot.GetResources(resource.EndpointTypeV3)
 
-			clusterName := UpstreamToClusterName(upstream.Metadata.Ref())
+			clusterName := getEndpointClusterName(upstream)
+
 			Expect(endpoints.Items).To(HaveKey(clusterName))
 			endpointsResource := endpoints.Items[clusterName]
 			claConfiguration = endpointsResource.ResourceProto().(*envoy_config_endpoint_v3.ClusterLoadAssignment)
@@ -1322,8 +1337,7 @@ var _ = Describe("Translator", func() {
 			translate()
 
 			endpoints := snapshot.GetResources(resource.EndpointTypeV3)
-
-			clusterName := UpstreamToClusterName(upstream.Metadata.Ref())
+			clusterName := getEndpointClusterName(upstream)
 			Expect(endpoints.Items).To(HaveKey(clusterName))
 			endpointsResource := endpoints.Items[clusterName]
 			claConfiguration = endpointsResource.ResourceProto().(*envoy_config_endpoint_v3.ClusterLoadAssignment)
@@ -1344,15 +1358,43 @@ var _ = Describe("Translator", func() {
 				Expect(fields["testkey"]).To(MatchProto(sv("testvalue")))
 			})
 
-			It("should add subset to cluster", func() {
+			It("should add simple subset configuration to cluster", func() {
 				translateWithEndpoints()
 
 				Expect(cluster.LbSubsetConfig).ToNot(BeNil())
 				Expect(cluster.LbSubsetConfig.FallbackPolicy).To(Equal(envoy_config_cluster_v3.Cluster_LbSubsetConfig_ANY_ENDPOINT))
 				Expect(cluster.LbSubsetConfig.SubsetSelectors).To(HaveLen(1))
+				Expect(cluster.LbSubsetConfig.SubsetSelectors[0].SingleHostPerSubset).To(BeFalse())
 				Expect(cluster.LbSubsetConfig.SubsetSelectors[0].Keys).To(HaveLen(1))
 				Expect(cluster.LbSubsetConfig.SubsetSelectors[0].Keys[0]).To(Equal("testkey"))
 			})
+
+			It("should add subset configuration with default subset to cluster", func() {
+				upstream.UpstreamType.(*v1.Upstream_Kube).Kube.SubsetSpec =
+					&v1plugins.SubsetSpec{
+						Selectors: []*v1plugins.Selector{{
+							SingleHostPerSubset: true,
+							Keys: []string{
+								"testkey",
+							},
+						}},
+						FallbackPolicy: v1plugins.FallbackPolicy_DEFAULT_SUBSET,
+						DefaultSubset: &v1plugins.Subset{Values: map[string]string{
+							"testkey": "testvalue",
+						}},
+					}
+				translateWithEndpoints()
+
+				Expect(cluster.LbSubsetConfig).ToNot(BeNil())
+				Expect(cluster.LbSubsetConfig.FallbackPolicy).To(Equal(envoy_config_cluster_v3.Cluster_LbSubsetConfig_DEFAULT_SUBSET))
+				translatedDefaultSubset := cluster.LbSubsetConfig.DefaultSubset.AsMap()
+				expectedVal, ok := translatedDefaultSubset["testkey"]
+				Expect(ok).To(BeTrue())
+				Expect(expectedVal).To(Equal("testvalue"))
+				Expect(cluster.LbSubsetConfig.SubsetSelectors).To(HaveLen(1))
+				Expect(cluster.LbSubsetConfig.SubsetSelectors[0].SingleHostPerSubset).To(BeTrue())
+			})
+
 			It("should add subset to route", func() {
 				translateWithEndpoints()
 
@@ -1402,11 +1444,12 @@ var _ = Describe("Translator", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(errs.Validate()).To(HaveOccurred())
 				Expect(errs.Validate().Error()).To(ContainSubstring("route has a subset config, but none of the subsets in the upstream match it"))
+				processingErrorName := fmt.Sprintf("%s-route-0-matcher-0", virtualHostName)
 				expectedReport := validationutils.MakeReport(proxy)
 				expectedReport.ListenerReports[0].ListenerTypeReport.(*validation.ListenerReport_HttpListenerReport).HttpListenerReport.VirtualHostReports[0].RouteReports[0].Errors = []*validation.RouteReport_Error{
 					{
 						Type:   validation.RouteReport_Error_ProcessingError,
-						Reason: "route has a subset config, but none of the subsets in the upstream match it.",
+						Reason: fmt.Sprintf("route has a subset config, but none of the subsets in the upstream match it. Route Name: %s", processingErrorName),
 					},
 				}
 				Expect(report).To(Equal(expectedReport))
@@ -2607,7 +2650,8 @@ var _ = Describe("Translator", func() {
 				_, errs, _, _ := translator.Translate(params, proxy)
 				proxyKind := resources.Kind(proxy)
 				_, reports := errs.Find(proxyKind, proxy.Metadata.Ref())
-				Expect(reports.Errors.Error()).To(ContainSubstring("Tried to apply multiple filter chains with the same FilterChainMatch."))
+				Expect(reports.Errors.Error()).To(ContainSubstring("Tried to apply multiple filter chains with the" +
+					" same FilterChainMatch {server_names:\"a.com\"}. This is usually caused by overlapping sniDomains or multiple empty sniDomains in virtual services"))
 			})
 			It("should error when different parameters have no sni domains", func() {
 
@@ -2648,7 +2692,8 @@ var _ = Describe("Translator", func() {
 				_, errs, _, _ := translator.Translate(params, proxy)
 				proxyKind := resources.Kind(proxy)
 				_, reports := errs.Find(proxyKind, proxy.Metadata.Ref())
-				Expect(reports.Errors.Error()).To(ContainSubstring("Tried to apply multiple filter chains with the same FilterChainMatch."))
+				Expect(reports.Errors.Error()).To(ContainSubstring("Tried to apply multiple filter chains with the" +
+					" same FilterChainMatch {}. This is usually caused by overlapping sniDomains or multiple empty sniDomains in virtual services"))
 			})
 			It("should work when different parameters have different sni domains", func() {
 
@@ -2733,7 +2778,79 @@ var _ = Describe("Translator", func() {
 		Expect(report.VirtualHostReports[1].Errors[0].Type).To(Equal(validation.VirtualHostReport_Error_EmptyDomainError), "The error reported for the virtual host with empty domain should be the EmptyDomainError")
 		Expect(listener.GetListenerFilters()[0].GetName()).To(Equal(wellknown.TlsInspector))
 	})
+
+	It("clusterSpecifier is set even when there is an error setting the route action", func() {
+		proxy.Listeners[0].GetHttpListener().GetVirtualHosts()[0].Routes = []*v1.Route{
+			{
+				Name:     "testRouteName",
+				Matchers: []*matchers.Matcher{matcher},
+				Action: &v1.Route_RouteAction{
+					RouteAction: &v1.RouteAction{
+						Destination: &v1.RouteAction_Multi{
+							Multi: &v1.MultiDestination{
+								Destinations: []*v1.WeightedDestination{
+									{
+										Destination: &v1.Destination{
+											DestinationType: &v1.Destination_Upstream{
+												Upstream: &core.ResourceRef{
+													Name:      "test",
+													Namespace: "gloo-system",
+												},
+											},
+											Subset: &v1.Subset{
+												Values: map[string]string{
+													"key": "value",
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		snap, resourceReport, _, _ := translator.Translate(params, proxy)
+		Expect(resourceReport.ValidateStrict()).To(HaveOccurred())
+
+		routes := snap.GetResources(resource.RouteTypeV3)
+		routesProto := routes.Items["http-listener-routes"]
+		routeConfig := routesProto.ResourceProto().(*envoy_config_route_v3.RouteConfiguration)
+		clusterSpecifier := routeConfig.VirtualHosts[0].Routes[0].GetRoute().GetClusterSpecifier()
+		Expect(clusterSpecifier).NotTo(BeNil())
+	})
+
+	Context("IgnoreHealthOnHostRemoval", func() {
+		table.DescribeTable("propagates IgnoreHealthOnHostRemoval to Cluster", func(upstreamValue *wrappers.BoolValue, expectedClusterValue bool) {
+			// Set the value
+			upstream.IgnoreHealthOnHostRemoval = upstreamValue
+
+			snap, errs, report, err := translator.Translate(params, proxy)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(errs.Validate()).NotTo(HaveOccurred())
+			Expect(snap).NotTo(BeNil())
+			Expect(report).To(Equal(validationutils.MakeReport(proxy)))
+
+			clusters := snap.GetResources(resource.ClusterTypeV3)
+			clusterResource := clusters.Items[UpstreamToClusterName(upstream.Metadata.Ref())]
+			cluster = clusterResource.ResourceProto().(*envoy_config_cluster_v3.Cluster)
+			Expect(cluster).NotTo(BeNil())
+			Expect(cluster.IgnoreHealthOnHostRemoval).To(Equal(expectedClusterValue))
+		},
+			table.Entry("When value=true", &wrappers.BoolValue{Value: true}, true),
+			table.Entry("When value=false", &wrappers.BoolValue{Value: false}, false),
+			table.Entry("When value=nil", nil, false))
+	})
+
 })
+
+// The endpoint Cluster is now the UpstreamToClusterName-<hash of upstream> to facilitate
+// gRPC EDS updates
+func getEndpointClusterName(upstream *v1.Upstream) string {
+	return fmt.Sprintf("%s-%d", UpstreamToClusterName(upstream.Metadata.Ref()), upstream.MustHash())
+}
 
 func sv(s string) *structpb.Value {
 	return &structpb.Value{

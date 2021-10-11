@@ -8,16 +8,16 @@ import (
 	"github.com/solo-io/gloo/projects/gloo/pkg/utils"
 )
 
-func SetExtenstionProtocolOptions(out *envoy_config_cluster_v3.Cluster, filterName string, protoext proto.Message) error {
+func SetExtensionProtocolOptions(out *envoy_config_cluster_v3.Cluster, filterName string, protoext proto.Message) error {
 	protoextAny, err := utils.MessageToAny(protoext)
 	if err != nil {
 		return errors.Wrapf(err, "converting extension "+filterName+" protocol options to struct")
 	}
-	if out.TypedExtensionProtocolOptions == nil {
+	if out.GetTypedExtensionProtocolOptions() == nil {
 		out.TypedExtensionProtocolOptions = make(map[string]*anypb.Any)
 	}
 
-	out.TypedExtensionProtocolOptions[filterName] = protoextAny
+	out.GetTypedExtensionProtocolOptions()[filterName] = protoextAny
 	return nil
 
 }

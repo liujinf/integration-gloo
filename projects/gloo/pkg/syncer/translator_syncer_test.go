@@ -3,6 +3,10 @@ package syncer_test
 import (
 	"context"
 
+	"github.com/solo-io/gloo/pkg/utils/statusutils"
+
+	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoy_config_endpoint_v3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoy_config_listener_v3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -16,6 +20,7 @@ import (
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/memory"
 	envoycache "github.com/solo-io/solo-kit/pkg/api/v1/control-plane/cache"
 	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/resource"
+	"github.com/solo-io/solo-kit/pkg/api/v1/resources"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 	"github.com/solo-io/solo-kit/pkg/api/v2/reporter"
 	"github.com/solo-io/solo-kit/pkg/errors"
@@ -24,20 +29,23 @@ import (
 var _ = Describe("Translate Proxy", func() {
 
 	var (
-		xdsCache    *MockXdsCache
-		sanitizer   *MockXdsSanitizer
-		syncer      v1.ApiSyncer
-		snap        *v1.ApiSnapshot
-		settings    *v1.Settings
-		proxyClient v1.ProxyClient
-		ctx         context.Context
-		cancel      context.CancelFunc
-		proxyName   = "proxy-name"
-		ref         = "syncer-test"
-		ns          = "any-ns"
+		xdsCache       *MockXdsCache
+		sanitizer      *MockXdsSanitizer
+		syncer         v1.ApiSyncer
+		snap           *v1.ApiSnapshot
+		settings       *v1.Settings
+		upstreamClient clients.ResourceClient
+		proxyClient    v1.ProxyClient
+		ctx            context.Context
+		cancel         context.CancelFunc
+		proxyName      = "proxy-name"
+		ns             = "any-ns"
+		ref            = "syncer-test"
+		statusClient   resources.StatusClient
 	)
 
 	BeforeEach(func() {
+		var err error
 		xdsCache = &MockXdsCache{}
 		sanitizer = &MockXdsSanitizer{}
 		ctx, cancel = context.WithCancel(context.Background())
@@ -48,7 +56,7 @@ var _ = Describe("Translate Proxy", func() {
 
 		proxyClient, _ = v1.NewProxyClient(ctx, resourceClientFactory)
 
-		upstreamClient, err := resourceClientFactory.NewResourceClient(ctx, factory.NewResourceClientParams{ResourceType: &v1.Upstream{}})
+		upstreamClient, err = resourceClientFactory.NewResourceClient(ctx, factory.NewResourceClientParams{ResourceType: &v1.Upstream{}})
 		Expect(err).NotTo(HaveOccurred())
 
 		proxy := &v1.Proxy{
@@ -60,10 +68,12 @@ var _ = Describe("Translate Proxy", func() {
 
 		settings = &v1.Settings{}
 
-		rep := reporter.NewReporter(ref, proxyClient.BaseClient(), upstreamClient)
+		statusClient = statusutils.GetStatusClientFromEnvOrDefault(ns)
+
+		rep := reporter.NewReporter(ref, statusClient, proxyClient.BaseClient(), upstreamClient)
 
 		xdsHasher := &xds.ProxyKeyHasher{}
-		syncer = NewTranslatorSyncer(&mockTranslator{true, false}, xdsCache, xdsHasher, sanitizer, rep, false, nil, settings)
+		syncer = NewTranslatorSyncer(&mockTranslator{true, false, nil}, xdsCache, xdsHasher, sanitizer, rep, false, nil, settings)
 		snap = &v1.ApiSnapshot{
 			Proxies: v1.ProxyList{
 				proxy,
@@ -78,7 +88,7 @@ var _ = Describe("Translate Proxy", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(proxies).To(HaveLen(1))
 		Expect(proxies[0]).To(BeAssignableToTypeOf(&v1.Proxy{}))
-		Expect(proxies[0].Status).To(Equal(&core.Status{
+		Expect(statusClient.GetStatus(proxies[0])).To(Equal(&core.Status{
 			State:      2,
 			Reason:     "1 error occurred:\n\t* hi, how ya doin'?\n\n",
 			ReportedBy: ref,
@@ -92,7 +102,7 @@ var _ = Describe("Translate Proxy", func() {
 		Expect(err).NotTo(HaveOccurred())
 		snap.Proxies[0] = p1
 
-		syncer = NewTranslatorSyncer(&mockTranslator{false, false}, xdsCache, xdsHasher, sanitizer, rep, false, nil, settings)
+		syncer = NewTranslatorSyncer(&mockTranslator{false, false, nil}, xdsCache, xdsHasher, sanitizer, rep, false, nil, settings)
 
 		err = syncer.Sync(context.Background(), snap)
 		Expect(err).NotTo(HaveOccurred())
@@ -106,7 +116,7 @@ var _ = Describe("Translate Proxy", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(proxies).To(HaveLen(1))
 		Expect(proxies[0]).To(BeAssignableToTypeOf(&v1.Proxy{}))
-		Expect(proxies[0].Status).To(Equal(&core.Status{
+		Expect(statusClient.GetStatus(proxies[0])).To(Equal(&core.Status{
 			State:      1,
 			ReportedBy: ref,
 		}))
@@ -156,6 +166,126 @@ var _ = Describe("Translate Proxy", func() {
 
 })
 
+var _ = Describe("Empty cache", func() {
+
+	var (
+		xdsCache       *MockXdsCache
+		sanitizer      *MockXdsSanitizer
+		syncer         v1.ApiSyncer
+		settings       *v1.Settings
+		upstreamClient clients.ResourceClient
+		proxyClient    v1.ProxyClient
+		ctx            context.Context
+		cancel         context.CancelFunc
+		proxy          *v1.Proxy
+		snapshot       envoycache.Snapshot
+		proxyName      = "proxy-name"
+		ns             = "any-ns"
+		ref            = "syncer-test"
+		statusClient   resources.StatusClient
+	)
+
+	BeforeEach(func() {
+		var err error
+		xdsCache = &MockXdsCache{}
+		sanitizer = &MockXdsSanitizer{}
+		ctx, cancel = context.WithCancel(context.Background())
+
+		resourceClientFactory := &factory.MemoryResourceClientFactory{
+			Cache: memory.NewInMemoryResourceCache(),
+		}
+
+		proxyClient, _ = v1.NewProxyClient(ctx, resourceClientFactory)
+
+		upstreamClient, err = resourceClientFactory.NewResourceClient(ctx, factory.NewResourceClientParams{ResourceType: &v1.Upstream{}})
+		Expect(err).NotTo(HaveOccurred())
+
+		proxy = &v1.Proxy{
+			Metadata: &core.Metadata{
+				Namespace: ns,
+				Name:      proxyName,
+			},
+		}
+
+		settings = &v1.Settings{}
+
+		statusClient = statusutils.GetStatusClientFromEnvOrDefault(ns)
+
+		rep := reporter.NewReporter(ref, statusClient, proxyClient.BaseClient(), upstreamClient)
+
+		xdsHasher := &xds.ProxyKeyHasher{}
+
+		snapshot = xds.NewEndpointsSnapshotFromResources(
+			envoycache.NewResources("current endpoint", []envoycache.Resource{
+				resource.NewEnvoyResource(&envoy_config_endpoint_v3.ClusterLoadAssignment{
+					ClusterName: "coffee",
+				}),
+			}),
+			envoycache.NewResources("current cluster", []envoycache.Resource{
+				resource.NewEnvoyResource(&envoy_config_cluster_v3.Cluster{
+					Name:                 "coffee",
+					ClusterDiscoveryType: &envoy_config_cluster_v3.Cluster_Type{Type: envoy_config_cluster_v3.Cluster_EDS},
+					LbPolicy:             envoy_config_cluster_v3.Cluster_ROUND_ROBIN,
+					DnsLookupFamily:      envoy_config_cluster_v3.Cluster_V4_ONLY,
+					EdsClusterConfig:     &envoy_config_cluster_v3.Cluster_EdsClusterConfig{},
+				}),
+			}),
+		)
+		syncer = NewTranslatorSyncer(&mockTranslator{true, false, snapshot}, xdsCache, xdsHasher, sanitizer, rep, false, nil, settings)
+
+		_, err = proxyClient.Write(proxy, clients.WriteOpts{})
+		Expect(err).NotTo(HaveOccurred())
+
+		proxies, err := proxyClient.List(proxy.GetMetadata().Namespace, clients.ListOpts{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(proxies).To(HaveLen(1))
+		Expect(proxies[0]).To(BeAssignableToTypeOf(&v1.Proxy{}))
+
+	})
+
+	AfterEach(func() { cancel() })
+
+	It("only updates endpoints and clusters when sanitization fails and there is no previous snapshot", func() {
+		sanitizer.Err = errors.Errorf("we ran out of coffee")
+
+		apiSnap := v1.ApiSnapshot{
+			Proxies: v1.ProxyList{
+				proxy,
+			},
+		}
+
+		// old snapshot is not set
+		xdsCache.GetSnap = nil
+		err := syncer.Sync(context.Background(), &apiSnap)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(sanitizer.Called).To(BeTrue())
+		Expect(xdsCache.Called).To(BeTrue())
+
+		// Don't update listener and routes
+		newListeners := xdsCache.SetSnap.GetResources(resource.ListenerTypeV3)
+		Expect(newListeners.Items).To(BeNil())
+		newRoutes := xdsCache.SetSnap.GetResources(resource.RouteTypeV3)
+		Expect(newRoutes.Items).To(BeNil())
+
+		// update endpoints and clusters
+		newEndpoints := xdsCache.SetSnap.GetResources(resource.EndpointTypeV3)
+		Expect(newEndpoints).To(Equal(snapshot.GetResources(resource.EndpointTypeV3)))
+		newClusters := xdsCache.SetSnap.GetResources(resource.ClusterTypeV3)
+		Expect(newClusters).To(Equal(snapshot.GetResources(resource.ClusterTypeV3)))
+
+		proxies, err := proxyClient.List(proxy.GetMetadata().Namespace, clients.ListOpts{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(proxies).To(HaveLen(1))
+		Expect(proxies[0]).To(BeAssignableToTypeOf(&v1.Proxy{}))
+		Expect(statusClient.GetStatus(proxies[0])).To(Equal(&core.Status{
+			State:      2,
+			Reason:     "1 error occurred:\n\t* hi, how ya doin'?\n\n",
+			ReportedBy: ref,
+		}))
+	})
+})
+
 var _ = Describe("Translate mulitple proxies with errors", func() {
 
 	var (
@@ -168,15 +298,16 @@ var _ = Describe("Translate mulitple proxies with errors", func() {
 		upstreamClient v1.UpstreamClient
 		proxyName      = "proxy-name"
 		upstreamName   = "upstream-name"
-		ref            = "syncer-test"
 		ns             = "any-ns"
+		ref            = "syncer-test"
+		statusClient   resources.StatusClient
 	)
 
 	proxiesShouldHaveErrors := func(proxies v1.ProxyList, numProxies int) {
 		Expect(proxies).To(HaveLen(numProxies))
 		for _, proxy := range proxies {
 			Expect(proxy).To(BeAssignableToTypeOf(&v1.Proxy{}))
-			Expect(proxy.Status).To(Equal(&core.Status{
+			Expect(statusClient.GetStatus(proxy)).To(Equal(&core.Status{
 				State:      2,
 				Reason:     "1 error occurred:\n\t* hi, how ya doin'?\n\n",
 				ReportedBy: ref,
@@ -238,10 +369,12 @@ var _ = Describe("Translate mulitple proxies with errors", func() {
 
 		settings = &v1.Settings{}
 
-		rep := reporter.NewReporter(ref, proxyClient.BaseClient(), usClient)
+		statusClient = statusutils.GetStatusClientFromEnvOrDefault(ns)
+
+		rep := reporter.NewReporter(ref, statusClient, proxyClient.BaseClient(), usClient)
 
 		xdsHasher := &xds.ProxyKeyHasher{}
-		syncer = NewTranslatorSyncer(&mockTranslator{true, true}, xdsCache, xdsHasher, sanitizer, rep, false, nil, settings)
+		syncer = NewTranslatorSyncer(&mockTranslator{true, true, nil}, xdsCache, xdsHasher, sanitizer, rep, false, nil, settings)
 		snap = &v1.ApiSnapshot{
 			Proxies: v1.ProxyList{
 				proxy1,
@@ -265,7 +398,7 @@ var _ = Describe("Translate mulitple proxies with errors", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(proxies).To(HaveLen(2))
 		Expect(proxies[0]).To(BeAssignableToTypeOf(&v1.Proxy{}))
-		Expect(proxies[0].Status).To(Equal(&core.Status{
+		Expect(statusClient.GetStatus(proxies[0])).To(Equal(&core.Status{
 			State:      2,
 			Reason:     "1 error occurred:\n\t* hi, how ya doin'?\n\n",
 			ReportedBy: ref,
@@ -290,7 +423,7 @@ var _ = Describe("Translate mulitple proxies with errors", func() {
 		upstreams, err := upstreamClient.List(ns, clients.ListOpts{})
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(upstreams[0].Status).To(Equal(&core.Status{
+		Expect(statusClient.GetStatus(upstreams[0])).To(Equal(&core.Status{
 			State:      2,
 			Reason:     "2 errors occurred:\n\t* upstream is bad - determined by proxy-name1\n\t* upstream is bad - determined by proxy-name2\n\n",
 			ReportedBy: ref,
@@ -309,7 +442,7 @@ var _ = Describe("Translate mulitple proxies with errors", func() {
 		upstreams, err := upstreamClient.List(ns, clients.ListOpts{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(upstreams).To(HaveLen(1))
-		Expect(upstreams[0].Status).To(Equal(&core.Status{
+		Expect(statusClient.GetStatus(upstreams[0])).To(Equal(&core.Status{
 			State:      2,
 			Reason:     "1 error occurred:\n\t* generic upstream error\n\n",
 			ReportedBy: ref,
@@ -322,6 +455,7 @@ var _ = Describe("Translate mulitple proxies with errors", func() {
 type mockTranslator struct {
 	reportErrs         bool
 	reportUpstreamErrs bool // Adds an error to every upstream in the snapshot
+	currentSnapshot    envoycache.Snapshot
 }
 
 func (t *mockTranslator) Translate(params plugins.Params, proxy *v1.Proxy) (envoycache.Snapshot, reporter.ResourceReports, *validation.ProxyReport, error) {
@@ -337,7 +471,13 @@ func (t *mockTranslator) Translate(params plugins.Params, proxy *v1.Proxy) (envo
 				}
 			}
 		}
+		if t.currentSnapshot != nil {
+			return t.currentSnapshot, rpts, &validation.ProxyReport{}, nil
+		}
 		return envoycache.NilSnapshot{}, rpts, &validation.ProxyReport{}, nil
+	}
+	if t.currentSnapshot != nil {
+		return t.currentSnapshot, nil, &validation.ProxyReport{}, nil
 	}
 	return envoycache.NilSnapshot{}, nil, &validation.ProxyReport{}, nil
 }

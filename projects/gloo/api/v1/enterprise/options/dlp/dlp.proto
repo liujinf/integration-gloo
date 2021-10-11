@@ -2,9 +2,11 @@ syntax = "proto3";
 package dlp.options.gloo.solo.io;
 option go_package = "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/enterprise/options/dlp";
 
+import "validate/validate.proto";
 import "github.com/solo-io/gloo/projects/gloo/api/v1/core/matchers/matchers.proto";
 
 import "github.com/solo-io/solo-kit/api/external/envoy/type/percent.proto";
+import "github.com/solo-io/gloo/projects/gloo/api/external/envoy/extensions/transformation_ee/transformation.proto";
 import "extproto/ext.proto";
 option (extproto.equal_all) = true;
 option (extproto.hash_all) = true;
@@ -12,14 +14,27 @@ option (extproto.hash_all) = true;
 /*
     DLP (data loss prevention)
     The purpose of this filter is to prevent sensitive data from being exposed.
-    This is accomplished by doing a series of regex replacements on the response body.
+    This is accomplished by doing a series of regex replacements on the response body and/or headers.
 */
 
 // Listener level config for dlp filter
 message FilterConfig {
+    enum EnableFor {
+        // Only enable DLP masking of response bodies. Defaults to this value.
+        RESPONSE_BODY = 0;
+        // Only enable DLP masking of access logs.
+        ACCESS_LOGS = 1;
+        // Enable DLP masking for both responses and access logs.
+        ALL = 2;
+    }
+
     // The list of transformation, matcher pairs.
     // The first rule which matches will be applied.
     repeated DlpRule dlp_rules = 1;
+
+    // Whether responses, access logs, or both should be masked by the applied actions.
+    // If not defined, masking will only be enabled for responses bodies.
+    EnableFor enabled_for = 2;
 }
 
 // Rule which applies a given set of actions to a matching route.
@@ -40,9 +55,21 @@ message DlpRule {
     listener level config.
 */
 message Config {
+    enum EnableFor {
+        // Only enable DLP masking of response bodies. Defaults to this value.
+        RESPONSE_BODY = 0;
+        // Only enable DLP masking of access logs.
+        ACCESS_LOGS = 1;
+        // Enable DLP masking for both responses and access logs.
+        ALL = 2;
+    }
+
     // List of data loss prevention actions to be applied.
     // These actions will be applied in order, one at a time.
     repeated Action actions = 1;
+    // Whether responses, access logs, or both should be masked by the applied actions.
+    // If not defined, masking will only be enabled for responses bodies.
+    EnableFor enabled_for = 2;
 }
 /*
     A single action meant to mask sensitive data.
@@ -161,7 +188,7 @@ message CustomAction {
     // This name is used for logging and debugging purposes.
     string name = 1;
     // The list of regex strings which will be applied in order.
-    repeated string regex = 2;
+    repeated string regex = 2 [deprecated = true];
     // The masking character for the sensitive data.
     // default value: X
     string mask_char = 3;
@@ -169,4 +196,9 @@ message CustomAction {
     // default value: 75%
     // rounds ratio (percent/100) by std::round http://www.cplusplus.com/reference/cmath/round/
     .solo.io.envoy.type.Percent percent = 4;
+    // List of regexes to apply to the response body to match data which should be
+    // masked. They will be applied iteratively in the order which they are
+    // specified. If this field and `regex` are both provided, all the regexes will
+    // be applied iteratively in the order provided, starting with the ones from `regex`
+    repeated .envoy.config.filter.http.transformation_ee.v2.RegexAction regex_actions = 5;
 }

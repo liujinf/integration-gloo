@@ -12,8 +12,10 @@ weight: 5
 
 
 - [FilterConfig](#filterconfig)
+- [EnableFor](#enablefor)
 - [DlpRule](#dlprule)
 - [Config](#config)
+- [EnableFor](#enablefor)
 - [Action](#action)
 - [ActionType](#actiontype)
 - [CustomAction](#customaction)
@@ -35,12 +37,28 @@ Listener level config for dlp filter
 
 ```yaml
 "dlpRules": []dlp.options.gloo.solo.io.DlpRule
+"enabledFor": .dlp.options.gloo.solo.io.FilterConfig.EnableFor
 
 ```
 
 | Field | Type | Description |
 | ----- | ---- | ----------- | 
 | `dlpRules` | [[]dlp.options.gloo.solo.io.DlpRule](../dlp.proto.sk/#dlprule) | The list of transformation, matcher pairs. The first rule which matches will be applied. |
+| `enabledFor` | [.dlp.options.gloo.solo.io.FilterConfig.EnableFor](../dlp.proto.sk/#enablefor) | Whether responses, access logs, or both should be masked by the applied actions. If not defined, masking will only be enabled for responses bodies. |
+
+
+
+
+---
+### EnableFor
+
+
+
+| Name | Description |
+| ----- | ----------- | 
+| `RESPONSE_BODY` | Only enable DLP masking of response bodies. Defaults to this value. |
+| `ACCESS_LOGS` | Only enable DLP masking of access logs. |
+| `ALL` | Enable DLP masking for both responses and access logs. |
 
 
 
@@ -77,12 +95,28 @@ listener level config.
 
 ```yaml
 "actions": []dlp.options.gloo.solo.io.Action
+"enabledFor": .dlp.options.gloo.solo.io.Config.EnableFor
 
 ```
 
 | Field | Type | Description |
 | ----- | ---- | ----------- | 
 | `actions` | [[]dlp.options.gloo.solo.io.Action](../dlp.proto.sk/#action) | List of data loss prevention actions to be applied. These actions will be applied in order, one at a time. |
+| `enabledFor` | [.dlp.options.gloo.solo.io.Config.EnableFor](../dlp.proto.sk/#enablefor) | Whether responses, access logs, or both should be masked by the applied actions. If not defined, masking will only be enabled for responses bodies. |
+
+
+
+
+---
+### EnableFor
+
+
+
+| Name | Description |
+| ----- | ----------- | 
+| `RESPONSE_BODY` | Only enable DLP masking of response bodies. Defaults to this value. |
+| `ACCESS_LOGS` | Only enable DLP masking of access logs. |
+| `ALL` | Enable DLP masking for both responses and access logs. |
 
 
 
@@ -218,6 +252,7 @@ If the mask_char, and percent were left to default, the result would be:
 "regex": []string
 "maskChar": string
 "percent": .solo.io.envoy.type.Percent
+"regexActions": []envoy.config.filter.http.transformation_ee.v2.RegexAction
 
 ```
 
@@ -227,6 +262,7 @@ If the mask_char, and percent were left to default, the result would be:
 | `regex` | `[]string` | The list of regex strings which will be applied in order. |
 | `maskChar` | `string` | The masking character for the sensitive data. default value: X. |
 | `percent` | [.solo.io.envoy.type.Percent](../../../../../../../../../solo-kit/api/external/envoy/type/percent.proto.sk/#percent) | The percent of the string which will be masked by the mask_char default value: 75% rounds ratio (percent/100) by std::round http://www.cplusplus.com/reference/cmath/round/. |
+| `regexActions` | [[]envoy.config.filter.http.transformation_ee.v2.RegexAction](../../../../../external/envoy/extensions/transformation_ee/transformation.proto.sk/#regexaction) | List of regexes to apply to the response body to match data which should be masked. They will be applied iteratively in the order which they are specified. If this field and `regex` are both provided, all the regexes will be applied iteratively in the order provided, starting with the ones from `regex`. |
 
 
 

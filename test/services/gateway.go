@@ -5,6 +5,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/solo-io/gloo/pkg/utils/statusutils"
+
 	"github.com/solo-io/gloo/projects/gloo/pkg/syncer"
 	extauthExt "github.com/solo-io/gloo/projects/gloo/pkg/syncer/extauth"
 	ratelimitExt "github.com/solo-io/gloo/projects/gloo/pkg/syncer/ratelimit"
@@ -137,11 +139,11 @@ func RunGlooGatewayUdsFds(ctx context.Context, runOptions *RunOptions) TestClien
 	if glooOpts.Settings == nil {
 		glooOpts.Settings = &gloov1.Settings{}
 	}
-	if glooOpts.Settings.Gloo == nil {
+	if glooOpts.Settings.GetGloo() == nil {
 		glooOpts.Settings.Gloo = &gloov1.GlooOptions{}
 	}
-	if glooOpts.Settings.Gloo.RestXdsBindAddr == "" {
-		glooOpts.Settings.Gloo.RestXdsBindAddr = fmt.Sprintf("0.0.0.0:%v", int(runOptions.RestXdsPort))
+	if glooOpts.Settings.GetGloo().GetRestXdsBindAddr() == "" {
+		glooOpts.Settings.GetGloo().RestXdsBindAddr = fmt.Sprintf("0.0.0.0:%v", int(runOptions.RestXdsPort))
 	}
 
 	runOptions.Extensions.SyncerExtensions = []syncer.TranslatorSyncerExtensionFactory{
@@ -151,7 +153,7 @@ func RunGlooGatewayUdsFds(ctx context.Context, runOptions *RunOptions) TestClien
 
 	glooOpts.ControlPlane.StartGrpcServer = true
 	glooOpts.ValidationServer.StartGrpcServer = true
-	go setup.RunGlooWithExtensions(glooOpts, runOptions.Extensions)
+	go setup.RunGlooWithExtensions(glooOpts, runOptions.Extensions, make(chan struct{}))
 
 	// gloo is dependency of gateway, needs to run second if we want to test validation
 	if !runOptions.WhatToRun.DisableGateway {
@@ -215,29 +217,32 @@ func defaultTestConstructOpts(ctx context.Context, runOptions *RunOptions) trans
 	meta := runOptions.Settings.GetMetadata()
 
 	var validation *translator.ValidationOpts
-	if runOptions.Settings != nil && runOptions.Settings.Gateway != nil && runOptions.Settings.Gateway.Validation != nil {
+	if runOptions.Settings != nil && runOptions.Settings.GetGateway() != nil && runOptions.Settings.GetGateway().GetValidation() != nil {
 		validation = &translator.ValidationOpts{}
-		if runOptions.Settings.Gateway.Validation.ProxyValidationServerAddr != "" {
-			validation.ProxyValidationServerAddress = runOptions.Settings.Gateway.Validation.ProxyValidationServerAddr
+		if runOptions.Settings.GetGateway().GetValidation().GetProxyValidationServerAddr() != "" {
+			validation.ProxyValidationServerAddress = runOptions.Settings.GetGateway().GetValidation().GetProxyValidationServerAddr()
 		}
-		if runOptions.Settings.Gateway.Validation.AllowWarnings != nil {
-			validation.AllowWarnings = runOptions.Settings.Gateway.Validation.AllowWarnings.Value
+		if runOptions.Settings.GetGateway().GetValidation().GetAllowWarnings() != nil {
+			validation.AllowWarnings = runOptions.Settings.GetGateway().GetValidation().GetAllowWarnings().GetValue()
 
 		}
-		if runOptions.Settings.Gateway.Validation.AlwaysAccept != nil {
-			validation.AlwaysAcceptResources = runOptions.Settings.Gateway.Validation.AlwaysAccept.Value
+		if runOptions.Settings.GetGateway().GetValidation().GetAlwaysAccept() != nil {
+			validation.AlwaysAcceptResources = runOptions.Settings.GetGateway().GetValidation().GetAlwaysAccept().GetValue()
 		}
 
 	}
 
 	return translator.Opts{
-		GlooNamespace:   meta.GetNamespace(),
-		WriteNamespace:  runOptions.NsToWrite,
-		WatchNamespaces: runOptions.NsToWatch,
-		Gateways:        f,
-		VirtualServices: f,
-		RouteTables:     f,
-		Proxies:         f,
+		GlooNamespace:           meta.GetNamespace(),
+		WriteNamespace:          runOptions.NsToWrite,
+		WatchNamespaces:         runOptions.NsToWatch,
+		StatusReporterNamespace: statusutils.GetStatusReporterNamespaceOrDefault(defaults.GlooSystem),
+		Gateways:                f,
+		VirtualServices:         f,
+		RouteTables:             f,
+		VirtualHostOptions:      f,
+		RouteOptions:            f,
+		Proxies:                 f,
 		WatchOpts: clients.WatchOpts{
 			Ctx:         ctx,
 			RefreshRate: time.Minute,
@@ -281,17 +286,18 @@ func defaultGlooOpts(ctx context.Context, runOptions *RunOptions) bootstrap.Opts
 	}
 
 	return bootstrap.Opts{
-		Settings:          runOptions.Settings,
-		WriteNamespace:    runOptions.NsToWrite,
-		Upstreams:         f,
-		UpstreamGroups:    f,
-		Proxies:           f,
-		Secrets:           f,
-		Artifacts:         f,
-		AuthConfigs:       f,
-		RateLimitConfigs:  f,
-		KubeServiceClient: newServiceClient(ctx, f, runOptions),
-		WatchNamespaces:   runOptions.NsToWatch,
+		Settings:                runOptions.Settings,
+		WriteNamespace:          runOptions.NsToWrite,
+		StatusReporterNamespace: statusutils.GetStatusReporterNamespaceOrDefault(defaults.GlooSystem),
+		Upstreams:               f,
+		UpstreamGroups:          f,
+		Proxies:                 f,
+		Secrets:                 f,
+		Artifacts:               f,
+		AuthConfigs:             f,
+		RateLimitConfigs:        f,
+		KubeServiceClient:       newServiceClient(ctx, f, runOptions),
+		WatchNamespaces:         runOptions.NsToWatch,
 		WatchOpts: clients.WatchOpts{
 			Ctx:         ctx,
 			RefreshRate: time.Second / 10,

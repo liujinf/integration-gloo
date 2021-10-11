@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/golang/protobuf/ptypes/duration"
+	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/kube/cache"
 	"github.com/solo-io/solo-kit/pkg/utils/prototime"
 
@@ -72,7 +73,7 @@ type configFactoryParamsConsul struct {
 func ConfigFactoryForSettings(params ConfigFactoryParams, resourceCrd crd.Crd) (factory.ResourceClientFactory, error) {
 	settings := params.settings
 
-	if settings.ConfigSource == nil {
+	if settings.GetConfigSource() == nil {
 		sharedCache := params.memory.sharedCache
 		if sharedCache == nil {
 			return nil, errors.Errorf("internal error: shared cache cannot be nil")
@@ -82,7 +83,7 @@ func ConfigFactoryForSettings(params ConfigFactoryParams, resourceCrd crd.Crd) (
 		}, nil
 	}
 
-	switch source := settings.ConfigSource.(type) {
+	switch source := settings.GetConfigSource().(type) {
 	// this is at trick to reuse the same cfg across multiple clients
 	case *v1.Settings_KubernetesConfigSource:
 		kubeCache := params.kube.kubeCache
@@ -95,8 +96,8 @@ func ConfigFactoryForSettings(params ConfigFactoryParams, resourceCrd crd.Crd) (
 
 			if kubeSettingsConfig := settings.GetKubernetes(); kubeSettingsConfig != nil {
 				if rl := kubeSettingsConfig.GetRateLimits(); rl != nil {
-					c.QPS = rl.QPS
-					c.Burst = int(rl.Burst)
+					c.QPS = rl.GetQPS()
+					c.Burst = int(rl.GetBurst())
 				}
 			}
 
@@ -107,7 +108,7 @@ func ConfigFactoryForSettings(params ConfigFactoryParams, resourceCrd crd.Crd) (
 			Crd:                resourceCrd,
 			Cfg:                *cfg,
 			SharedCache:        kubeCache,
-			NamespaceWhitelist: settings.WatchNamespaces,
+			NamespaceWhitelist: settings.GetWatchNamespaces(),
 		}, nil
 	case *v1.Settings_ConsulKvSource:
 		consulClient := params.consul.consulClient
@@ -121,7 +122,7 @@ func ConfigFactoryForSettings(params ConfigFactoryParams, resourceCrd crd.Crd) (
 		}, nil
 	case *v1.Settings_DirectoryConfigSource:
 		return &factory.FileResourceClientFactory{
-			RootDir: filepath.Join(source.DirectoryConfigSource.Directory, resourceCrd.Plural),
+			RootDir: filepath.Join(source.DirectoryConfigSource.GetDirectory(), resourceCrd.Plural),
 		}, nil
 	}
 	return nil, errors.Errorf("invalid config source type")
@@ -135,9 +136,9 @@ func KubeServiceClientForSettings(ctx context.Context,
 	kubeCoreCache *cache.KubeCoreCache) (skkube.ServiceClient, error) {
 
 	// We are running in kubernetes
-	switch settings.ConfigSource.(type) {
+	switch settings.GetConfigSource().(type) {
 	case *v1.Settings_KubernetesConfigSource:
-		if err := initializeForKube(ctx, cfg, clientset, kubeCoreCache, settings.RefreshRate, settings.WatchNamespaces); err != nil {
+		if err := initializeForKube(ctx, cfg, clientset, kubeCoreCache, settings.GetRefreshRate(), settings.GetWatchNamespaces()); err != nil {
 			return nil, errors.Wrapf(err, "initializing kube cfg clientset and core cache")
 		}
 		return service.NewServiceClient(*clientset, *kubeCoreCache), nil
@@ -157,7 +158,7 @@ func KubeServiceClientForSettings(ctx context.Context,
 	return skkube.NewServiceClientWithBase(inMemoryClient), nil
 }
 
-// sharedCach OR resourceCrd+cfg must be non-nil
+// sharedCache OR resourceCrd+cfg must be non-nil
 func SecretFactoryForSettings(ctx context.Context,
 	settings *v1.Settings,
 	sharedCache memory.InMemoryResourceCache,
@@ -166,7 +167,7 @@ func SecretFactoryForSettings(ctx context.Context,
 	kubeCoreCache *cache.KubeCoreCache,
 	vaultClient *vaultapi.Client,
 	pluralName string) (factory.ResourceClientFactory, error) {
-	if settings.SecretSource == nil {
+	if settings.GetSecretSource() == nil {
 		if sharedCache == nil {
 			return nil, errors.Errorf("internal error: shared cache cannot be nil")
 		}
@@ -175,9 +176,9 @@ func SecretFactoryForSettings(ctx context.Context,
 		}, nil
 	}
 
-	switch source := settings.SecretSource.(type) {
+	switch source := settings.GetSecretSource().(type) {
 	case *v1.Settings_KubernetesSecretSource:
-		if err := initializeForKube(ctx, cfg, clientset, kubeCoreCache, settings.RefreshRate, settings.WatchNamespaces); err != nil {
+		if err := initializeForKube(ctx, cfg, clientset, kubeCoreCache, settings.GetRefreshRate(), settings.GetWatchNamespaces()); err != nil {
 			return nil, errors.Wrapf(err, "initializing kube cfg clientset and core cache")
 		}
 		return &factory.KubeSecretClientFactory{
@@ -196,7 +197,7 @@ func SecretFactoryForSettings(ctx context.Context,
 		}, nil
 	case *v1.Settings_DirectorySecretSource:
 		return &factory.FileResourceClientFactory{
-			RootDir: filepath.Join(source.DirectorySecretSource.Directory, pluralName),
+			RootDir: filepath.Join(source.DirectorySecretSource.GetDirectory(), pluralName),
 		}, nil
 	}
 	return nil, errors.Errorf("invalid config source type")
@@ -211,7 +212,7 @@ func ArtifactFactoryForSettings(ctx context.Context,
 	kubeCoreCache *cache.KubeCoreCache,
 	consulClient *consulapi.Client,
 	pluralName string) (factory.ResourceClientFactory, error) {
-	if settings.ArtifactSource == nil {
+	if settings.GetArtifactSource() == nil {
 		if sharedCache == nil {
 			return nil, errors.Errorf("internal error: shared cache cannot be nil")
 		}
@@ -220,9 +221,9 @@ func ArtifactFactoryForSettings(ctx context.Context,
 		}, nil
 	}
 
-	switch source := settings.ArtifactSource.(type) {
+	switch source := settings.GetArtifactSource().(type) {
 	case *v1.Settings_KubernetesArtifactSource:
-		if err := initializeForKube(ctx, cfg, clientset, kubeCoreCache, settings.RefreshRate, settings.WatchNamespaces); err != nil {
+		if err := initializeForKube(ctx, cfg, clientset, kubeCoreCache, settings.GetRefreshRate(), settings.GetWatchNamespaces()); err != nil {
 			return nil, errors.Wrapf(err, "initializing kube cfg clientset and core cache")
 		}
 		return &factory.KubeConfigMapClientFactory{
@@ -232,7 +233,7 @@ func ArtifactFactoryForSettings(ctx context.Context,
 		}, nil
 	case *v1.Settings_DirectoryArtifactSource:
 		return &factory.FileResourceClientFactory{
-			RootDir: filepath.Join(source.DirectoryArtifactSource.Directory, pluralName),
+			RootDir: filepath.Join(source.DirectoryArtifactSource.GetDirectory(), pluralName),
 		}, nil
 	case *v1.Settings_ConsulKvArtifactSource:
 		rootKey := source.ConsulKvArtifactSource.GetRootKey()
@@ -284,4 +285,13 @@ func initializeForKube(ctx context.Context,
 
 	return nil
 
+}
+
+func GetWriteNamespace(settings *v1.Settings) string {
+	writeNamespace := settings.GetDiscoveryNamespace()
+	if writeNamespace == "" {
+		writeNamespace = defaults.GlooSystem
+	}
+
+	return writeNamespace
 }

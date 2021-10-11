@@ -9,7 +9,7 @@ Serving as the Ingress for an Istio cluster -- without compromising on security 
 
 ### Istio versions
 
-This guide was tested with Istio 1.6.6, 1.7.2, and 1.8.1. For older versions of Istio, see [here]({{% versioned_link_path fromRoot="/guides/integrations/service_mesh/gloo_istio_mtls/older_istio_versions/" %}}).
+This guide was tested with Istio 1.6.6, 1.7.2, 1.8.1, 1.9.5, 1.10.0 and 1.11.1. For older versions of Istio, see [here]({{% versioned_link_path fromRoot="/guides/integrations/service_mesh/gloo_istio_mtls/older_istio_versions/" %}}).
 
 ### Gloo Edge versions
 
@@ -23,7 +23,7 @@ The Gloo Edge integration with Istio 1.6.6+ requires Gloo Edge version 1.4.10+, 
 
 ### Kubernetes versions
 
-This guide was tested with GKE v1.15.
+This guide was tested with GKE v1.17.
 
 
 {{% notice note %}}
@@ -41,8 +41,8 @@ For local development and testing, if you remove the istio-token mount then Isti
 To download and install the latest version of Istio, we will be following the installation instructions [here](https://istio.io/docs/setup/getting-started/).
 
 ```bash
-curl -L https://istio.io/downloadIstio | ISTIO_VERSION=1.8.1 sh -
-cd istio-1.8.1
+curl -L https://istio.io/downloadIstio | ISTIO_VERSION=1.9.5 sh -
+cd istio-1.9.5
 istioctl install --set profile=demo
 ```
 
@@ -72,7 +72,7 @@ glooctl install gateway
 ```
 or with helm:
 ```
-kubectl create ns gloo-system; helm install --namespace gloo-system --version 1.5.0-beta25 gloo gloo/gloo
+kubectl create ns gloo-system; helm install --namespace gloo-system --version 1.5.0 gloo gloo/gloo
 ```
 See the [quick start]({{% versioned_link_path fromRoot="/installation/gateway/kubernetes/" %}}) guide for more information.
 
@@ -236,7 +236,7 @@ spec:
             fieldRef:
               apiVersion: v1
               fieldPath: metadata.name
-        image: quay.io/solo-io/gloo-envoy-wrapper:1.5.0-beta24
+        image: quay.io/solo-io/gloo-envoy-wrapper:1.5.0
         imagePullPolicy: IfNotPresent
         name: gateway-proxy
         ports:
@@ -273,7 +273,7 @@ spec:
               fieldPath: metadata.namespace
         - name: ISTIO_MTLS_SDS_ENABLED
           value: "true"
-        image: quay.io/solo-io/sds:1.5.0-beta24
+        image: quay.io/solo-io/sds:1.5.0
         imagePullPolicy: IfNotPresent
         name: sds
         ports:
@@ -467,7 +467,7 @@ Any upstreams using mTLS will need to be contain the sslConfig as described abov
 
 ##### Custom Sidecars
 
-The default istio-proxy image used as a sidecar by this declarative approach is `docker.io/istio/proxyv2:1.8.1`. If this image doesn't work for you (for example, your mesh is on a different, incompatible Istio version), you can override the default sidecar with your own.
+The default istio-proxy image used as a sidecar by this declarative approach is `docker.io/istio/proxyv2:1.9.5`. If this image doesn't work for you (for example, your mesh is on a different, incompatible Istio version), you can override the default sidecar with your own.
 
 To do this, you must set your custom sidecar in the helm value `global.istioSDS.customSidecars`. For example, if you wanted to use istio proxy v1.6.6 instead:
 

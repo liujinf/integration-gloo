@@ -1,3 +1,4 @@
+{{ define "gloo.deploymentSpec" }}
 {{- $image := .Values.gloo.deployment.image }}
 {{- $statsConfig := coalesce .Values.gloo.deployment.stats .Values.global.glooStats -}}
 {{- if .Values.global  }}
@@ -25,18 +26,24 @@ spec:
         {{ $key }}: {{ $value | quote }}
         {{- end }}
         {{- end }}
-      {{- if $statsConfig.enabled }}
       annotations:
+        {{- if $statsConfig.enabled }}
         prometheus.io/path: /metrics
         prometheus.io/port: "9091"
         prometheus.io/scrape: "true"
+        {{- end}}
         {{- if .Values.global.istioIntegration.disableAutoinjection }}
         sidecar.istio.io/inject: "false"
         {{- end }}
-      {{- end}}
+        {{- if .Values.gloo.deployment.extraGlooAnnotations }}
+        {{- range $key, $value := .Values.gloo.deployment.extraGlooAnnotations }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
     spec:
-      {{- include "gloo.pullSecret" $image | nindent 6 }}
+      {{- include "gloo.pullSecret" $image | nindent 6 -}}
       serviceAccountName: gloo
+      {{- include "gloo.podSpecStandardFields" .Values.gloo.deployment | nindent 6 -}}
       volumes:
 {{- if .Values.global.glooMtls.enabled }}
       - name: gloo-mtls-certs
@@ -163,12 +170,12 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
-        {{- if $statsConfig.enabled }}
-          - name: START_STATS_SERVER
+        {{- if .Values.gloo.splitLogOutput }}
+          - name: SPLIT_LOG_OUTPUT
             value: "true"
         {{- end}}
-        {{- if .Values.gloo.deployment.disableUsageStatistics }}
-          - name: DISABLE_USAGE_REPORTING
+        {{- if $statsConfig.enabled }}
+          - name: START_STATS_SERVER
             value: "true"
         {{- end}}
         {{- if .Values.gloo.logLevel }}
@@ -183,3 +190,7 @@ spec:
           periodSeconds: 2
           failureThreshold: 10
 {{- end }}
+{{- end }} {{/* define "gloo.deploymentSpec "*/}}
+
+{{/* Render template with yaml overrides */}}
+{{- include "gloo.util.merge" (list . .Values.gloo.deployment.kubeResourceOverride "gloo.deploymentSpec") -}}

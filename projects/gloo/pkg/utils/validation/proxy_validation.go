@@ -9,6 +9,11 @@ import (
 	"go.uber.org/multierr"
 )
 
+var (
+	RouteErrorMsg      = "Route Error"
+	RouteIdentifierTxt = "Route Name"
+)
+
 func MakeReport(proxy *v1.Proxy) *validation.ProxyReport {
 	listeners := proxy.GetListeners()
 	listenerReports := make([]*validation.ListenerReport, len(listeners))
@@ -64,7 +69,7 @@ func mkErr(level, errType, reason string) error {
 func GetListenerErr(listener *validation.ListenerReport) []error {
 	var errs []error
 	for _, errReport := range listener.GetErrors() {
-		errs = append(errs, mkErr("Listener", errReport.Type.String(), errReport.Reason))
+		errs = append(errs, mkErr("Listener", errReport.GetType().String(), errReport.GetReason()))
 	}
 	return errs
 }
@@ -72,7 +77,7 @@ func GetListenerErr(listener *validation.ListenerReport) []error {
 func GetHttpListenerErr(httpListener *validation.HttpListenerReport) []error {
 	var errs []error
 	for _, errReport := range httpListener.GetErrors() {
-		errs = append(errs, mkErr("HttpListener", errReport.Type.String(), errReport.Reason))
+		errs = append(errs, mkErr("HttpListener", errReport.GetType().String(), errReport.GetReason()))
 	}
 	return errs
 }
@@ -80,7 +85,7 @@ func GetHttpListenerErr(httpListener *validation.HttpListenerReport) []error {
 func GetVirtualHostErr(virtualHost *validation.VirtualHostReport) []error {
 	var errs []error
 	for _, errReport := range virtualHost.GetErrors() {
-		errs = append(errs, mkErr("VirtualHost", errReport.Type.String(), errReport.Reason))
+		errs = append(errs, mkErr("VirtualHost", errReport.GetType().String(), errReport.GetReason()))
 	}
 	return errs
 }
@@ -88,7 +93,8 @@ func GetVirtualHostErr(virtualHost *validation.VirtualHostReport) []error {
 func GetRouteErr(route *validation.RouteReport) []error {
 	var errs []error
 	for _, errReport := range route.GetErrors() {
-		errs = append(errs, mkErr("Route", errReport.Type.String(), errReport.Reason))
+		routeError := errors.Errorf("%v. Reason: %v", errReport.GetType().String(), errReport.GetReason())
+		errs = append(errs, errors.Wrap(routeError, RouteErrorMsg))
 	}
 	return errs
 }
@@ -100,7 +106,7 @@ func GetRouteWarning(route *validation.RouteReport) []string {
 	}
 
 	for _, warning := range route.GetWarnings() {
-		appendWarning("Route", warning.Type.String(), warning.Reason)
+		appendWarning("Route", warning.GetType().String(), warning.GetReason())
 	}
 
 	return warnings
@@ -109,7 +115,7 @@ func GetRouteWarning(route *validation.RouteReport) []string {
 func GetTcpListenerErr(tcpListener *validation.TcpListenerReport) []error {
 	var errs []error
 	for _, errReport := range tcpListener.GetErrors() {
-		errs = append(errs, mkErr("TcpListener", errReport.Type.String(), errReport.Reason))
+		errs = append(errs, mkErr("TcpListener", errReport.GetType().String(), errReport.GetReason()))
 	}
 	return errs
 }
@@ -117,7 +123,7 @@ func GetTcpListenerErr(tcpListener *validation.TcpListenerReport) []error {
 func GetTcpHostErr(tcpHost *validation.TcpHostReport) []error {
 	var errs []error
 	for _, errReport := range tcpHost.GetErrors() {
-		errs = append(errs, mkErr("TcpHost", errReport.Type.String(), errReport.Reason))
+		errs = append(errs, mkErr("TcpHost", errReport.GetType().String(), errReport.GetReason()))
 	}
 	return errs
 }
@@ -128,7 +134,7 @@ func GetProxyError(proxyRpt *validation.ProxyReport) error {
 		if err := GetListenerErr(listener); err != nil {
 			errs = append(errs, err...)
 		}
-		switch listenerType := listener.ListenerTypeReport.(type) {
+		switch listenerType := listener.GetListenerTypeReport().(type) {
 		case *validation.ListenerReport_HttpListenerReport:
 			httpListener := listenerType.HttpListenerReport
 			if err := GetHttpListenerErr(httpListener); err != nil {
@@ -169,7 +175,7 @@ func GetProxyWarning(proxyRpt *validation.ProxyReport) []string {
 	var warnings []string
 
 	for _, listener := range proxyRpt.GetListenerReports() {
-		switch listenerType := listener.ListenerTypeReport.(type) {
+		switch listenerType := listener.GetListenerTypeReport().(type) {
 		case *validation.ListenerReport_HttpListenerReport:
 			httpListener := listenerType.HttpListenerReport
 			for _, vhReport := range httpListener.GetVirtualHostReports() {
@@ -186,35 +192,35 @@ func GetProxyWarning(proxyRpt *validation.ProxyReport) []string {
 }
 
 func AppendListenerError(listenerReport *validation.ListenerReport, errType validation.ListenerReport_Error_Type, reason string) {
-	listenerReport.Errors = append(listenerReport.Errors, &validation.ListenerReport_Error{
+	listenerReport.Errors = append(listenerReport.GetErrors(), &validation.ListenerReport_Error{
 		Type:   errType,
 		Reason: reason,
 	})
 }
 
 func AppendVirtualHostError(virtualHostReport *validation.VirtualHostReport, errType validation.VirtualHostReport_Error_Type, reason string) {
-	virtualHostReport.Errors = append(virtualHostReport.Errors, &validation.VirtualHostReport_Error{
+	virtualHostReport.Errors = append(virtualHostReport.GetErrors(), &validation.VirtualHostReport_Error{
 		Type:   errType,
 		Reason: reason,
 	})
 }
 
 func AppendHTTPListenerError(httpListenerReport *validation.HttpListenerReport, errType validation.HttpListenerReport_Error_Type, reason string) {
-	httpListenerReport.Errors = append(httpListenerReport.Errors, &validation.HttpListenerReport_Error{
+	httpListenerReport.Errors = append(httpListenerReport.GetErrors(), &validation.HttpListenerReport_Error{
 		Type:   errType,
 		Reason: reason,
 	})
 }
 
-func AppendRouteError(routeReport *validation.RouteReport, errType validation.RouteReport_Error_Type, reason string) {
-	routeReport.Errors = append(routeReport.Errors, &validation.RouteReport_Error{
+func AppendRouteError(routeReport *validation.RouteReport, errType validation.RouteReport_Error_Type, reason string, routeName string) {
+	routeReport.Errors = append(routeReport.GetErrors(), &validation.RouteReport_Error{
 		Type:   errType,
-		Reason: reason,
+		Reason: fmt.Sprintf("%s. %s: %s", reason, RouteIdentifierTxt, routeName),
 	})
 }
 
 func AppendRouteWarning(routeReport *validation.RouteReport, errType validation.RouteReport_Warning_Type, reason string) {
-	routeReport.Warnings = append(routeReport.Warnings, &validation.RouteReport_Warning{
+	routeReport.Warnings = append(routeReport.GetWarnings(), &validation.RouteReport_Warning{
 		Type:   errType,
 		Reason: reason,
 	})

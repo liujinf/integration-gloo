@@ -199,6 +199,23 @@ func (m *Settings) Equal(that interface{}) bool {
 		}
 	}
 
+	if len(m.GetNamedExtauth()) != len(target.GetNamedExtauth()) {
+		return false
+	}
+	for k, v := range m.GetNamedExtauth() {
+
+		if h, ok := interface{}(v).(equality.Equalizer); ok {
+			if !h.Equal(target.GetNamedExtauth()[k]) {
+				return false
+			}
+		} else {
+			if !proto.Equal(v, target.GetNamedExtauth()[k]) {
+				return false
+			}
+		}
+
+	}
+
 	if h, ok := interface{}(m.GetMetadata()).(equality.Equalizer); ok {
 		if !h.Equal(target.GetMetadata()) {
 			return false
@@ -209,12 +226,12 @@ func (m *Settings) Equal(that interface{}) bool {
 		}
 	}
 
-	if h, ok := interface{}(m.GetStatus()).(equality.Equalizer); ok {
-		if !h.Equal(target.GetStatus()) {
+	if h, ok := interface{}(m.GetNamespacedStatuses()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetNamespacedStatuses()) {
 			return false
 		}
 	} else {
-		if !proto.Equal(m.GetStatus(), target.GetStatus()) {
+		if !proto.Equal(m.GetNamespacedStatuses(), target.GetNamespacedStatuses()) {
 			return false
 		}
 	}
@@ -555,6 +572,50 @@ func (m *GlooOptions) Equal(that interface{}) bool {
 		}
 	}
 
+	if h, ok := interface{}(m.GetFailoverUpstreamDnsPollingInterval()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetFailoverUpstreamDnsPollingInterval()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetFailoverUpstreamDnsPollingInterval(), target.GetFailoverUpstreamDnsPollingInterval()) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Equal function
+func (m *VirtualServiceOptions) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*VirtualServiceOptions)
+	if !ok {
+		that2, ok := that.(VirtualServiceOptions)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if h, ok := interface{}(m.GetOneWayTls()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetOneWayTls()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetOneWayTls(), target.GetOneWayTls()) {
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -603,6 +664,16 @@ func (m *GatewayOptions) Equal(that interface{}) bool {
 
 	if m.GetCompressedProxySpec() != target.GetCompressedProxySpec() {
 		return false
+	}
+
+	if h, ok := interface{}(m.GetVirtualServiceOptions()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetVirtualServiceOptions()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetVirtualServiceOptions(), target.GetVirtualServiceOptions()) {
+			return false
+		}
 	}
 
 	return true
@@ -1345,6 +1416,26 @@ func (m *GatewayOptions_ValidationOptions) Equal(that interface{}) bool {
 		}
 	} else {
 		if !proto.Equal(m.GetWarnRouteShortCircuiting(), target.GetWarnRouteShortCircuiting()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetDisableTransformationValidation()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetDisableTransformationValidation()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetDisableTransformationValidation(), target.GetDisableTransformationValidation()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetValidationServerGrpcMaxSizeBytes()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetValidationServerGrpcMaxSizeBytes()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetValidationServerGrpcMaxSizeBytes(), target.GetValidationServerGrpcMaxSizeBytes()) {
 			return false
 		}
 	}

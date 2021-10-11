@@ -71,9 +71,6 @@ settings:
   singleNamespace: true
   create: true
   replaceInvalidRoutes: true
-gloo:
-  deployment:
-    disableUsageStatistics: true
 gatewayProxies:
   gatewayProxy:
     healthyPanicThreshold: 0
@@ -143,34 +140,55 @@ func getSnapOut(metricsPort string) string {
 	return snapOut
 }
 
+func UpdateDisableTransformationValidationSetting(ctx context.Context, shouldDisable bool, installNamespace string) {
+	UpdateSettings(func(settings *v1.Settings) {
+		Expect(settings.GetGateway().GetValidation()).NotTo(BeNil())
+		settings.GetGateway().GetValidation().DisableTransformationValidation = &wrappers.BoolValue{Value: shouldDisable}
+	}, ctx, installNamespace)
+}
+
 // enable/disable strict validation
 func UpdateAlwaysAcceptSetting(ctx context.Context, alwaysAccept bool, installNamespace string) {
 	UpdateSettings(func(settings *v1.Settings) {
-		Expect(settings.Gateway).NotTo(BeNil())
-		Expect(settings.Gateway.Validation).NotTo(BeNil())
-		settings.Gateway.Validation.AlwaysAccept = &wrappers.BoolValue{Value: alwaysAccept}
+		Expect(settings.GetGateway().GetValidation()).NotTo(BeNil())
+		settings.GetGateway().GetValidation().AlwaysAccept = &wrappers.BoolValue{Value: alwaysAccept}
 	}, ctx, installNamespace)
 }
 
 func UpdateRestEdsSetting(ctx context.Context, enableRestEds bool, installNamespace string) {
 	UpdateSettings(func(settings *v1.Settings) {
-		Expect(settings.Gloo).NotTo(BeNil())
-		settings.Gloo.EnableRestEds = &wrappers.BoolValue{Value: enableRestEds}
+		Expect(settings.GetGloo()).NotTo(BeNil())
+		settings.GetGloo().EnableRestEds = &wrappers.BoolValue{Value: enableRestEds}
 	}, ctx, installNamespace)
 }
 
-func UpdateSettings(f func(settings *v1.Settings), ctx context.Context, installNamespace string) {
+func UpdateReplaceInvalidRoutes(ctx context.Context, replaceInvalidRoutes bool, installNamespace string) {
+	UpdateSettings(func(settings *v1.Settings) {
+		Expect(settings.GetGloo().GetInvalidConfigPolicy()).NotTo(BeNil())
+		settings.GetGloo().GetInvalidConfigPolicy().ReplaceInvalidRoutes = replaceInvalidRoutes
+	}, ctx, installNamespace)
+}
+
+func UpdateSettings(updateSettings func(settings *v1.Settings), ctx context.Context, installNamespace string) {
+	// when validation config changes, the validation server restarts -- give time for it to come up again.
+	// without the wait, the validation webhook may temporarily fallback to it's failurePolicy, which is not
+	// what we want to test.
+	// TODO (samheilbron) We should avoid relying on time.Sleep in our tests as these tend to cause flakes
+	waitForSettingsToPropagate := func() {
+		time.Sleep(3 * time.Second)
+	}
+	UpdateSettingsWithPropagationDelay(updateSettings, waitForSettingsToPropagate, ctx, installNamespace)
+}
+
+func UpdateSettingsWithPropagationDelay(updateSettings func(settings *v1.Settings), waitForSettingsToPropagate func(), ctx context.Context, installNamespace string) {
 	settingsClient := clienthelpers.MustSettingsClient(ctx)
 	settings, err := settingsClient.Read(installNamespace, "default", clients.ReadOpts{})
 	Expect(err).NotTo(HaveOccurred())
 
-	f(settings)
+	updateSettings(settings)
 
 	_, err = settingsClient.Write(settings, clients.WriteOpts{OverwriteExisting: true})
 	Expect(err).NotTo(HaveOccurred())
 
-	// when validation config changes, the validation server restarts -- give time for it to come up again.
-	// without the wait, the validation webhook may temporarily fallback to it's failurePolicy, which is not
-	// what we want to test.
-	time.Sleep(3 * time.Second)
+	waitForSettingsToPropagate()
 }

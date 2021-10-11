@@ -5,6 +5,9 @@ import (
 	"io"
 	"os"
 
+	"github.com/solo-io/solo-kit/pkg/api/v1/resources"
+	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
+
 	"github.com/olekukonko/tablewriter"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	"github.com/solo-io/go-utils/cliutils"
@@ -27,8 +30,8 @@ func UpstreamGroupTable(upstreamGroups []*v1.UpstreamGroup, w io.Writer) {
 	table.SetHeader([]string{"Upstream Group", "status", "total weight", "details"})
 
 	for i, ug := range upstreamGroups {
-		name := ug.GetMetadata().Name
-		status := ug.GetStatus().GetState().String()
+		name := ug.GetMetadata().GetName()
+		status := getAggregateUpstreamGroupStatus(ug)
 
 		weight := fmt.Sprint(totalWeight(ug))
 		details := upstreamGroupDetails(ug)
@@ -53,10 +56,16 @@ func UpstreamGroupTable(upstreamGroups []*v1.UpstreamGroup, w io.Writer) {
 	table.Render()
 }
 
+func getAggregateUpstreamGroupStatus(res resources.InputResource) string {
+	return AggregateNamespacedStatuses(res.GetNamespacedStatuses(), func(status *core.Status) string {
+		return status.GetState().String()
+	})
+}
+
 func totalWeight(ug *v1.UpstreamGroup) uint32 {
 	weight := uint32(0)
-	for _, us := range ug.Destinations {
-		weight += us.Weight
+	for _, us := range ug.GetDestinations() {
+		weight += us.GetWeight()
 	}
 	return weight
 }
@@ -67,33 +76,33 @@ func upstreamGroupDetails(ug *v1.UpstreamGroup) []string {
 		details = append(details, s...)
 	}
 	totalWeight := totalWeight(ug)
-	for i, us := range ug.Destinations {
+	for i, us := range ug.GetDestinations() {
 		if i != 0 {
 			add(fmt.Sprintf("\n"))
 		}
-		switch dest := us.Destination.DestinationType.(type) {
+		switch dest := us.GetDestination().GetDestinationType().(type) {
 		case *v1.Destination_Upstream:
 			add(fmt.Sprintf("destination type: %v", "Upstream"))
-			add(fmt.Sprintf("namespace: %v", dest.Upstream.Namespace))
-			add(fmt.Sprintf("name: %v", dest.Upstream.Name))
+			add(fmt.Sprintf("namespace: %v", dest.Upstream.GetNamespace()))
+			add(fmt.Sprintf("name: %v", dest.Upstream.GetName()))
 		case *v1.Destination_Kube:
 			add(fmt.Sprintf("destination type: %v", "Kube"))
-			add(fmt.Sprintf("namespace: %v", dest.Kube.Ref.Namespace))
-			add(fmt.Sprintf("name: %v", dest.Kube.Ref.Name))
+			add(fmt.Sprintf("namespace: %v", dest.Kube.GetRef().GetNamespace()))
+			add(fmt.Sprintf("name: %v", dest.Kube.GetRef().GetName()))
 		case *v1.Destination_Consul:
 			add(fmt.Sprintf("destination type: %v", "Consul"))
-			add(fmt.Sprintf("service name: %v", dest.Consul.ServiceName))
-			add(fmt.Sprintf("data centers: %v", dest.Consul.DataCenters))
-			add(fmt.Sprintf("tags: %v", dest.Consul.Tags))
+			add(fmt.Sprintf("service name: %v", dest.Consul.GetServiceName()))
+			add(fmt.Sprintf("data centers: %v", dest.Consul.GetDataCenters()))
+			add(fmt.Sprintf("tags: %v", dest.Consul.GetTags()))
 		default:
 			add(fmt.Sprintf("destination type: %v", "Unknown"))
 		}
 
-		if us.Destination.Subset != nil {
-			add(fmt.Sprintf("subset: %v", us.Destination.Subset.Values))
+		if us.GetDestination().GetSubset() != nil {
+			add(fmt.Sprintf("subset: %v", us.GetDestination().GetSubset().GetValues()))
 		}
 
-		add(fmt.Sprintf("weight: %v   %% total: %.2f", us.Weight, float32(us.Weight)/float32(totalWeight)))
+		add(fmt.Sprintf("weight: %v   %% total: %.2f", us.GetWeight(), float32(us.GetWeight())/float32(totalWeight)))
 	}
 	return details
 }

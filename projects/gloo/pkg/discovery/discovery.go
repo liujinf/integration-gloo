@@ -59,15 +59,17 @@ type EndpointDiscovery struct {
 	lock           sync.Mutex
 }
 
-func NewEndpointDiscovery(watchNamespaces []string,
+func NewEndpointDiscovery(
+	watchNamespaces []string,
 	writeNamespace string,
 	endpointsClient v1.EndpointClient,
+	statusSetter resources.StatusSetter,
 	discoveryPlugins []DiscoveryPlugin) *EndpointDiscovery {
 
 	return &EndpointDiscovery{
 		watchNamespaces:    watchNamespaces,
 		writeNamespace:     writeNamespace,
-		endpointReconciler: v1.NewEndpointReconciler(endpointsClient),
+		endpointReconciler: v1.NewEndpointReconciler(endpointsClient, statusSetter),
 		discoveryPlugins:   discoveryPlugins,
 		ready:              make(chan struct{}),
 		endpointsByEds:     make(map[DiscoveryPlugin]v1.EndpointList),
@@ -75,13 +77,16 @@ func NewEndpointDiscovery(watchNamespaces []string,
 	}
 }
 
-func NewUpstreamDiscovery(watchNamespaces []string, writeNamespace string,
+func NewUpstreamDiscovery(
+	watchNamespaces []string,
+	writeNamespace string,
 	upstreamClient v1.UpstreamClient,
+	statusSetter resources.StatusSetter,
 	discoveryPlugins []DiscoveryPlugin) *UpstreamDiscovery {
 	return &UpstreamDiscovery{
 		watchNamespaces:        watchNamespaces,
 		writeNamespace:         writeNamespace,
-		upstreamReconciler:     v1.NewUpstreamReconciler(upstreamClient),
+		upstreamReconciler:     v1.NewUpstreamReconciler(upstreamClient, statusSetter),
 		discoveryPlugins:       discoveryPlugins,
 		latestDesiredUpstreams: make(map[DiscoveryPlugin]v1.UpstreamList),
 	}
@@ -155,10 +160,10 @@ func setLabels(udsName string, upstreamList v1.UpstreamList) v1.UpstreamList {
 	clone := upstreamList.Clone()
 	for _, us := range clone {
 		resources.UpdateMetadata(us, func(meta *core.Metadata) {
-			if meta.Labels == nil {
+			if meta.GetLabels() == nil {
 				meta.Labels = make(map[string]string)
 			}
-			meta.Labels["discovered_by"] = udsName
+			meta.GetLabels()["discovered_by"] = udsName
 		})
 	}
 	return clone
@@ -234,15 +239,15 @@ func aggregateEndpoints(endpointsByUds map[DiscoveryPlugin]v1.EndpointList) v1.E
 		endpoints = append(endpoints, endpointList...)
 	}
 	sort.SliceStable(endpoints, func(i, j int) bool {
-		return endpoints[i].Metadata.Less(endpoints[j].Metadata)
+		return endpoints[i].GetMetadata().Less(endpoints[j].GetMetadata())
 	})
 	return endpoints
 }
 
 func txnEndpoint(original, desired *v1.Endpoint) (bool, error) {
-	equal := refsEqual(original.Upstreams, desired.Upstreams) &&
-		original.Address == desired.Address &&
-		original.Port == desired.Port
+	equal := refsEqual(original.GetUpstreams(), desired.GetUpstreams()) &&
+		original.GetAddress() == desired.GetAddress() &&
+		original.GetPort() == desired.GetPort()
 	return !equal, nil
 }
 

@@ -5,6 +5,7 @@ import (
 	envoygrpccredential "github.com/envoyproxy/go-control-plane/envoy/config/grpc_credential/v3"
 	envoyauth "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/ptypes/wrappers"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
@@ -165,10 +166,24 @@ var _ = Describe("Ssl", func() {
 			Entry("downstreamCfg", func() CertSource { return downstreamCfg }),
 		)
 
+		It("should disable tls session if disableStatelessTlsSessionResumption is true", func() {
+			downstreamCfg.DisableTlsSessionResumption = &wrappers.BoolValue{Value: true}
+			cfg, err := configTranslator.ResolveDownstreamSslConfig(secrets, downstreamCfg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cfg.GetDisableStatelessSessionResumption()).To(BeTrue())
+		})
+
 		It("should set require client cert for downstream config", func() {
 			cfg, err := configTranslator.ResolveDownstreamSslConfig(secrets, downstreamCfg)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cfg.RequireClientCertificate.GetValue()).To(BeTrue())
+		})
+
+		It("should set require client cert to false if oneWayTls enabled for downstream config", func() {
+			downstreamCfg.OneWayTls = &wrappers.BoolValue{Value: true}
+			cfg, err := configTranslator.ResolveDownstreamSslConfig(secrets, downstreamCfg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cfg.RequireClientCertificate.GetValue()).To(BeFalse())
 		})
 
 		It("should set alpn default for downstream config", func() {

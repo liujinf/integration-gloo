@@ -64,13 +64,13 @@ func (s *statusSyncer) Sync(ctx context.Context, snap *v1.StatusSnapshot) error 
 			return errors.Wrapf(err, "internal error: converting back to proto ingress from kube ingress")
 		}
 
-		if proto.Equal(updatedIngress.KubeIngressStatus, ing.KubeIngressStatus) {
+		if proto.Equal(updatedIngress.GetKubeIngressStatus(), ing.GetKubeIngressStatus()) {
 			continue
 		}
 		if _, err := s.ingressClient.Write(updatedIngress, clients.WriteOpts{Ctx: ctx, OverwriteExisting: true}); err != nil {
 			return errors.Wrapf(err, "writing updated status to kubernetes")
 		}
-		logger.Infof("updated ingress %v with status %v", ing.Metadata.Ref(), lbStatus)
+		logger.Infof("updated ingress %v with status %v", ing.GetMetadata().Ref(), lbStatus)
 	}
 
 	return nil
@@ -85,20 +85,33 @@ func getLbStatus(services v1.KubeServiceList) ([]kubev1.LoadBalancerIngress, err
 		if err != nil {
 			return nil, errors.Wrapf(err, "internal error: converting proto svc to kube service")
 		}
-		return ingressStatusFromAddrs(serviceAddrs(kubeSvc)), nil
+
+		kubeSvcRef := services[0].GetMetadata().Ref()
+		kubeSvcAddrs, err := serviceAddrs(kubeSvc, kubeSvcRef)
+		if err != nil {
+			return nil, errors.Wrapf(err, "internal err: extracting service addrs from kube service")
+		}
+
+		return ingressStatusFromAddrs(kubeSvcAddrs), nil
 	}
 	return nil, errors.Errorf("failed to get lb status: expected 1 ingress service, found %v", func() []*core.ResourceRef {
 		var refs []*core.ResourceRef
 		for _, svc := range services {
-			refs = append(refs, svc.Metadata.Ref())
+			refs = append(refs, svc.GetMetadata().Ref())
 		}
 		return refs
 	}())
 }
 
-func serviceAddrs(svc *kubev1.Service) []string {
+func serviceAddrs(svc *kubev1.Service, kubeSvcRef *core.ResourceRef) ([]string, error) {
 	if svc.Spec.Type == kubev1.ServiceTypeExternalName {
-		return []string{svc.Spec.ExternalName}
+
+		// Remove the possibility of using localhost in ExternalNames as endpoints
+		svcIp := net.ParseIP(svc.Spec.ExternalName)
+		if svc.Spec.ExternalName == "localhost" || (svcIp != nil && svcIp.IsLoopback()) {
+			return nil, errors.Errorf("Invalid attempt to use localhost name %s, in %v", svc.Spec.ExternalName, kubeSvcRef)
+		}
+		return []string{svc.Spec.ExternalName}, nil
 	}
 	var addrs []string
 
@@ -111,7 +124,7 @@ func serviceAddrs(svc *kubev1.Service) []string {
 	}
 	addrs = append(addrs, svc.Spec.ExternalIPs...)
 
-	return addrs
+	return addrs, nil
 }
 
 func ingressStatusFromAddrs(addrs []string) []kubev1.LoadBalancerIngress {

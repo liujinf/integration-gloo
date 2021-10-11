@@ -34,6 +34,7 @@ import (
 )
 
 var (
+	clientset         *kubernetes.Clientset
 	fakeKubeClientset *fake.Clientset
 	memResourceClient *factory.MemoryResourceClientFactory
 	consulClient      *factory.ConsulResourceClientFactory
@@ -123,11 +124,19 @@ func KubeClient() (kubernetes.Interface, error) {
 	if fakeKubeClientset != nil {
 		return fakeKubeClientset, nil
 	}
-	cfg, err := kubeutils.GetConfig("", os.Getenv("KUBECONFIG"))
-	if err != nil {
-		return nil, errors.Wrapf(err, "getting kube config")
+	if clientset == nil {
+		cfg, err := kubeutils.GetConfig("", os.Getenv("KUBECONFIG"))
+		if err != nil {
+			return nil, errors.Wrapf(err, "getting kube config")
+		}
+		client, err := kubernetes.NewForConfig(cfg)
+		if err != nil {
+			return nil, errors.Wrapf(err, "creating clientset")
+		}
+		clientset = client
 	}
-	return kubernetes.NewForConfig(cfg)
+
+	return clientset, nil
 }
 
 func MustGetNamespaces(ctx context.Context) []string {
@@ -556,6 +565,11 @@ func getKubernetesConfig(timeout time.Duration) (*rest.Config, error) {
 		return nil, fmt.Errorf("Error retrieving Kubernetes configuration: %v \n", err)
 	}
 	config.Timeout = timeout
+	// The burst & QPS values are set at a higher number to enable the triggering of up to this many
+	// requests so that the KubeCoreCache that is created does not throttle as it get resources for
+	// each watched namespace.
+	config.QPS = 50
+	config.Burst = 100
 	return config, nil
 }
 
@@ -655,4 +669,88 @@ func RateLimitConfigClient(ctx context.Context, namespaces []string) (v1alpha1.R
 		return nil, err
 	}
 	return rlConfigClient, nil
+}
+
+func MustVirtualHostOptionClient(ctx context.Context) gatewayv1.VirtualHostOptionClient {
+	return MustNamespacedVirtualHostOptionClient(ctx, metav1.NamespaceAll) // will require cluster-scoped permissions
+}
+
+func MustNamespacedVirtualHostOptionClient(ctx context.Context, ns string) gatewayv1.VirtualHostOptionClient {
+	return MustMultiNamespacedVirtualHostOptionClient(ctx, []string{ns})
+}
+
+func MustMultiNamespacedVirtualHostOptionClient(ctx context.Context, namespaces []string) gatewayv1.VirtualHostOptionClient {
+	client, err := VirtualHostOptionClient(ctx, namespaces)
+	if err != nil {
+		log.Fatalf("failed to create VirtualHostOption client: %v", err)
+	}
+	return client
+}
+
+func VirtualHostOptionClient(ctx context.Context, namespaces []string) (gatewayv1.VirtualHostOptionClient, error) {
+	customFactory := getConfigClientFactory()
+	if customFactory != nil {
+		return gatewayv1.NewVirtualHostOptionClient(ctx, customFactory)
+	}
+
+	cfg, err := kubeutils.GetConfig("", "")
+	if err != nil {
+		return nil, errors.Wrapf(err, "getting kube config")
+	}
+	cache := kube.NewKubeCache(context.TODO())
+	virtualHostOptClient, err := gatewayv1.NewVirtualHostOptionClient(ctx, &factory.KubeResourceClientFactory{
+		Crd:                gatewayv1.VirtualHostOptionCrd,
+		Cfg:                cfg,
+		SharedCache:        cache,
+		NamespaceWhitelist: namespaces,
+	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "creating VirtualHostOption client")
+	}
+	if err := virtualHostOptClient.Register(); err != nil {
+		return nil, err
+	}
+	return virtualHostOptClient, nil
+}
+
+func MustRouteOptionClient(ctx context.Context) gatewayv1.RouteOptionClient {
+	return MustNamespacedRouteOptionClient(ctx, metav1.NamespaceAll) // will require cluster-scoped permissions
+}
+
+func MustNamespacedRouteOptionClient(ctx context.Context, ns string) gatewayv1.RouteOptionClient {
+	return MustMultiNamespacedRouteOptionClient(ctx, []string{ns})
+}
+
+func MustMultiNamespacedRouteOptionClient(ctx context.Context, namespaces []string) gatewayv1.RouteOptionClient {
+	client, err := RouteOptionClient(ctx, namespaces)
+	if err != nil {
+		log.Fatalf("failed to create RouteOption client: %v", err)
+	}
+	return client
+}
+
+func RouteOptionClient(ctx context.Context, namespaces []string) (gatewayv1.RouteOptionClient, error) {
+	customFactory := getConfigClientFactory()
+	if customFactory != nil {
+		return gatewayv1.NewRouteOptionClient(ctx, customFactory)
+	}
+
+	cfg, err := kubeutils.GetConfig("", "")
+	if err != nil {
+		return nil, errors.Wrapf(err, "getting kube config")
+	}
+	cache := kube.NewKubeCache(context.TODO())
+	routeOptClient, err := gatewayv1.NewRouteOptionClient(ctx, &factory.KubeResourceClientFactory{
+		Crd:                gatewayv1.RouteOptionCrd,
+		Cfg:                cfg,
+		SharedCache:        cache,
+		NamespaceWhitelist: namespaces,
+	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "creating RouteOption client")
+	}
+	if err := routeOptClient.Register(); err != nil {
+		return nil, err
+	}
+	return routeOptClient, nil
 }

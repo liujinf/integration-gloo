@@ -7,12 +7,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/solo-io/gloo/pkg/utils/statusutils"
+	gloodefaults "github.com/solo-io/gloo/projects/gloo/pkg/defaults"
+
 	"github.com/solo-io/gloo/projects/gateway/pkg/reconciler"
 	"github.com/solo-io/solo-kit/pkg/utils/prototime"
 
 	"go.uber.org/zap"
 
-	"github.com/solo-io/gloo/projects/gateway/pkg/services/k8sadmisssion"
+	"github.com/solo-io/gloo/projects/gateway/pkg/services/k8sadmission"
 
 	"github.com/solo-io/gloo/projects/gateway/pkg/translator"
 	gatewayvalidation "github.com/solo-io/gloo/projects/gateway/pkg/validation"
@@ -23,7 +26,6 @@ import (
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/grpc/validation"
 	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	"github.com/solo-io/gloo/projects/gloo/pkg/bootstrap"
-	gloodefaults "github.com/solo-io/gloo/projects/gloo/pkg/defaults"
 	"github.com/solo-io/go-utils/contextutils"
 	"github.com/solo-io/go-utils/errutils"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
@@ -72,31 +74,43 @@ func Setup(ctx context.Context, kubeCache kube.SharedCache, inMemoryCache memory
 		return err
 	}
 
+	virtualHostOptionFactory, err := bootstrap.ConfigFactoryForSettings(params, v1.VirtualHostOptionCrd)
+	if err != nil {
+		return err
+	}
+
+	routeOptionFactory, err := bootstrap.ConfigFactoryForSettings(params, v1.RouteOptionCrd)
+	if err != nil {
+		return err
+	}
+
 	gatewayFactory, err := bootstrap.ConfigFactoryForSettings(params, v1.GatewayCrd)
 	if err != nil {
 		return err
 	}
 
-	refreshRate := prototime.DurationFromProto(settings.RefreshRate)
+	refreshRate := prototime.DurationFromProto(settings.GetRefreshRate())
 
-	writeNamespace := settings.DiscoveryNamespace
+	writeNamespace := settings.GetDiscoveryNamespace()
 	if writeNamespace == "" {
 		writeNamespace = gloodefaults.GlooSystem
 	}
-	watchNamespaces := utils.ProcessWatchNamespaces(settings.WatchNamespaces, writeNamespace)
+
+	statusReporterNamespace := statusutils.GetStatusReporterNamespaceOrDefault(writeNamespace)
+	watchNamespaces := utils.ProcessWatchNamespaces(settings.GetWatchNamespaces(), writeNamespace)
 
 	var validation *translator.ValidationOpts
 	validationCfg := settings.GetGateway().GetValidation()
 	if validationCfg != nil {
 		alwaysAcceptResources := AcceptAllResourcesByDefault
 
-		if alwaysAccept := validationCfg.AlwaysAccept; alwaysAccept != nil {
+		if alwaysAccept := validationCfg.GetAlwaysAccept(); alwaysAccept != nil {
 			alwaysAcceptResources = alwaysAccept.GetValue()
 		}
 
 		allowWarnings := AllowWarnings
 
-		if allowWarning := validationCfg.AllowWarnings; allowWarning != nil {
+		if allowWarning := validationCfg.GetAllowWarnings(); allowWarning != nil {
 			allowWarnings = allowWarning.GetValue()
 		}
 
@@ -130,13 +144,16 @@ func Setup(ctx context.Context, kubeCache kube.SharedCache, inMemoryCache memory
 	}
 
 	opts := translator.Opts{
-		GlooNamespace:   settings.Metadata.Namespace,
-		WriteNamespace:  writeNamespace,
-		WatchNamespaces: watchNamespaces,
-		Gateways:        gatewayFactory,
-		VirtualServices: virtualServiceFactory,
-		RouteTables:     routeTableFactory,
-		Proxies:         proxyFactory,
+		GlooNamespace:           settings.GetMetadata().GetNamespace(),
+		WriteNamespace:          writeNamespace,
+		StatusReporterNamespace: statusReporterNamespace,
+		WatchNamespaces:         watchNamespaces,
+		Gateways:                gatewayFactory,
+		VirtualServices:         virtualServiceFactory,
+		RouteTables:             routeTableFactory,
+		Proxies:                 proxyFactory,
+		VirtualHostOptions:      virtualHostOptionFactory,
+		RouteOptions:            routeOptionFactory,
 		WatchOpts: clients.WatchOpts{
 			Ctx:         ctx,
 			RefreshRate: refreshRate,
@@ -187,14 +204,39 @@ func RunGateway(opts translator.Opts) error {
 		return err
 	}
 
-	rpt := reporter.NewReporter("gateway", gatewayClient.BaseClient(), virtualServiceClient.BaseClient(), routeTableClient.BaseClient())
+	virtualHostOptionClient, err := v1.NewVirtualHostOptionClient(ctx, opts.VirtualHostOptions)
+	if err != nil {
+		return err
+	}
+	if err := virtualHostOptionClient.Register(); err != nil {
+		return err
+	}
+
+	routeOptionClient, err := v1.NewRouteOptionClient(ctx, opts.RouteOptions)
+	if err != nil {
+		return err
+	}
+	if err := routeOptionClient.Register(); err != nil {
+		return err
+	}
+
+	statusClient := statusutils.GetStatusClientForNamespace(opts.StatusReporterNamespace)
+
+	rpt := reporter.NewReporter("gateway",
+		statusClient,
+		gatewayClient.BaseClient(),
+		virtualServiceClient.BaseClient(),
+		routeTableClient.BaseClient(),
+		virtualHostOptionClient.BaseClient(),
+		routeOptionClient.BaseClient(),
+	)
 	writeErrs := make(chan error)
 
 	txlator := translator.NewDefaultTranslator(opts)
 
 	var (
 		// this constructor should be called within a lock
-		validationClient             validation.ProxyValidationServiceClient
+		validationClient             validation.GlooValidationServiceClient
 		ignoreProxyValidationFailure bool
 		allowWarnings                bool
 	)
@@ -221,7 +263,7 @@ func RunGateway(opts translator.Opts) error {
 		allowWarnings = opts.Validation.AllowWarnings
 	}
 
-	emitter := v1.NewApiEmitterWithEmit(virtualServiceClient, routeTableClient, gatewayClient, notifications)
+	emitter := v1.NewApiEmitterWithEmit(virtualServiceClient, routeTableClient, gatewayClient, virtualHostOptionClient, routeOptionClient, notifications)
 
 	validationSyncer := gatewayvalidation.NewValidator(gatewayvalidation.NewValidatorConfig(
 		txlator,
@@ -231,7 +273,7 @@ func RunGateway(opts translator.Opts) error {
 		allowWarnings,
 	))
 
-	proxyReconciler := reconciler.NewProxyReconciler(validationClient, proxyClient)
+	proxyReconciler := reconciler.NewProxyReconciler(validationClient, proxyClient, statusClient)
 
 	translatorSyncer := NewTranslatorSyncer(
 		ctx,
@@ -239,7 +281,8 @@ func RunGateway(opts translator.Opts) error {
 		proxyClient,
 		proxyReconciler,
 		rpt,
-		txlator)
+		txlator,
+		statusClient)
 
 	gatewaySyncers := v1.ApiSyncers{
 		translatorSyncer,
@@ -286,8 +329,8 @@ func RunGateway(opts translator.Opts) error {
 			}
 		}
 
-		validationWebhook, err := k8sadmisssion.NewGatewayValidatingWebhook(
-			k8sadmisssion.NewWebhookConfig(
+		validationWebhook, err := k8sadmission.NewGatewayValidatingWebhook(
+			k8sadmission.NewWebhookConfig(
 				ctx,
 				validationSyncer,
 				opts.WatchNamespaces,

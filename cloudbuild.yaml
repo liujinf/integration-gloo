@@ -5,7 +5,7 @@ steps:
 
 # $COMMIT_SHA is a default gcloud env var, to run via cloudbuild submit use:
 # gcloud builds submit --substitutions COMMIT_SHA=<commit sha>,REPO_NAME=solo-io/gloo,_PR_NUM=<<insert PR Number here>> --project solo-public
-- name: 'gcr.io/$PROJECT_ID/prepare-go-workspace:0.3.0'
+- name: 'gcr.io/$PROJECT_ID/prepare-go-workspace:0.4.15'
   args:
     - "--repo-name"
     - "$REPO_NAME"
@@ -35,7 +35,7 @@ steps:
 # Run all the tests with ginkgo -r -failFast -trace -progress --noColor
 # This requires setting up envoy, AWS, helm, and docker
 # The e2e-go-mod-ginkgo container provides everything else needed for running tests
-- name: 'gcr.io/$PROJECT_ID/go-mod-make:0.4.4'
+- name: 'gcr.io/$PROJECT_ID/go-mod-make:0.4.15'
   entrypoint: 'bash'
   args:
   - '-c'
@@ -47,7 +47,7 @@ steps:
   waitFor: ['prepare-workspace']
   id: 'get-envoy'
 
-- name: 'gcr.io/$PROJECT_ID/go-mod-make:0.4.4'
+- name: 'gcr.io/$PROJECT_ID/go-mod-make:0.4.15'
   entrypoint: 'bash'
   args: ['-c', 'make proxycontroller']
   dir: '/workspace/gloo/example/proxycontroller'
@@ -68,7 +68,7 @@ steps:
 
 # Docker related setup
 # grab this container immediately in parallel
-- name: 'gcr.io/$PROJECT_ID/e2e-go-mod-ginkgo:0.2.1'
+- name: 'gcr.io/$PROJECT_ID/e2e-go-mod-ginkgo:0.4.15'
   entrypoint: ls
   waitFor: ['-']
   id: 'grab-ginkgo-container'
@@ -82,7 +82,13 @@ steps:
   waitFor: ['set-gcr-zone']
   id: 'get-test-credentials'
 
-- name: 'gcr.io/$PROJECT_ID/e2e-go-mod-ginkgo:0.2.1'
+- name: 'gcr.io/$PROJECT_ID/go-mod-make:0.4.15'
+  args: ['install-go-tools']
+  dir: *dir
+  id: 'install-go-tools'
+
+- name: 'gcr.io/$PROJECT_ID/e2e-go-mod-ginkgo:0.4.15'
+  entrypoint: make
   env:
   - 'ENVOY_BINARY=/workspace/envoy'
   - 'AWS_SHARED_CREDENTIALS_FILE=/workspace/aws_credentials'
@@ -90,13 +96,14 @@ steps:
   - 'RUN_CONSUL_TESTS=1'
   - 'RUN_VAULT_TESTS=1'
   - 'DOCKER_CONFIG=/workspace/.docker/'
+  - 'TAGGED_VERSION=$TAG_NAME'
   dir: *dir
-  args: ['-r', '-failFast', '-trace', '-progress', '-race', '-compilers=4', '-failOnPending', '-noColor']
-  waitFor: ['get-envoy', 'setup-aws-creds', 'set-gcr-zone', 'get-test-credentials']
+  args: ['run-tests']
+  waitFor: ['get-envoy', 'setup-aws-creds', 'set-gcr-zone', 'get-test-credentials', 'install-go-tools']
   secretEnv: ['AWS_ARN_ROLE_1', "AWS_ROLE_ARN_STS", "JWT_PRIVATE_KEY"]
   id: 'test'
 
-# Build and tag docker images
+# Log into quay.io
 - name: 'gcr.io/cloud-builders/docker'
   entrypoint: 'bash'
   env:
@@ -106,8 +113,8 @@ steps:
   waitFor: ['prepare-workspace']
   id: 'docker-login'
 
-  # 1) Run make targets to push docker images
-- name: 'gcr.io/$PROJECT_ID/go-mod-make:0.4.4'
+  # 1) Run make targets to push docker images to quay.io
+- name: 'gcr.io/$PROJECT_ID/go-mod-make:0.4.15'
   args: ['docker-push-extended']
   env:
   - 'DOCKER_CONFIG=/workspace/docker-config'
@@ -128,7 +135,7 @@ steps:
   waitFor: ['docker-push-extended']
   id: 'gcr-auth'
 
-- name: 'gcr.io/$PROJECT_ID/go-mod-make:0.4.2'
+- name: 'gcr.io/$PROJECT_ID/go-mod-make:0.4.15'
   args: ['fetch-package-and-save-helm', 'render-manifests', 'upload-github-release-assets', 'push-chart-to-registry', '-B']
   env:
     - 'DOCKER_CONFIG=/workspace/docker-config'
@@ -140,6 +147,20 @@ steps:
   secretEnv: ['GITHUB_TOKEN']
   waitFor: ['gcr-auth', 'test']
   id: 'release-chart'
+
+# Run make targets to retag and push docker images to GCR
+- name: 'gcr.io/$PROJECT_ID/go-mod-make:0.4.15'
+  args: ['docker-push-retag']
+  env:
+  - 'DOCKER_CONFIG=/workspace/docker-config'
+  - 'TAGGED_VERSION=$TAG_NAME'
+  - 'TEST_ASSET_ID=$_PR_NUM'
+  - 'IMAGE_REPO=gcr.io/gloo-edge'
+  - 'RETAG_IMAGE_REGISTRY=quay.io/solo-io'
+  dir: *dir
+  secretEnv: ['GITHUB_TOKEN']
+  waitFor: ['gcr-auth', 'set-gcr-zone', 'docker-push-extended']
+  id: 'docker-push-extended-gcr'
 
 secrets:
 - kmsKeyName: projects/solo-public/locations/global/keyRings/build/cryptoKeys/build-key

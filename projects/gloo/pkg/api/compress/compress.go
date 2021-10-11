@@ -29,7 +29,7 @@ func isCompressed(in v1.Spec) bool {
 }
 
 func shouldCompress(in resources.Resource) bool {
-	annotations := in.GetMetadata().Annotations
+	annotations := in.GetMetadata().GetAnnotations()
 	if annotations == nil {
 		return false
 	}
@@ -42,7 +42,7 @@ func SetShouldCompressed(in resources.Resource) {
 	if in.GetMetadata() != nil {
 		metadata = in.GetMetadata()
 	}
-	annotations := metadata.Annotations
+	annotations := metadata.GetAnnotations()
 	if annotations == nil {
 		annotations = make(map[string]string)
 	}
@@ -95,8 +95,14 @@ func uncompressSpec(s v1.Spec) (v1.Spec, error) {
 
 	var b bytes.Buffer
 	r, err := zlib.NewReader(bytes.NewBuffer(compressedData))
-	io.Copy(&b, r)
-	r.Close()
+	if err != nil {
+		return nil, eris.Wrap(err, "error creating buffer")
+	}
+	defer r.Close()
+	_, err = io.Copy(&b, r)
+	if err != nil {
+		return nil, eris.Wrap(err, "error copying buffer")
+	}
 
 	err = json.Unmarshal(b.Bytes(), &spec)
 	if err != nil {
@@ -110,13 +116,13 @@ func UnmarshalSpec(in resources.Resource, spec v1.Spec) error {
 		var err error
 		spec, err = uncompressSpec(spec)
 		if err != nil {
-			return eris.Wrapf(err, "reading unmarshalling spec on resource %v in namespace %v into %T", in.GetMetadata().Name, in.GetMetadata().Namespace, in)
+			return eris.Wrapf(err, "reading unmarshalling spec on resource %v in namespace %v into %T", in.GetMetadata().GetName(), in.GetMetadata().GetNamespace(), in)
 		}
 		// if we have a compressed spec, make sure the resource is marked for compression
 		SetShouldCompressed(in)
 	}
 	if err := protoutils.UnmarshalMap(spec, in); err != nil {
-		return eris.Wrapf(err, "reading crd spec on resource %v in namespace %v into %T", in.GetMetadata().Name, in.GetMetadata().Namespace, in)
+		return eris.Wrapf(err, "reading crd spec on resource %v in namespace %v into %T", in.GetMetadata().GetName(), in.GetMetadata().GetNamespace(), in)
 	}
 	return nil
 }
@@ -129,36 +135,31 @@ func MarshalSpec(in resources.Resource) (v1.Spec, error) {
 	}
 
 	delete(data, "metadata")
-	delete(data, "status")
+	delete(data, "namespacedStatuses")
 	// save this as usual:
 	var spec v1.Spec
 	spec = data
 	if shouldCompress(in) {
 		spec, err = compressSpec(spec)
 		if err != nil {
-			return nil, eris.Wrapf(err, "reading marshalling spec on resource %v in namespace %v into %T", in.GetMetadata().Name, in.GetMetadata().Namespace, in)
+			return nil, eris.Wrapf(err, "reading marshalling spec on resource %v in namespace %v into %T", in.GetMetadata().GetName(), in.GetMetadata().GetNamespace(), in)
 		}
 	}
 	return spec, nil
 }
 
-func UnmarshalStatus(in resources.InputResource, status v1.Status) error {
-	typedStatus := core.Status{}
-	if err := protoutils.UnmarshalMapToProto(status, &typedStatus); err != nil {
-		return err
-	}
-	in.SetStatus(&typedStatus)
-	return nil
+func UnmarshalStatus(in resources.InputResource, status v1.Status, unmarshaler resources.StatusUnmarshaler) error {
+	return unmarshaler.UnmarshalStatus(status, in)
 }
 
 func MarshalStatus(in resources.InputResource) (v1.Status, error) {
-	statusProto := in.GetStatus()
-	if statusProto == nil {
+	namespacedStatuses := in.GetNamespacedStatuses()
+	if namespacedStatuses == nil {
 		return v1.Status{}, nil
 	}
-	statusMap, err := protoutils.MarshalMapFromProtoWithEnumsAsInts(statusProto)
+	namespacedStatusMap, err := protoutils.MarshalMapFromProtoWithEnumsAsInts(namespacedStatuses)
 	if err != nil {
 		return nil, crd.MarshalErr(err, "resource status to map")
 	}
-	return statusMap, nil
+	return namespacedStatusMap, nil
 }

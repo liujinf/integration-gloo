@@ -6,6 +6,9 @@ import (
 	"io/ioutil"
 	"regexp"
 
+	"github.com/solo-io/gloo/test/helpers"
+	"github.com/solo-io/solo-kit/pkg/api/v1/resources"
+
 	"github.com/solo-io/gloo/test/kube2e"
 
 	kubeutils "github.com/solo-io/k8s-utils/testutils/kube"
@@ -14,7 +17,6 @@ import (
 	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/factory"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/kube"
-	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 	"k8s.io/client-go/rest"
 
 	. "github.com/onsi/ginkgo"
@@ -76,8 +78,9 @@ var _ = Describe("endpoint discovery (EDS) works", func() {
 		checkClusterEndpoints = func() {
 			Eventually(func() bool {
 				if upstreamChangesPickedUp() {
+					numEndpoints := findPetstoreClusterEndpoints()
 					By("check that endpoints were discovered")
-					Expect(findPetstoreClusterEndpoints()).Should(BeNumerically(">", 0), "petstore endpoints should exist")
+					Expect(numEndpoints).Should(BeNumerically(">", 0), "petstore endpoints should exist")
 					fmt.Println("Endpoints exist for cluster!")
 					return true
 				}
@@ -108,11 +111,9 @@ var _ = Describe("endpoint discovery (EDS) works", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		// Wait for Virtual Service to be accepted
-		Eventually(func() bool {
-			vs, err := virtualServiceClient.Read(defaults.GlooSystem, "default", clients.ReadOpts{})
-			Expect(err).NotTo(HaveOccurred())
-			return vs.Status.GetState() == core.Status_Accepted
-		}, "15s", "0.5s").Should(BeTrue())
+		helpers.EventuallyResourceAccepted(func() (resources.InputResource, error) {
+			return virtualServiceClient.Read(defaults.GlooSystem, "default", clients.ReadOpts{})
+		})
 
 		// Find gateway-proxy pod name
 		gatewayProxyPodName = kubeutils.FindPodNameByLabel(cfg, ctx, defaults.GlooSystem, "gloo=gateway-proxy")
@@ -150,6 +151,7 @@ var _ = Describe("endpoint discovery (EDS) works", func() {
 		}, "3m", "5s").Should(BeNil()) // 3 min to be safe, usually repros in ~40s when running locally without REST EDS
 	}
 
+	// note: this test fails for xds relay; xds relay does not currently support rest
 	Context("rest EDS", func() {
 
 		BeforeEach(func() {
@@ -165,18 +167,9 @@ var _ = Describe("endpoint discovery (EDS) works", func() {
 			kube2e.UpdateRestEdsSetting(ctx, false, defaults.GlooSystem)
 		})
 
-		// we expect this test to have failures due to upstream envoy bug https://github.com/solo-io/gloo/issues/4151
-		// if this test starts failing.. then upstream fixed the bug! hooray
-		//
-		// we should switch back to gRPC over REST EDS as a default when this happens
 		It("can modify upstreams repeatedly, and endpoints don't lag via EDS", func() {
-			failures := InterceptGomegaFailures(func() {
-				endpointsDontLagTest()
-			})
-			Expect(failures).ToNot(BeEmpty())
-			for _, f := range failures {
-				Expect(f).To(ContainSubstring("petstore endpoints should exist"))
-			}
+			failures := InterceptGomegaFailures(endpointsDontLagTest)
+			Expect(failures).To(BeEmpty())
 		})
 	})
 

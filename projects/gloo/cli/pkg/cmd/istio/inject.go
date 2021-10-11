@@ -69,12 +69,14 @@ func Inject(opts *options.Options, optionsFunc ...cliutils.OptionsFunc) *cobra.C
 	pflags := cmd.PersistentFlags()
 	cliutils.ApplyOptions(cmd, optionsFunc)
 	addIstioNamespaceFlag(pflags, &opts.Istio.Namespace)
+	addIstioMetaMeshIdFlag(pflags, &opts.Istio.IstioMetaMeshId)
+	addIstioMetaClusterIdFlag(pflags, &opts.Istio.IstioMetaClusterId)
 	return cmd
 }
 
 // Add SDS & istio-proxy sidecars
 func istioInject(args []string, opts *options.Options) error {
-	glooNS := opts.Metadata.Namespace
+	glooNS := opts.Metadata.GetNamespace()
 	istioNS := opts.Istio.Namespace
 	istioMetaMeshID := getIstioMetaMeshID(opts.Istio.IstioMetaMeshId)
 	istioMetaClusterID := getIstioMetaClusterID(opts.Istio.IstioMetaClusterId)
@@ -100,6 +102,9 @@ func istioInject(args []string, opts *options.Options) error {
 	// To get around this, we write the gateway_proxy_sds cluster into the configmap that
 	// gateway-proxy loads at bootstrap time.
 	configMaps, err := client.CoreV1().ConfigMaps(glooNS).List(opts.Top.Ctx, metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
 	for _, configMap := range configMaps.Items {
 		if configMap.Name == gatewayProxyConfigMap {
 			// Make sure we don't already have the gateway_proxy_sds cluster set up
@@ -151,6 +156,7 @@ func istioInject(args []string, opts *options.Options) error {
 				return err
 			}
 
+			fmt.Println("Istio injection was successful!")
 		}
 	}
 
@@ -271,11 +277,11 @@ func addSdsCluster(configMap *corev1.ConfigMap) error {
 		return err
 	}
 
-	clusters := bootstrapConfig.StaticResources.Clusters
+	clusters := bootstrapConfig.GetStaticResources().GetClusters()
 
 	gatewayProxySds := genGatewayProxyCluster()
 
-	bootstrapConfig.StaticResources.Clusters = append(clusters, gatewayProxySds)
+	bootstrapConfig.GetStaticResources().Clusters = append(clusters, gatewayProxySds)
 
 	// Marshall bootstrapConfig into JSON
 	var bootStrapJSON bytes.Buffer
@@ -333,4 +339,12 @@ func genGatewayProxyCluster() *envoy_config_cluster.Cluster {
 
 func addIstioNamespaceFlag(set *pflag.FlagSet, strptr *string) {
 	set.StringVar(strptr, "istio-namespace", istioDefaultNS, "namespace in which istio is installed")
+}
+
+func addIstioMetaMeshIdFlag(set *pflag.FlagSet, strptr *string) {
+	set.StringVar(strptr, "istio-meta-mesh-id", "", "sets ISTIO_META_MESH_ID env var")
+}
+
+func addIstioMetaClusterIdFlag(set *pflag.FlagSet, strptr *string) {
+	set.StringVar(strptr, "istio-meta-cluster-id", "", "sets ISTIO_META_CLUSTER_ID env var")
 }

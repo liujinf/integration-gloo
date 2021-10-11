@@ -1,12 +1,15 @@
 package reconciler_test
 
 import (
+	"context"
+
 	"github.com/golang/mock/gomock"
 	"github.com/golang/protobuf/proto"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/format"
 	"github.com/onsi/gomega/types"
+	"github.com/solo-io/gloo/pkg/utils/statusutils"
 	v1 "github.com/solo-io/gloo/projects/gateway/pkg/api/v1"
 	. "github.com/solo-io/gloo/projects/gateway/pkg/reconciler"
 	"github.com/solo-io/gloo/projects/gateway/pkg/translator"
@@ -22,13 +25,22 @@ import (
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 	"github.com/solo-io/solo-kit/pkg/api/v2/reporter"
 
-	"context"
-
 	errors "github.com/rotisserie/eris"
 	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 )
 
 var _ = Describe("ReconcileGatewayProxies", func() {
+
+	// DEVELOPER NOTE: Listeners and VirtualHosts are sorted by name.
+	// Therefore, there are test cases that compare
+	//	Gateway[0] -> Listener[1]
+	//	or
+	//	VirtualService[1] -> VirtualHost[0]
+	//
+	// This is because ordering of the Gateway and VirtualServices
+	// are defined by the user.
+	// But the ordering of the Listener and VirtualHosts are
+	// defined by the name of those resources.
 
 	var (
 		ctx = context.TODO()
@@ -44,7 +56,8 @@ var _ = Describe("ReconcileGatewayProxies", func() {
 			Cache: memory.NewInMemoryResourceCache(),
 		})
 
-		proxyValidationClient *mock_validation.MockProxyValidationServiceClient
+		validationClient *mock_validation.MockGlooValidationServiceClient
+		statusClient     resources.StatusClient
 
 		reconciler ProxyReconciler
 	)
@@ -58,15 +71,20 @@ var _ = Describe("ReconcileGatewayProxies", func() {
 
 	BeforeEach(func() {
 		mockCtrl := gomock.NewController(GinkgoT())
-		proxyValidationClient = mock_validation.NewMockProxyValidationServiceClient(mockCtrl)
-		proxyValidationClient.EXPECT().ValidateProxy(ctx, gomock.Any()).DoAndReturn(
-			func(_ context.Context, req *validation.ProxyValidationServiceRequest) (*validation.ProxyValidationServiceResponse, error) {
-				return &validation.ProxyValidationServiceResponse{
-					ProxyReport: validationutils.MakeReport(req.Proxy),
+		validationClient = mock_validation.NewMockGlooValidationServiceClient(mockCtrl)
+		validationClient.EXPECT().Validate(ctx, gomock.Any()).DoAndReturn(
+			func(_ context.Context, req *validation.GlooValidationServiceRequest) (*validation.GlooValidationServiceResponse, error) {
+				return &validation.GlooValidationServiceResponse{
+					ValidationReports: []*validation.ValidationReport{
+						{
+							ProxyReport: validationutils.MakeReport(req.Proxy),
+						},
+					},
 				}, nil
 			}).AnyTimes()
 
-		reconciler = NewProxyReconciler(proxyValidationClient, proxyClient)
+		statusClient = statusutils.GetStatusClientFromEnvOrDefault(ns)
+		reconciler = NewProxyReconciler(validationClient, proxyClient, statusClient)
 
 		snap = samples.SimpleGatewaySnapshot(us, ns)
 
@@ -141,7 +159,8 @@ var _ = Describe("ReconcileGatewayProxies", func() {
 				// simulate gloo accepting the proxy resource
 				liveProxy, err := proxyClient.Read(proxy.Metadata.Namespace, proxy.Metadata.Name, clients.ReadOpts{})
 				Expect(err).NotTo(HaveOccurred())
-				liveProxy.Status.State = core.Status_Accepted
+				statusClient.SetStatus(liveProxy, &core.Status{State: core.Status_Accepted})
+
 				liveProxy, err = proxyClient.Write(liveProxy, clients.WriteOpts{OverwriteExisting: true})
 				Expect(err).NotTo(HaveOccurred())
 
@@ -154,7 +173,7 @@ var _ = Describe("ReconcileGatewayProxies", func() {
 				// typically the reconciler sets resources to pending for processing, but here
 				// we expect the status to be carried over because nothing changed from gloo's
 				// point of view
-				Expect(px.GetStatus().State).To(Equal(core.Status_Accepted))
+				Expect(statusClient.GetStatus(px).GetState()).To(Equal(core.Status_Accepted))
 
 				// after reconcile with the updated snapshot, we confirm that gateway-specific
 				// parts of the proxy have been updated
@@ -198,25 +217,53 @@ var _ = Describe("ReconcileGatewayProxies", func() {
 		})
 
 		Context("a virtual service has a reported error", func() {
+
 			It("only updates the valid virtual hosts", func() {
 				samples.AddVsToSnap(snap, us, ns)
 				genProxy()
 				reconcile()
 
 				snap.VirtualServices[0].Metadata.Generation = 100
-				snap.VirtualServices[1].Metadata.Generation = 100
+				snap.VirtualServices[1].Metadata.Generation = 101
 				genProxy()
 				addErr(snap.VirtualServices[1])
 
 				reconcile()
 
 				px := getProxy()
-
 				vhosts := px.Listeners[1].GetHttpListener().GetVirtualHosts()
 
 				Expect(vhosts).To(HaveLen(2))
-				Expect(vhosts[1]).To(HaveGeneration(100))
+				Expect(vhosts[1]).To(HaveGeneration(100)) // vhosts[1] maps to VirtualServices[0]
 				Expect(vhosts[0]).To(HaveGeneration(0))
+			})
+
+			It("only updates the valid virtual hosts, without duplicating any", func() {
+				samples.AddVsToSnap(snap, us, ns)
+				genProxy()
+				reconcile()
+
+				// Update the Generation value, to ensure that proxy reconciliation decides
+				// to transition and persist a new proxy
+				snap.Gateways[0].Metadata.Generation = 100
+				snap.Gateways[1].Metadata.Generation = 100
+				snap.VirtualServices[0].Metadata.Generation = 100
+				snap.VirtualServices[1].Metadata.Generation = 101
+
+				genProxy()
+
+				// Add an error on the Gateway, ensuring the Listener is not accepted
+				addErr(snap.Gateways[0])
+				// Add an error on the VirtualService, ensuring the VirtualHost is not accepted
+				addErr(snap.VirtualServices[0])
+
+				reconcile()
+
+				px := getProxy()
+				vhosts := px.Listeners[1].GetHttpListener().GetVirtualHosts()
+
+				// We still only have 2 VirtualServices, which should always translate to 2 VirtualHosts
+				Expect(vhosts).To(HaveLen(2))
 			})
 		})
 

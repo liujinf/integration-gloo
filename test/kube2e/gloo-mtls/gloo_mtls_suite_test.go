@@ -9,7 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
+
 	. "github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
 	errors "github.com/rotisserie/eris"
 	"github.com/solo-io/gloo/pkg/cliutil"
@@ -21,12 +24,13 @@ import (
 	"github.com/solo-io/go-utils/testutils/exec"
 	"github.com/solo-io/k8s-utils/testutils/helper"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
+	"github.com/solo-io/solo-kit/pkg/utils/statusutils"
 	skhelpers "github.com/solo-io/solo-kit/test/helpers"
 )
 
 var (
 	testHelper       *helper.SoloTestHelper
-	installNamespace = "gloo-system"
+	installNamespace = defaults.GlooSystem
 	ctx              context.Context
 	cancel           context.CancelFunc
 )
@@ -41,12 +45,16 @@ func TestGlooMtls(t *testing.T) {
 	skhelpers.SetupLog()
 	_ = os.Remove(cliutil.GetLogsPath())
 	skhelpers.RegisterPreFailHandler(helpers.KubeDumpOnFail(GinkgoWriter, installNamespace))
-	RunSpecs(t, "Gloo mTLS Suite")
+	junitReporter := reporters.NewJUnitReporter("junit.xml")
+	RunSpecsWithDefaultAndCustomReporters(t, "Gloo mTLS Suite", []Reporter{junitReporter})
 }
 
 var _ = BeforeSuite(func() {
 	ctx, cancel = context.WithCancel(context.Background())
 	cwd, err := os.Getwd()
+	Expect(err).NotTo(HaveOccurred())
+
+	err = os.Setenv(statusutils.PodNamespaceEnvName, installNamespace)
 	Expect(err).NotTo(HaveOccurred())
 
 	testHelper, err = helper.NewSoloTestHelper(func(defaults helper.TestConfig) helper.TestConfig {
@@ -91,6 +99,8 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
+	err := os.Unsetenv(statusutils.PodNamespaceEnvName)
+	Expect(err).NotTo(HaveOccurred())
 	if os.Getenv("TEAR_DOWN") == "true" {
 		err := testHelper.UninstallGloo()
 		Expect(err).NotTo(HaveOccurred())

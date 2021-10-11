@@ -50,11 +50,11 @@ func VirtualServiceTable(ctx context.Context, list []*v1.VirtualService, w io.Wr
 	table.SetHeader([]string{"Virtual Service", "Display Name", "Domains", "SSL", "Status", "ListenerPlugins", "Routes"})
 
 	for _, v := range list {
-		name := v.GetMetadata().Name
+		name := v.GetMetadata().GetName()
 		displayName := v.GetDisplayName()
 		domains := domains(v)
 		ssl := sslConfig(v)
-		status := getStatus(ctx, v, namespace)
+		status := getAggregateVirtualServiceStatus(ctx, v, namespace)
 		routes := routeList(v.GetVirtualHost().GetRoutes())
 		plugins := vhPlugins(v)
 
@@ -81,9 +81,9 @@ func RouteTableTable(list []*v1.RouteTable, w io.Writer) {
 	table.SetHeader([]string{"Route Table", "Routes", "Status"})
 
 	for _, rt := range list {
-		name := rt.GetMetadata().Name
+		name := rt.GetMetadata().GetName()
 		routes := routeList(rt.GetRoutes())
-		status := getRouteTableStatus(rt)
+		status := getAggregateRouteTableStatus(rt)
 
 		if len(routes) == 0 {
 			routes = []string{""}
@@ -101,12 +101,16 @@ func RouteTableTable(list []*v1.RouteTable, w io.Writer) {
 	table.Render()
 }
 
-func getRouteTableStatus(vs *v1.RouteTable) string {
+func getAggregateRouteTableStatus(res resources.InputResource) string {
+	return AggregateNamespacedStatuses(res.GetNamespacedStatuses(), func(status *core.Status) string {
+		return getSingleRouteTableStatus(status)
+	})
+}
 
+func getSingleRouteTableStatus(status *core.Status) string {
 	// If the virtual service has not yet been accepted, don't clutter the status with the other errors.
-	resourceStatus := vs.GetStatus().GetState()
-	if resourceStatus != core.Status_Accepted {
-		return resourceStatus.String()
+	if status.GetState() != core.Status_Accepted {
+		return status.String()
 	}
 
 	// Subresource statuses are reported as a map[string]*Status
@@ -115,16 +119,16 @@ func getRouteTableStatus(vs *v1.RouteTable) string {
 	// Either way, we only care if a subresource is in a non-accepted state.
 	// Therefore, only report non-accepted states, include the subresource name.
 	subResourceErrorMessages := []string{}
-	for k, v := range vs.GetStatus().GetSubresourceStatuses() {
+	for k, v := range status.GetSubresourceStatuses() {
 		if v.GetState() != core.Status_Accepted {
-			subResourceErrorMessages = append(subResourceErrorMessages, fmt.Sprintf("%v %v: %v", k, v.State.String(), v.Reason))
+			subResourceErrorMessages = append(subResourceErrorMessages, fmt.Sprintf("%v %v: %v", k, v.GetState().String(), v.GetReason()))
 		}
 	}
 
 	switch len(subResourceErrorMessages) {
 	case 0:
 		// there are no errors with the subresources, pass Accepted status
-		return resourceStatus.String()
+		return status.String()
 	case 1:
 		// there is one error, try to pass a friendly error message
 		return cleanSubResourceError(subResourceErrorMessages[0])
@@ -134,10 +138,15 @@ func getRouteTableStatus(vs *v1.RouteTable) string {
 	}
 }
 
-func getStatus(ctx context.Context, res resources.InputResource, namespace string) string {
+func getAggregateVirtualServiceStatus(ctx context.Context, res resources.InputResource, namespace string) string {
+	return AggregateNamespacedStatuses(res.GetNamespacedStatuses(), func(status *core.Status) string {
+		return getSingleVirtualServiceStatus(status, ctx, namespace)
+	})
+}
 
+func getSingleVirtualServiceStatus(status *core.Status, ctx context.Context, namespace string) string {
 	// If the virtual service is still pending and may yet be accepted, don't clutter the status with other errors.
-	resourceStatus := res.GetStatus().GetState()
+	resourceStatus := status.GetState()
 	if resourceStatus == core.Status_Pending {
 		return resourceStatus.String()
 	}
@@ -146,7 +155,7 @@ func getStatus(ctx context.Context, res resources.InputResource, namespace strin
 	// At the moment, virtual services only have one subresource, the associated gateway.
 	// In the future, we may add more.
 	// Either way, we only care if a subresource is in a non-accepted state.
-	subresourceStatuses := res.GetStatus().GetSubresourceStatuses()
+	subresourceStatuses := status.GetSubresourceStatuses()
 
 	// If the virtual service was accepted, don't include confusing errors on subresources but note if there's another resource potentially blocking config updates.
 	if resourceStatus == core.Status_Accepted {
@@ -171,7 +180,7 @@ func getStatus(ctx context.Context, res resources.InputResource, namespace strin
 	subResourceErrorMessages := []string{}
 	for k, v := range subresourceStatuses {
 		if v.GetState() != core.Status_Accepted {
-			subResourceErrorMessages = append(subResourceErrorMessages, fmt.Sprintf("%v %v: %v", k, v.State.String(), v.Reason))
+			subResourceErrorMessages = append(subResourceErrorMessages, fmt.Sprintf("%v %v: %v", k, v.GetState().String(), v.GetReason()))
 		}
 	}
 
@@ -239,7 +248,7 @@ func matchersString(matchers []*matchers.Matcher) string {
 }
 
 func matcherString(matcher *matchers.Matcher) string {
-	switch ps := matcher.PathSpecifier.(type) {
+	switch ps := matcher.GetPathSpecifier().(type) {
 	case *matchers.Matcher_Exact:
 		return ps.Exact
 	case *matchers.Matcher_Prefix:
@@ -251,25 +260,25 @@ func matcherString(matcher *matchers.Matcher) string {
 }
 
 func destinationString(route *v1.Route) string {
-	switch action := route.Action.(type) {
+	switch action := route.GetAction().(type) {
 	case *v1.Route_RouteAction:
-		switch dest := action.RouteAction.Destination.(type) {
+		switch dest := action.RouteAction.GetDestination().(type) {
 		case *gloov1.RouteAction_Multi:
-			return fmt.Sprintf("%v destinations", len(dest.Multi.Destinations))
+			return fmt.Sprintf("%v destinations", len(dest.Multi.GetDestinations()))
 		case *gloov1.RouteAction_Single:
-			switch destType := dest.Single.DestinationType.(type) {
+			switch destType := dest.Single.GetDestinationType().(type) {
 			case *gloov1.Destination_Upstream:
 				return fmt.Sprintf("%s (upstream)", destType.Upstream.Key())
 			case *gloov1.Destination_Kube:
-				return fmt.Sprintf("%s (service)", destType.Kube.Ref.Key())
+				return fmt.Sprintf("%s (service)", destType.Kube.GetRef().Key())
 			}
 		case *gloov1.RouteAction_UpstreamGroup:
-			return fmt.Sprintf("upstream group: %s.%s", dest.UpstreamGroup.Name, dest.UpstreamGroup.Namespace)
+			return fmt.Sprintf("upstream group: %s.%s", dest.UpstreamGroup.GetName(), dest.UpstreamGroup.GetNamespace())
 		}
 	case *v1.Route_DirectResponseAction:
-		return strconv.Itoa(int(action.DirectResponseAction.Status))
+		return strconv.Itoa(int(action.DirectResponseAction.GetStatus()))
 	case *v1.Route_RedirectAction:
-		return action.RedirectAction.HostRedirect
+		return action.RedirectAction.GetHostRedirect()
 	case *v1.Route_DelegateAction:
 		if delegateSingle := action.DelegateAction.GetRef(); delegateSingle != nil {
 			return fmt.Sprintf("%s (route table)", delegateSingle.Key())
@@ -279,11 +288,11 @@ func destinationString(route *v1.Route) string {
 }
 
 func domains(v *v1.VirtualService) string {
-	if v.VirtualHost.Domains == nil || len(v.VirtualHost.Domains) == 0 {
+	if v.GetVirtualHost().GetDomains() == nil || len(v.GetVirtualHost().GetDomains()) == 0 {
 		return ""
 	}
 
-	return strings.Join(v.VirtualHost.Domains, ", ")
+	return strings.Join(v.GetVirtualHost().GetDomains(), ", ")
 }
 
 func sslConfig(v *v1.VirtualService) string {
@@ -291,7 +300,7 @@ func sslConfig(v *v1.VirtualService) string {
 		return "none"
 	}
 
-	switch v.GetSslConfig().SslSecrets.(type) {
+	switch v.GetSslConfig().GetSslSecrets().(type) {
 	case *gloov1.SslConfig_SecretRef:
 		return "secret_ref"
 	case *gloov1.SslConfig_SslFiles:

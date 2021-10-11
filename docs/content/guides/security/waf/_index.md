@@ -21,7 +21,7 @@ Gloo Edge now supports the popular Web Application Firewall framework/ruleset [M
 Gloo Edge Enterprise now includes the ability to enable the ModSecurity Web Application Firewall for any incoming and outgoing HTTP connections. There is support for configuring rule sets based on the OWASP Core Rule Set as well as custom rule sets. More information on available rule sets, and the rules language generally, can be found [here](https://www.modsecurity.org/rules.html).
 
 ## **Why Mod Security**
-API Gateways act as a control point for the outside world to access the various application services running in your environment. A Web Application Firewall offers a standard way to to inspect and handle all incoming traffic. Mod Security is one such firewall. ModSecurity uses a simple rules language to interpret and process incoming http traffic. There are many rule sets publically available, such as the [OWASP Core Rule Set](https://github.com/SpiderLabs/owasp-modsecurity-crs).
+API Gateways act as a control point for the outside world to access the various application services running in your environment. A Web Application Firewall offers a standard way to to inspect and handle all incoming traffic. Mod Security is one such firewall. ModSecurity uses a simple rules language to interpret and process incoming http traffic. There are many rule sets publically available, such as the [OWASP Core Rule Set](https://github.com/coreruleset/coreruleset).
 
 ### Configuring WAF in Gloo Edge
 ModSecurity rule sets are defined in gloo in one of 3 places:
@@ -169,6 +169,10 @@ The two methods outlined above represent the two main ways to apply basic rule s
 
 #### Core Rule Set
 
+{{% notice warning %}}
+Using the `rbl` modsecurity rule in Gloo Edge will cause envoy performance issues and should be avoided. If `rbl` blacklisting is a requirement, an [extauth plugin]({{< versioned_link_path fromRoot="/guides/security/auth/extauth/plugin_auth">}}) can be used to query the rbl list and forbid spam IPs.
+{{% /notice %}}
+
 As mentioned earlier, the main free Mod Security rule set available is the OWASP Core Rule Set. As with all other rule sets, the Core Rule Set can be applied manually via the rule set configs, Gloo Edge offers an easy way to apply the entire Core Rule Set, and configure it.
 
 In order to apply the Core Rule Set add the following to the default virtual service. Without the coreRuleSet field, the OWASP Core Rule Set files will not be included.
@@ -233,7 +237,7 @@ ModSecurity: intervention occurred
 There are a couple important things to note from the config above. The `coreRuleSet` object is the first. By setting this object to non-nil the `coreRuleSet` is automatically applied to the gateway/vhost/route is has been added to. The Core Rule Set can be applied manually as well if a specific version of it is required which we do not mount into the container. The second thing to note is the config string. This config string is an important part of configuring the Core Rule Set, an example of which can be found [here](https://github.com/SpiderLabs/owasp-modsecurity-crs/blob/v3.2/dev/crs-setup.conf.example).
 
 
-## IP Whitelisting
+## IP Allowlist
 
 A very common use case in many organizations is restricting access for an API to a specific IP address or subnet range. This requirement manifests in many ways, such as maintaining an access control list (ACL) for certain internal services or enforcing network boundaries between various, discrete environments.
 
@@ -260,6 +264,23 @@ spec:
 ```
 
 We are applying a WAF rule at the `virtualHost` level, meaning that the rule will be applied to all routes for this `VirtualService`. The rule we are applying will cause modsecurity to inspect the remote address for the request being processed and if the IP address does not fall in the `173.175.0.0/16` network range, the request will be denied with a 403 status code.
+
+## gRPC 
+
+If you have configured WAF, gRPC calls to a VirtualService fronting a gRPC services may timeout if the gRPC call is a stream
+as the WAF filter requires an end stream to be specified to finish evaluating intervention. To avoid this timeout, add `requestHeadersOnly: true` and `responseHeadersOnly: true` to the WAF config:
+
+```yaml
+waf:
+  requestHeadersOnly: true
+  responseHeadersOnly: true
+  customInterventionMessage: ModSecurity intervention! Custom message details here..
+  ruleSets:
+  - ruleStr: |
+      # Turn rule engine on
+      SecRuleEngine On
+      SecRule REQUEST_HEADERS:User-Agent "scammer" "deny,status:403,id:107,phase:1,msg:'blocked scammer'"
+```
 
 ## Audit Logging
 
@@ -351,7 +372,7 @@ spec:
 
 Generate a request that will trigger ModSecurity:
 ```shell
-curl -v $(glooctl proxy url) -H"user-agent: scammer"
+curl -v $(glooctl proxy url) -H "user-agent: scammer"
 ```
 
 Check the logs:

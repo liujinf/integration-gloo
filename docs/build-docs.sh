@@ -57,9 +57,11 @@ EOF
 # This script assumes that the working directory is in the docs folder
 workingDir=$(pwd)
 docsSiteDir=$workingDir/ci
+tempContentDir=$docsSiteDir/temp
 repoDir=$workingDir/gloo-temp
 
 mkdir -p $docsSiteDir
+mkdir -p $tempContentDir
 echo $firebaseJson > $docsSiteDir/firebase.json
 
 git clone https://github.com/solo-io/gloo.git $repoDir
@@ -102,30 +104,25 @@ function generateHugoVersionsYaml() {
 
 function generateSiteForVersion() {
   version=$1
+  latestMasterTag=$2
   echo "Generating site for version $version"
   cd $repoDir
-  if [[ "$version" == "master" ]]
-  then
-    git checkout master
-  else
-    git checkout tags/v"$version"
-  fi
   # Replace version with "latest" if it's the latest version. This enables URLs with "/latest/..."
   if [[ "$version" ==  "$latestVersion" ]]
   then
     version="latest"
   fi
+  git checkout "$latestMasterTag"
 
   cd docs
   # Generate data/Solo.yaml file with version info populated.
   generateHugoVersionsYaml $version
-  # Use styles as defined on master, not the checked out temp repo.
-  mkdir -p layouts/partials cmd/changelogutils
-  cp -a $workingDir/layouts/partials/. layouts/partials/
-  cp -f $workingDir/Makefile Makefile
-  cp -f $workingDir/cmd/generate_docs.go cmd/generate_docs.go
-  cp -a $workingDir/cmd/changelogutils/. cmd/changelogutils/
-  cp -a $workingDir/cmd/securityscanutils/. cmd/securityscanutils/
+
+  # Replace the master's content directory with the version we're building
+  rm -r $repoDir/docs/content
+  mkdir $repoDir/docs/content
+  cp -a $tempContentDir/$version/. $repoDir/docs/content/
+
   # Generate the versioned static site.
   make site-release
 
@@ -147,14 +144,61 @@ function generateSiteForVersion() {
   rm -fr vendor_any
 }
 
+# Copies the /docs/content directory from the specified version ($1) and stores it in a temp location
+function getContentForVersion() {
+  version=$1
+  latestMasterTag=$2
+  echo "Getting site content for version $version"
+  cd $repoDir
+  if [[ "$version" == "master" ]]
+  then
+    git checkout "$latestMasterTag"
+  else
+    git checkout tags/v"$version"
+  fi
+  # Replace version with "latest" if it's the latest version. This enables URLs with "/latest/..."
+  if [[ "$version" ==  "$latestVersion" ]]
+  then
+    version="latest"
+  fi
+
+  cp -a $repoDir/docs/content/. $tempContentDir/$version/
+}
+
+# We build docs for all active and old version of Gloo, on pull requests (and merges) to master.
+# On pull requests to master by Solo developers, we want to run doc generation
+# against the commit that will become the latest master commit.
+# This will allow us to verify if the change we are introducing is valid.
+# Therefore, we use the head SHA on pull requests by Solo developers
+latestMasterTag="master"
+if [[ "$USE_PR_SHA_AS_MASTER" == "true" ]]
+then
+  latestMasterTag=$PULL_REQUEST_SHA
+  echo using $PULL_REQUEST_SHA, as this will be the next commit to master
+fi
+
+# Obtain /docs/content dir from all versions
+for version in "${versions[@]}"
+do
+  getContentForVersion $version $latestMasterTag
+done
+
+
+# Obtain /docs/content dir from all previous versions
+for version in "${oldVersions[@]}"
+do
+  getContentForVersion $version $latestMasterTag
+done
+
+
 # Generate docs for all versions
 for version in "${versions[@]}"
 do
-  generateSiteForVersion $version
+  generateSiteForVersion $version $latestMasterTag
 done
 
 # Generate docs for all previous versions
 for version in "${oldVersions[@]}"
 do
-  generateSiteForVersion $version
+  generateSiteForVersion $version $latestMasterTag
 done

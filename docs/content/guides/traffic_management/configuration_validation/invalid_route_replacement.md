@@ -16,8 +16,8 @@ This behavior is used in order to ensure that invalid configuration does not lea
 In some cases, it may be desirable to update a virtual service even if its config becomes partially invalid. 
 This is particularly useful when [delegating to Route Tables]({{< versioned_link_path fromRoot="/guides/traffic_management/destination_types/delegation/">}}) as it ensures that a single Route Table will not block updates for other Route Tables which share the same Virtual Service. 
 
-For this reason, Gloo Edge supports the ability to enable *automatic replacement of invalid routes* (specifically, routes which point to a missing **Upstream**
-or **UpstreamGroup**). 
+For this reason, Gloo Edge supports the ability to enable *automatic replacement of invalid routes* (including routes which point to a missing **Upstream**
+or **UpstreamGroup** or routes that Gloo could not successfully process). 
 
 This document demonstrates how to enable and use this feature. 
 
@@ -61,7 +61,7 @@ kind: VirtualService
 status:
   reason: "warning: \n  Route Warning: InvalidDestinationWarning. Reason: *v1.Upstream
     {kube-svc:anywhere-does-not-exist-1234 anywhere} not found"
-  reported_by: gateway
+  reportedBy: gateway
   state: 3
 ```
 
@@ -88,8 +88,14 @@ Enabling route replacement can be done by directly patching the **Settings** CRD
 kubectl patch settings -n gloo-system default --patch '{"spec": {"gloo": {"invalidConfigPolicy": {"replaceInvalidRoutes": true, "invalidRouteResponseCode": 404, "invalidRouteResponseBody": "Gloo Gateway has invalid configuration. Administrators should run glooctl check to find and fix config errors."}}}}' --type=merge
 {{< /tab >}}
 {{< tab name="using Helm" codelang="bash">}}
-# set the following value when running `helm install` or `helm template`
---set settings.invalidConfigPolicy.replaceInvalidRoutes=true
+# set the following in the helm overrides file
+settings:
+  replaceInvalidRoutes: true
+  invalidConfigPolicy:
+    invalidRouteResponseBody: Gloo Edge has invalid configuration. Administrators
+      should run `glooctl check` to find and fix config errors.
+    invalidRouteResponseCode: 404
+    replaceInvalidRoutes: true
 {{< /tab >}}
 {{< /tabs >}}
 

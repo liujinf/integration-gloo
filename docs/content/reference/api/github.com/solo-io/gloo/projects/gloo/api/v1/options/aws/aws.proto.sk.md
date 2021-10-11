@@ -44,7 +44,7 @@ in a particular region
 | Field | Type | Description |
 | ----- | ---- | ----------- | 
 | `region` | `string` | The AWS Region where the desired Lambda Functions exist. |
-| `secretRef` | [.core.solo.io.ResourceRef](../../../../../../../../solo-kit/api/v1/ref.proto.sk/#resourceref) | A [Gloo Secret Ref](https://gloo.solo.io/introduction/concepts/#Secrets) to an AWS Secret AWS Secrets can be created with `glooctl secret create aws ...` If the secret is created manually, it must conform to the following structure: ``` access_key: <aws access key> secret_key: <aws secret key> session_token: <(optional) aws session token> ```. |
+| `secretRef` | [.core.solo.io.ResourceRef](../../../../../../../../solo-kit/api/v1/ref.proto.sk/#resourceref) | A [Gloo Secret Ref](https://docs.solo.io/gloo-edge/latest/reference/cli/glooctl_create_secret_aws/) to an AWS Secret AWS Secrets can be created with `glooctl secret create aws ...` If the secret is created manually, it must conform to the following structure: ``` access_key: <aws access key> secret_key: <aws secret key> session_token: <(optional) aws session token> ```. |
 | `lambdaFunctions` | [[]aws.options.gloo.solo.io.LambdaFunctionSpec](../aws.proto.sk/#lambdafunctionspec) | The list of Lambda Functions contained within this region. This list will be automatically populated by Gloo if discovery is enabled for AWS Lambda Functions. |
 | `roleArn` | `string` | (Optional): role_arn to use when assuming a role for a given request via STS. If set this role_arn will override the value found in AWS_ROLE_ARN This option will only be respected if STS credentials are enabled. To enable STS credential fetching see Settings.Gloo.AwsOptions in settings.proto. |
 
@@ -84,6 +84,7 @@ Each Lambda Function Spec contains data necessary for Gloo to invoke Lambda func
 ```yaml
 "logicalName": string
 "invocationStyle": .aws.options.gloo.solo.io.DestinationSpec.InvocationStyle
+"requestTransformation": bool
 "responseTransformation": bool
 
 ```
@@ -92,6 +93,7 @@ Each Lambda Function Spec contains data necessary for Gloo to invoke Lambda func
 | ----- | ---- | ----------- | 
 | `logicalName` | `string` | The Logical Name of the LambdaFunctionSpec to be invoked. |
 | `invocationStyle` | [.aws.options.gloo.solo.io.DestinationSpec.InvocationStyle](../aws.proto.sk/#invocationstyle) | Can be either Sync or Async. |
+| `requestTransformation` | `bool` | Include headers, querystring, request path, and request method in the event payload sent to aws lambda. |
 | `responseTransformation` | `bool` | de-jsonify response bodies returned from aws lambda. |
 
 

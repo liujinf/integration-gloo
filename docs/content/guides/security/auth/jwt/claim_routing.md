@@ -24,11 +24,71 @@ and echoes back a configurable string. We will deploy:
 1. a pod that responds with the string "canary" to simulate the canary deployment
 1. a service to route to them
 
-With the following commands, respectively:
+First, let's create the primary deployment.
+
+```
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: primary
+  labels:
+    app: echoapp
+    stage: primary
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: echoapp
+      stage: primary
+  template:
+    metadata:
+      labels:
+        app: echoapp
+        stage: primary
+    spec:
+      containers:
+      - name: primary
+        image: hashicorp/http-echo
+        imagePullPolicy: IfNotPresent
+        args:
+          - -listen=:8080
+          - -text=primary
+```
+
+Next, the canary deployment.
+
+```
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: canary
+  labels:
+    app: echoapp
+    stage: canary
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: echoapp
+      stage: canary
+  template:
+    metadata:
+      labels:
+        app: echoapp
+        stage: canary
+    spec:
+      containers:
+      - name: canary
+        image: hashicorp/http-echo
+        imagePullPolicy: IfNotPresent
+        args:
+          - -listen=:8080
+          - -text=canary
+```
+
+Finally, we will create the service.
 
 ```shell
-kubectl run --generator=run-pod/v1 --labels stage=primary,app=echoapp primary-pod --image=hashicorp/http-echo -- -text=primary -listen=:8080
-kubectl run --generator=run-pod/v1 --labels stage=canary,app=echoapp canary-pod --image=hashicorp/http-echo -- -text=canary -listen=:8080
 kubectl create service clusterip echoapp --tcp=80:8080
 ```
 
@@ -169,6 +229,9 @@ At this point we can use normal header matching to do the routing:
 - If the first route does not match, we fall back to the second one, which that routes to the primary subset.
 
 For convenience, we added the `tokenSource` settings so we can pass the token as a query parameter named `token`.
+
+{{% notice warning %}} In order for JWT claim-based routing to work, there **must** be a fallback "catch all" route, such as the primary route above. {{% /notice %}}
+
 
 ### Testing our configuration
 Send a request as a solo.io team member:

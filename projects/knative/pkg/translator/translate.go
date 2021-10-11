@@ -15,11 +15,9 @@ import (
 	"knative.dev/pkg/network"
 
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/core/matchers"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	v1alpha1 "github.com/solo-io/gloo/projects/knative/pkg/api/external/knative"
-	"github.com/solo-io/go-utils/contextutils"
 
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/headers"
 
@@ -132,22 +130,10 @@ func routingConfig(ctx context.Context, ingresses map[*core.Metadata]knativev1al
 	for ing, spec := range ingresses {
 
 		for _, tls := range spec.TLS {
-
-			// todo (mholland) use non-peprecated solutions now that we're using k8s 18.
-			if tls.DeprecatedServerCertificate != "" && tls.DeprecatedServerCertificate != v1.TLSCertKey {
-				contextutils.LoggerFrom(ctx).Warn("Custom ServerCertificate filenames are not currently supported by Gloo")
-				continue
-			}
-
-			if tls.DeprecatedPrivateKey != "" && tls.DeprecatedPrivateKey != v1.TLSPrivateKeyKey {
-				contextutils.LoggerFrom(ctx).Warn("Custom PrivateKey filenames are not currently supported by Gloo")
-				continue
-			}
-
 			secretNamespace := tls.SecretNamespace
 			if secretNamespace == "" {
 				// default to namespace shared with ingress
-				secretNamespace = ing.Namespace
+				secretNamespace = ing.GetNamespace()
 			}
 
 			sslConfigs = append(sslConfigs, &gloov1.SslConfig{
@@ -166,7 +152,7 @@ func routingConfig(ctx context.Context, ingresses map[*core.Metadata]knativev1al
 		// use tls if spec contains tls, or user sets with annotations
 		useTls := len(spec.TLS) > 0
 
-		if customSsl := sslConfigFromAnnotations(ing.Annotations, ing.Namespace); customSsl != nil {
+		if customSsl := sslConfigFromAnnotations(ing.GetAnnotations(), ing.GetNamespace()); customSsl != nil {
 			useTls = true
 			sslConfigs = append(sslConfigs, customSsl)
 		}
@@ -174,7 +160,7 @@ func routingConfig(ctx context.Context, ingresses map[*core.Metadata]knativev1al
 		for i, rule := range spec.Rules {
 			var routes []*gloov1.Route
 			if rule.HTTP == nil {
-				log.Warnf("rule %v in knative ingress %v is missing HTTP field", i, ing.Name)
+				log.Warnf("rule %v in knative ingress %v is missing HTTP field", i, ing.GetName())
 				continue
 			}
 			for _, route := range rule.HTTP.Paths {
@@ -248,10 +234,10 @@ func routingConfig(ctx context.Context, ingresses map[*core.Metadata]knativev1al
 	}
 
 	sort.SliceStable(virtualHostsHttp, func(i, j int) bool {
-		return virtualHostsHttp[i].Name < virtualHostsHttp[j].Name
+		return virtualHostsHttp[i].GetName() < virtualHostsHttp[j].GetName()
 	})
 	sort.SliceStable(virtualHostsHttps, func(i, j int) bool {
-		return virtualHostsHttps[i].Name < virtualHostsHttps[j].Name
+		return virtualHostsHttps[i].GetName() < virtualHostsHttps[j].GetName()
 	})
 	return virtualHostsHttp, virtualHostsHttps, sslConfigs, nil
 }

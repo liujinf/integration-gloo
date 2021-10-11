@@ -28,34 +28,19 @@ For example, to add stats to the Gloo Edge `gateway`, when installing with Helm 
 For example, to add stats to the Gloo Edge `discovery` pod, first write your values file. Run:
 
 ```shell script
-echo "crds:
-  create: true # see our installation guide- only required if you are using Helm 2
-discovery:
+echo "discovery:
   deployment:
     stats:
       enabled: true
 " > stats-values.yaml
 ```
 
-Then install using one of the following methods:
+Then install using one of the following methods. Note that using Helm 2 is not supported in Gloo Edge v1.8.0. 
 
 {{< tabs >}}
 {{< tab name="glooctl" codelang="shell" >}}
 glooctl install gateway --values stats-values.yaml
 {{< /tab >}}
-{{% tab name="Helm 2" %}}
-Either:
-
-```shell script
-helm install gloo/gloo --name gloo --namespace gloo-system -f stats-values.yaml
-```
-
-or:
-
-```shell script
-helm template gloo --namespace gloo-system --values stats-values.yaml  | kubectl apply -f - -n gloo-system
-```
-{{% /tab %}}
 {{< tab name="Helm 3" codelang="shell">}}
 helm install gloo gloo/gloo --namespace gloo-system -f stats-values.yaml
 {{< /tab >}}

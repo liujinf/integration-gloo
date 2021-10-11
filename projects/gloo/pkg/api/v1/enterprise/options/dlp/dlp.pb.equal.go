@@ -63,6 +63,10 @@ func (m *FilterConfig) Equal(that interface{}) bool {
 
 	}
 
+	if m.GetEnabledFor() != target.GetEnabledFor() {
+		return false
+	}
+
 	return true
 }
 
@@ -153,6 +157,10 @@ func (m *Config) Equal(that interface{}) bool {
 			}
 		}
 
+	}
+
+	if m.GetEnabledFor() != target.GetEnabledFor() {
+		return false
 	}
 
 	return true
@@ -248,6 +256,23 @@ func (m *CustomAction) Equal(that interface{}) bool {
 		if !proto.Equal(m.GetPercent(), target.GetPercent()) {
 			return false
 		}
+	}
+
+	if len(m.GetRegexActions()) != len(target.GetRegexActions()) {
+		return false
+	}
+	for idx, v := range m.GetRegexActions() {
+
+		if h, ok := interface{}(v).(equality.Equalizer); ok {
+			if !h.Equal(target.GetRegexActions()[idx]) {
+				return false
+			}
+		} else {
+			if !proto.Equal(v, target.GetRegexActions()[idx]) {
+				return false
+			}
+		}
+
 	}
 
 	return true

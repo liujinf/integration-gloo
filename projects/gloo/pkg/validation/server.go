@@ -4,25 +4,27 @@ import (
 	"context"
 	"sync"
 
-	"github.com/solo-io/gloo/pkg/utils/syncutil"
-	"go.uber.org/zap/zapcore"
-
+	"github.com/hashicorp/go-multierror"
 	"github.com/rotisserie/eris"
-	"github.com/solo-io/go-utils/hashutils"
-
-	"github.com/solo-io/go-utils/contextutils"
-	"go.uber.org/zap"
-
+	"github.com/solo-io/gloo/pkg/utils/syncutil"
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/grpc/validation"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
+	"github.com/solo-io/gloo/projects/gloo/pkg/syncer/sanitizer"
 	"github.com/solo-io/gloo/projects/gloo/pkg/translator"
+	"github.com/solo-io/gloo/projects/gloo/pkg/utils"
+	"github.com/solo-io/go-utils/contextutils"
+	"github.com/solo-io/go-utils/hashutils"
+	sk_resources "github.com/solo-io/solo-kit/pkg/api/v1/resources"
+	"github.com/solo-io/solo-kit/pkg/api/v2/reporter"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
 )
 
 type Validator interface {
 	v1.ApiSyncer
-	validation.ProxyValidationServiceServer
+	validation.GlooValidationServiceServer
 }
 
 type validator struct {
@@ -31,10 +33,16 @@ type validator struct {
 	translator     translator.Translator
 	notifyResync   map[*validation.NotifyOnResyncRequest]chan struct{}
 	ctx            context.Context
+	xdsSanitizer   sanitizer.XdsSanitizers
 }
 
-func NewValidator(ctx context.Context, translator translator.Translator) *validator {
-	return &validator{translator: translator, notifyResync: make(map[*validation.NotifyOnResyncRequest]chan struct{}, 1), ctx: ctx}
+func NewValidator(ctx context.Context, translator translator.Translator, xdsSanitizer sanitizer.XdsSanitizers) *validator {
+	return &validator{
+		translator:   translator,
+		notifyResync: make(map[*validation.NotifyOnResyncRequest]chan struct{}, 1),
+		ctx:          ctx,
+		xdsSanitizer: xdsSanitizer,
+	}
 }
 
 // only call within a lock
@@ -109,7 +117,7 @@ func (s *validator) Sync(ctx context.Context, snap *v1.ApiSnapshot) error {
 	return nil
 }
 
-func (s *validator) NotifyOnResync(req *validation.NotifyOnResyncRequest, stream validation.ProxyValidationService_NotifyOnResyncServer) error {
+func (s *validator) NotifyOnResync(req *validation.NotifyOnResyncRequest, stream validation.GlooValidationService_NotifyOnResyncServer) error {
 	// send initial response as ACK
 	if err := stream.Send(&validation.NotifyOnResyncResponse{}); err != nil {
 		return err
@@ -151,15 +159,18 @@ func (s *validator) NotifyOnResync(req *validation.NotifyOnResyncRequest, stream
 	}
 }
 
-func (s *validator) ValidateProxy(ctx context.Context, req *validation.ProxyValidationServiceRequest) (*validation.ProxyValidationServiceResponse, error) {
+func (s *validator) Validate(ctx context.Context, req *validation.GlooValidationServiceRequest) (*validation.GlooValidationServiceResponse, error) {
 	s.lock.RLock()
-	// we may receive a ValidateProxy call before a Sync has occurred
+	// we may receive a Validate call before a Sync has occurred
 	if s.latestSnapshot == nil {
 		s.lock.RUnlock()
 		return nil, eris.New("proxy validation called before the validation server received its first sync of resources")
 	}
 	snapCopy := s.latestSnapshot.Clone()
 	s.lock.RUnlock()
+
+	// update the snapshot copy with the resources from the request
+	applyRequestToSnapshot(&snapCopy, req)
 
 	ctx = contextutils.WithLogger(ctx, "proxy-validator")
 
@@ -168,17 +179,130 @@ func (s *validator) ValidateProxy(ctx context.Context, req *validation.ProxyVali
 	logger := contextutils.LoggerFrom(ctx)
 
 	logger.Infof("received proxy validation request")
-	_, _, report, err := s.translator.Translate(params, req.GetProxy())
-	if err != nil {
-		logger.Errorw("failed to validate proxy", zap.Error(err))
-		return nil, err
+
+	var validationReports []*validation.ValidationReport
+	var proxiesToValidate v1.ProxyList
+	if req.GetProxy() != nil {
+		proxiesToValidate = v1.ProxyList{req.GetProxy()}
+	} else {
+		// if no proxy was passed in, call translate for all proxies in snapshot
+		proxiesToValidate = snapCopy.Proxies
 	}
-	logger.Infof("proxy validation report result: %v", report.String())
-	return &validation.ProxyValidationServiceResponse{ProxyReport: report}, nil
+	for _, proxy := range proxiesToValidate {
+		xdsSnapshot, resourceReports, proxyReport, err := s.translator.Translate(params, proxy)
+		if err != nil {
+			logger.Errorw("failed to validate proxy", zap.Error(err))
+			return nil, err
+		}
+
+		// Sanitize routes before sending report to gateway
+		s.xdsSanitizer.SanitizeSnapshot(ctx, &snapCopy, xdsSnapshot, resourceReports)
+		routeErrorToWarnings(resourceReports, proxyReport)
+
+		validationReports = append(validationReports, convertToValidationReport(proxyReport, resourceReports, proxy))
+	}
+
+	return &validation.GlooValidationServiceResponse{
+		ValidationReports: validationReports,
+	}, nil
+}
+
+// updates the given snapshot with the resources from the request
+func applyRequestToSnapshot(snap *v1.ApiSnapshot, req *validation.GlooValidationServiceRequest) {
+	if req.GetModifiedResources() != nil {
+		existingUpstreams := snap.Upstreams.AsResources()
+		modifiedUpstreams := utils.UpstreamsToResourceList(req.GetModifiedResources().GetUpstreams())
+		mergedUpstreams := utils.MergeResourceLists(existingUpstreams, modifiedUpstreams)
+		snap.Upstreams = utils.ResourceListToUpstreamList(mergedUpstreams)
+	} else if req.GetDeletedResources() != nil {
+		existingUpstreams := snap.Upstreams.AsResources()
+		deletedUpstreamRefs := req.GetDeletedResources().GetUpstreamRefs()
+		finalUpstreams := utils.DeleteResources(existingUpstreams, deletedUpstreamRefs)
+		snap.Upstreams = utils.ResourceListToUpstreamList(finalUpstreams)
+	}
+}
+
+func convertToValidationReport(proxyReport *validation.ProxyReport, resourceReports reporter.ResourceReports, proxy *v1.Proxy) *validation.ValidationReport {
+	var upstreamReports []*validation.ResourceReport
+
+	for resource, report := range resourceReports {
+		switch sk_resources.Kind(resource) {
+		case "*v1.Upstream":
+			upstreamReports = append(upstreamReports, &validation.ResourceReport{
+				ResourceRef: resource.GetMetadata().Ref(),
+				Warnings:    report.Warnings,
+				Errors:      getErrors(report.Errors),
+			})
+		}
+		// TODO add other resources types here
+	}
+
+	return &validation.ValidationReport{
+		ProxyReport:     proxyReport,
+		UpstreamReports: upstreamReports,
+		Proxy:           proxy,
+	}
+}
+
+func getErrors(err error) []string {
+	if err == nil {
+		return []string{}
+	}
+	switch err.(type) {
+	case *multierror.Error:
+		var errorStrings []string
+		for _, e := range err.(*multierror.Error).Errors {
+			errorStrings = append(errorStrings, e.Error())
+		}
+		return errorStrings
+	}
+	return []string{err.Error()}
+}
+
+// Update the validation report so that route errors that were changed into warnings during sanitization
+// are also switched in the report results
+func routeErrorToWarnings(resourceReport reporter.ResourceReports, validationReport *validation.ProxyReport) {
+	// Only proxy reports are needed
+	resourceReport = resourceReport.FilterByKind("*v1.Proxy")
+	resourceReportErrors := make(map[string]struct{})
+	resourceReportWarnings := make(map[string]struct{})
+	for _, report := range resourceReport {
+		if report.Errors != nil {
+			for _, rError := range report.Errors.(*multierror.Error).Errors {
+				resourceReportErrors[rError.Error()] = struct{}{}
+			}
+		}
+
+		for _, rWarning := range report.Warnings {
+			resourceReportWarnings[rWarning] = struct{}{}
+		}
+	}
+
+	for _, listenerReport := range validationReport.GetListenerReports() {
+		for _, virtualHostReport := range listenerReport.GetHttpListenerReport().GetVirtualHostReports() {
+			for _, routeReport := range virtualHostReport.GetRouteReports() {
+				modifiedErrors := make([]*validation.RouteReport_Error, 0)
+				for _, rError := range routeReport.GetErrors() {
+					if _, inErrors := resourceReportErrors[rError.String()]; !inErrors {
+						if _, inWarnings := resourceReportWarnings[rError.String()]; inWarnings {
+							warning := &validation.RouteReport_Warning{
+								Type:   validation.RouteReport_Warning_Type(rError.GetType()),
+								Reason: rError.GetReason(),
+							}
+							routeReport.Warnings = append(routeReport.GetWarnings(), warning)
+						}
+					} else {
+						modifiedErrors = append(modifiedErrors, rError)
+					}
+				}
+				routeReport.Errors = modifiedErrors
+			}
+		}
+	}
 }
 
 type ValidationServer interface {
-	validation.ProxyValidationServiceServer
+	validation.GlooValidationServiceServer
 	SetValidator(v Validator)
 	Register(grpcServer *grpc.Server)
 }
@@ -199,10 +323,10 @@ func (s *validationServer) SetValidator(v Validator) {
 }
 
 func (s *validationServer) Register(grpcServer *grpc.Server) {
-	validation.RegisterProxyValidationServiceServer(grpcServer, s)
+	validation.RegisterGlooValidationServiceServer(grpcServer, s)
 }
 
-func (s *validationServer) NotifyOnResync(req *validation.NotifyOnResyncRequest, stream validation.ProxyValidationService_NotifyOnResyncServer) error {
+func (s *validationServer) NotifyOnResync(req *validation.NotifyOnResyncRequest, stream validation.GlooValidationService_NotifyOnResyncServer) error {
 	s.lock.RLock()
 	validator := s.validator
 	s.lock.RUnlock()
@@ -210,10 +334,10 @@ func (s *validationServer) NotifyOnResync(req *validation.NotifyOnResyncRequest,
 	return validator.NotifyOnResync(req, stream)
 }
 
-func (s *validationServer) ValidateProxy(ctx context.Context, req *validation.ProxyValidationServiceRequest) (*validation.ProxyValidationServiceResponse, error) {
+func (s *validationServer) Validate(ctx context.Context, req *validation.GlooValidationServiceRequest) (*validation.GlooValidationServiceResponse, error) {
 	s.lock.RLock()
 	validator := s.validator
 	s.lock.RUnlock()
 
-	return validator.ValidateProxy(ctx, req)
+	return validator.Validate(ctx, req)
 }

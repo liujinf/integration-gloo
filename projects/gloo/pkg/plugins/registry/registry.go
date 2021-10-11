@@ -28,6 +28,7 @@ import (
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/metadata"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/pipe"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/protocoloptions"
+	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/proxyprotocol"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/ratelimit"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/rest"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/shadowing"
@@ -56,18 +57,19 @@ var globalRegistry = func(opts bootstrap.Opts, pluginExtensions ...func() plugin
 	reg.plugins = append(reg.plugins,
 		loadbalancer.NewPlugin(),
 		upstreamconn.NewPlugin(),
-		azure.NewPlugin(&transformationPlugin.RequireTransformationFilter),
-		aws.NewPlugin(&transformationPlugin.RequireTransformationFilter),
-		rest.NewPlugin(&transformationPlugin.RequireTransformationFilter),
+		azure.NewPlugin(),
+		aws.NewPlugin(&transformationPlugin.RequireEarlyTransformation),
+		rest.NewPlugin(),
 		hcmPlugin,
 		als.NewPlugin(),
+		proxyprotocol.NewPlugin(),
 		tls_inspector.NewPlugin(),
 		pipe.NewPlugin(),
 		tcp.NewPlugin(utils.NewSslConfigTranslator()),
 		static.NewPlugin(),
 		transformationPlugin,
 		grpcweb.NewPlugin(),
-		grpc.NewPlugin(&transformationPlugin.RequireTransformationFilter),
+		grpc.NewPlugin(),
 		faultinjection.NewPlugin(),
 		basicroute.NewPlugin(),
 		cors.NewPlugin(),

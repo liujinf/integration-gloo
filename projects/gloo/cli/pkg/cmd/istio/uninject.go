@@ -58,7 +58,7 @@ func Uninject(opts *options.Options, optionsFunc ...cliutils.OptionsFunc) *cobra
 // istioUninject removes SDS & istio-proxy sidecars,
 // as well as updating the gateway-proxy ConfigMap
 func istioUninject(args []string, opts *options.Options) error {
-	glooNS := opts.Metadata.Namespace
+	glooNS := opts.Metadata.GetNamespace()
 
 	client := helpers.MustKubeClient()
 	_, err := client.CoreV1().Namespaces().Get(opts.Top.Ctx, glooNS, metav1.GetOptions{})
@@ -87,6 +87,9 @@ func istioUninject(args []string, opts *options.Options) error {
 
 	// Remove gateway_proxy_sds cluster from the gateway-proxy configmap
 	configMaps, err := client.CoreV1().ConfigMaps(glooNS).List(opts.Top.Ctx, metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
 	for _, configMap := range configMaps.Items {
 		if configMap.Name == gatewayProxyConfigMap {
 			// Make sure we don't already have the gateway_proxy_sds cluster set up
@@ -145,6 +148,8 @@ func istioUninject(args []string, opts *options.Options) error {
 		}
 	}
 
+	fmt.Println("Istio was successfully uninjected")
+
 	return nil
 }
 
@@ -178,17 +183,17 @@ func removeSdsCluster(configMap *corev1.ConfigMap) error {
 		return err
 	}
 
-	clusters := bootstrapConfig.StaticResources.Clusters
+	clusters := bootstrapConfig.GetStaticResources().GetClusters()
 
 	for i, cluster := range clusters {
-		if cluster.Name == sdsClusterName {
+		if cluster.GetName() == sdsClusterName {
 			// Remove the SDS cluster
 			copy(clusters[i:], clusters[i+1:])
 			clusters = clusters[:len(clusters)-1]
 		}
 	}
 
-	bootstrapConfig.StaticResources.Clusters = clusters
+	bootstrapConfig.GetStaticResources().Clusters = clusters
 
 	// Marshall bootstrapConfig into JSON
 	var bootStrapJSON bytes.Buffer
