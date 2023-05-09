@@ -13,10 +13,13 @@ option go_package = "github.com/solo-io/gloo/projects/gloo/pkg/api/external/envo
 import "extproto/ext.proto";
 option (extproto.equal_all) = true;
 option (extproto.hash_all) = true;
+option (extproto.clone_all) = true;
 
 import "google/protobuf/wrappers.proto";
 import "google/protobuf/duration.proto";
 import "validate/validate.proto";
+
+import "github.com/solo-io/gloo/projects/gloo/api/external/envoy/config/core/v3/extension.proto";
 
 /// [#protodoc-title: AWS Lambda]
 // AWS Lambda
@@ -35,6 +38,24 @@ message AWSLambdaPerRoute {
   // Optional default body if the body is empty. By default on default
   // body is used if the body empty, and an empty body will be sent upstream.
   google.protobuf.StringValue empty_body_override = 4;
+
+  // Deprecated. Use transformer_config to specify an AWS Lambda response transformer instead.
+  // Unwrap responses as AWS ALB does.
+  // Expects json lambda responses to construct response.
+  // Intended to ease migration when previously using alb to invoke Lambdas.
+  // When set on a route the filter will not stream data on the encoding step.
+  // For further information see below link for the expected format when true.
+  // https://docs.aws.amazon.com/elasticloadbalancing/latest/application/lambda-functions.html
+  // Defaults to false.
+  bool unwrap_as_alb = 5 [deprecated = true];
+
+  // transformer configuration used to process response data
+  // cannot be configured simultaneously with unwrap_as_alb
+  .solo.io.envoy.config.core.v3.TypedExtensionConfig transformer_config = 6;
+
+  // This is a transformer config, as defined in api.envoy.config.filter.http.transformation.v2
+  // used to process request data.
+  .solo.io.envoy.config.core.v3.TypedExtensionConfig request_transformer_config = 7;
 }
 
 message AWSLambdaProtocolExtension {
@@ -50,6 +71,8 @@ message AWSLambdaProtocolExtension {
   string session_token = 5;
   // The role_arn to use when generating credentials for the mounted projected SA token
   string role_arn = 6;
+  // Optional override to disable role chaining;
+  bool disable_role_chaining = 7;
 }
 
 message AWSLambdaConfig {
@@ -95,4 +118,18 @@ message AWSLambdaConfig {
     google.protobuf.Duration timeout = 3;
   }
 
+  // Send downstream path and method as `x-envoy-original-path` and
+  // `x-envoy-original-method` headers on the request to AWS lambda.
+  // Defaults to false.
+  bool propagate_original_routing = 3;
+
+  // Sets cadence for refreshing credentials for Service Account.
+  // Does nothing if Service account is not set.
+  // Does not affect the default filewatch for service account only augments it.
+  // Defaults to not refreshing on time period. Suggested is 15 minutes.
+  google.protobuf.Duration credential_refresh_delay = 4;
 }
+
+message ApiGatewayTransformation {
+}
+

@@ -4,12 +4,28 @@ import (
 	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_config_listener_v3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	envoy_config_route_v3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	envoyhcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	envoyhttpconnectionmanager "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
+	"github.com/golang/protobuf/ptypes/any"
+	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
 	"github.com/solo-io/gloo/projects/gloo/pkg/utils"
 	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/cache"
 	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/resource"
 )
+
+var fallbackBindPort = defaults.HttpPort
+
+const (
+	fallbackBindAddr   = "::"
+	fallbackStatusCode = 500
+)
+
+// createFallbackSnapshot returns a snapshot that is served to proxies which
+// do not contain a node identifier, as a way of signaling that they are invalid
+func createFallbackSnapshot() cache.Snapshot {
+	return fallbackSnapshot(fallbackBindAddr, fallbackBindPort, fallbackStatusCode)
+}
 
 func fallbackSnapshot(bindAddress string, port, invalidConfigStatusCode uint32) cache.Snapshot {
 	routeConfigName := "routes-for-invalid-envoy"
@@ -66,6 +82,11 @@ func fallbackSnapshot(bindAddress string, port, invalidConfigStatusCode uint32) 
 		HttpFilters: []*envoyhttpconnectionmanager.HttpFilter{
 			{
 				Name: wellknown.Router,
+				ConfigType: &envoyhcm.HttpFilter_TypedConfig{
+					TypedConfig: &any.Any{
+						TypeUrl: "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router",
+					},
+				},
 			},
 		},
 	}

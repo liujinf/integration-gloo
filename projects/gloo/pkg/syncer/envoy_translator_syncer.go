@@ -2,21 +2,21 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
 	syncerstats "github.com/solo-io/gloo/projects/gloo/pkg/syncer/stats"
 	"github.com/solo-io/go-utils/hashutils"
-	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/resource"
+	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/types"
+	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 
 	"github.com/gorilla/mux"
-	"github.com/rotisserie/eris"
 	"github.com/solo-io/gloo/pkg/utils/syncutil"
-	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	v1snap "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/gloosnapshot"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
 	"github.com/solo-io/gloo/projects/gloo/pkg/xds"
 	"github.com/solo-io/go-utils/contextutils"
-	"github.com/solo-io/go-utils/log"
 	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/cache"
 	envoycache "github.com/solo-io/solo-kit/pkg/api/v1/control-plane/cache"
 	"github.com/solo-io/solo-kit/pkg/api/v2/reporter"
@@ -26,6 +26,11 @@ import (
 	"go.opencensus.io/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+)
+
+const (
+	// The port used to expose a developer server
+	devModePort = 10010
 )
 
 var (
@@ -67,7 +72,8 @@ func measureResource(ctx context.Context, resource string, len int) {
 	}
 }
 
-func (s *translatorSyncer) syncEnvoy(ctx context.Context, snap *v1.ApiSnapshot, allReports reporter.ResourceReports) error {
+// syncEnvoy will translate, sanatize, and set the snapshot for each of the proxies, all while merging all the reports into allReports.
+func (s *translatorSyncer) syncEnvoy(ctx context.Context, snap *v1snap.ApiSnapshot, allReports reporter.ResourceReports) {
 	ctx, span := trace.StartSpan(ctx, "gloo.syncer.Sync")
 	defer span.End()
 
@@ -75,8 +81,8 @@ func (s *translatorSyncer) syncEnvoy(ctx context.Context, snap *v1.ApiSnapshot, 
 	ctx = contextutils.WithLogger(ctx, "envoyTranslatorSyncer")
 	logger := contextutils.LoggerFrom(ctx)
 	snapHash := hashutils.MustHash(snap)
-	logger.Infof("begin sync %v (%v proxies, %v upstreams, %v endpoints, %v secrets, %v artifacts, %v auth configs, %v rate limit configs)", snapHash,
-		len(snap.Proxies), len(snap.Upstreams), len(snap.Endpoints), len(snap.Secrets), len(snap.Artifacts), len(snap.AuthConfigs), len(snap.Ratelimitconfigs))
+	logger.Infof("begin sync %v (%v proxies, %v upstreams, %v endpoints, %v secrets, %v artifacts, %v auth configs, %v rate limit configs, %v graphql apis)", snapHash,
+		len(snap.Proxies), len(snap.Upstreams), len(snap.Endpoints), len(snap.Secrets), len(snap.Artifacts), len(snap.AuthConfigs), len(snap.Ratelimitconfigs), len(snap.GraphqlApis))
 	defer logger.Infof("end sync %v", snapHash)
 
 	// stringifying the snapshot may be an expensive operation, so we'd like to avoid building the large
@@ -91,26 +97,28 @@ func (s *translatorSyncer) syncEnvoy(ctx context.Context, snap *v1.ApiSnapshot, 
 
 	if !s.settings.GetGloo().GetDisableProxyGarbageCollection().GetValue() {
 		allKeys := map[string]bool{
-			xds.FallbackNodeKey: true,
+			xds.FallbackNodeCacheKey: true,
 		}
 		// Get all envoy node ID keys
 		for _, key := range s.xdsCache.GetStatusKeys() {
 			allKeys[key] = false
 		}
-		// Get all valid node ID keys
-		for _, key := range xds.GetValidKeys(snap.Proxies, s.extensionKeys) {
+		// Get all valid node ID keys for Proxies
+		for _, key := range xds.SnapshotCacheKeys(snap.Proxies) {
 			allKeys[key] = true
 		}
+		// Get all valid node ID keys for syncerExtensions (rate-limit, ext-auth)
+		for _, extension := range s.syncerExtensions {
+			allKeys[extension.ID()] = true
+		}
+
 		// preserve keys from the current list of proxies, set previous invalid snapshots to empty snapshot
 		for key, valid := range allKeys {
 			if !valid {
-				if err := s.xdsCache.SetSnapshot(key, emptySnapshot); err != nil {
-					return err
-				}
+				s.xdsCache.SetSnapshot(key, emptySnapshot)
 			}
 		}
 	}
-
 	for _, proxy := range snap.Proxies {
 		proxyCtx := ctx
 		if ctxWithTags, err := tag.New(proxyCtx, tag.Insert(syncerstats.ProxyNameKey, proxy.GetMetadata().Ref().Key())); err == nil {
@@ -120,50 +128,38 @@ func (s *translatorSyncer) syncEnvoy(ctx context.Context, snap *v1.ApiSnapshot, 
 		params := plugins.Params{
 			Ctx:      proxyCtx,
 			Snapshot: snap,
+			Messages: map[*core.ResourceRef][]string{},
 		}
 
-		xdsSnapshot, reports, _, err := s.translator.Translate(params, proxy)
-		if err != nil {
-			err := eris.Wrapf(err, "translation loop failed")
-			logger.DPanicw("", zap.Error(err))
-			return err
+		xdsSnapshot, reports, _ := s.translator.Translate(params, proxy)
+
+		// Messages are aggregated during translation, and need to be added to reports
+		for _, messages := range params.Messages {
+			reports.AddMessages(proxy, messages...)
 		}
 
 		if validateErr := reports.ValidateStrict(); validateErr != nil {
 			logger.Warnw("Proxy had invalid config", zap.Any("proxy", proxy.GetMetadata().Ref()), zap.Error(validateErr))
 		}
 
-		key := xds.SnapshotKey(proxy)
+		sanitizedSnapshot := s.sanitizer.SanitizeSnapshot(ctx, snap, xdsSnapshot, reports)
+		// if the snapshot is not consistent, make it so
+		xdsSnapshot.MakeConsistent()
 
-		sanitizedSnapshot, err := s.sanitizer.SanitizeSnapshot(ctx, snap, xdsSnapshot, reports)
-		if err != nil {
-			logger.Errorf("proxy %v was rejected due to invalid config: %v\n"+
-				"Attempting to update only EDS information", proxy.GetMetadata().Ref().Key(), err)
-
-			// If the snapshot is invalid, attempt at least to update the EDS information. This is important because
-			// endpoints are relatively ephemeral entities and the previous snapshot Envoy got might be stale by now.
-			sanitizedSnapshot, err = s.updateEndpointsOnly(key, xdsSnapshot)
-			if err != nil {
-				logger.Errorf("endpoint update failed. xDS snapshot for proxy %v will not be updated. "+
-					"Error is: %s", proxy.GetMetadata().Ref().Key(), err)
-				continue
-			}
-			logger.Infof("successfully updated EDS information for proxy %v", proxy.GetMetadata().Ref().Key())
+		if validateErr := reports.ValidateStrict(); validateErr != nil {
+			logger.Warnw("Proxy had invalid config after xds sanitization", zap.Any("proxy", proxy.GetMetadata().Ref()), zap.Error(validateErr))
 		}
 
 		// Merge reports after sanitization to capture changes made by the sanitizers
 		allReports.Merge(reports)
-		if err := s.xdsCache.SetSnapshot(key, sanitizedSnapshot); err != nil {
-			err := eris.Wrapf(err, "failed while updating xDS snapshot cache")
-			logger.DPanicw("", zap.Error(err))
-			return err
-		}
+		key := xds.SnapshotCacheKey(proxy)
+		s.xdsCache.SetSnapshot(key, sanitizedSnapshot)
 
 		// Record some metrics
-		clustersLen := len(xdsSnapshot.GetResources(resource.ClusterTypeV3).Items)
-		listenersLen := len(xdsSnapshot.GetResources(resource.ListenerTypeV3).Items)
-		routesLen := len(xdsSnapshot.GetResources(resource.RouteTypeV3).Items)
-		endpointsLen := len(xdsSnapshot.GetResources(resource.EndpointTypeV3).Items)
+		clustersLen := len(xdsSnapshot.GetResources(types.ClusterTypeV3).Items)
+		listenersLen := len(xdsSnapshot.GetResources(types.ListenerTypeV3).Items)
+		routesLen := len(xdsSnapshot.GetResources(types.RouteTypeV3).Items)
+		endpointsLen := len(xdsSnapshot.GetResources(types.EndpointTypeV3).Items)
 
 		measureResource(proxyCtx, "clusters", clustersLen)
 		measureResource(proxyCtx, "listeners", listenersLen)
@@ -180,52 +176,39 @@ func (s *translatorSyncer) syncEnvoy(ctx context.Context, snap *v1.ApiSnapshot, 
 	}
 
 	logger.Debugf("gloo reports to be written: %v", allReports)
-
-	return nil
 }
 
+// ServeXdsSnapshots exposes Gloo configuration as an API when `devMode` in Settings is True.
 // TODO(ilackarms): move this somewhere else, make it part of dev-mode
+// https://github.com/solo-io/gloo/issues/6494
 func (s *translatorSyncer) ServeXdsSnapshots() error {
 	r := mux.NewRouter()
+
+	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, "%v", "Developer API")
+	})
 	r.HandleFunc("/xds", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = fmt.Fprintf(w, log.Sprintf("%v", s.xdsCache))
+		_, _ = fmt.Fprintf(w, "%+v", prettify(s.xdsCache.GetStatusKeys()))
+	})
+	r.HandleFunc("/xds/{key}", func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		xdsCacheKey := vars["key"]
+
+		xdsSnapshot, _ := s.xdsCache.GetSnapshot(xdsCacheKey)
+		_, _ = fmt.Fprintf(w, "%+v", prettify(xdsSnapshot))
 	})
 	r.HandleFunc("/api", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = fmt.Fprintf(w, log.Sprintf("%v", s.latestSnap))
+		_, _ = fmt.Fprintf(w, "%+v", prettify(s.latestSnap))
 	})
-	return http.ListenAndServe(":10010", r)
+
+	return http.ListenAndServe(fmt.Sprintf(":%d", devModePort), r)
 }
 
-// TODO(marco): should we update CDS resources as well?
-// Builds an xDS snapshot by combining:
-// - CDS/LDS/RDS information from the previous xDS snapshot
-// - EDS from the Gloo API snapshot translated curing this sync
-// The resulting snapshot will be checked for consistency before being returned.
-func (s *translatorSyncer) updateEndpointsOnly(snapshotKey string, current envoycache.Snapshot) (envoycache.Snapshot, error) {
-	var newSnapshot cache.Snapshot
-
-	// Get a copy of the last successful snapshot
-	previous, err := s.xdsCache.GetSnapshot(snapshotKey)
+func prettify(original interface{}) string {
+	b, err := json.MarshalIndent(original, "", "    ")
 	if err != nil {
-		// if no previous snapshot exists
-		newSnapshot = xds.NewEndpointsSnapshotFromResources(
-			current.GetResources(resource.EndpointTypeV3),
-			current.GetResources(resource.ClusterTypeV3),
-		)
-	} else {
-		newSnapshot = xds.NewSnapshotFromResources(
-			// Set endpoints and clusters calculated during this sync
-			current.GetResources(resource.EndpointTypeV3),
-			current.GetResources(resource.ClusterTypeV3),
-			// Keep other resources from previous snapshot
-			previous.GetResources(resource.RouteTypeV3),
-			previous.GetResources(resource.ListenerTypeV3),
-		)
+		return ""
 	}
 
-	if err := newSnapshot.Consistent(); err != nil {
-		return nil, err
-	}
-
-	return newSnapshot, nil
+	return string(b)
 }

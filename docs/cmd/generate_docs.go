@@ -10,6 +10,12 @@ import (
 	"log"
 	"os"
 
+	"github.com/spf13/pflag"
+
+	"github.com/solo-io/go-utils/contextutils"
+	"go.uber.org/zap/zapcore"
+	"k8s.io/apimachinery/pkg/util/version"
+
 	"github.com/solo-io/go-utils/securityscanutils"
 
 	"github.com/Masterminds/semver/v3"
@@ -38,12 +44,14 @@ func rootApp(ctx context.Context) *cobra.Command {
 	opts := &options{
 		ctx: ctx,
 	}
+
 	app := &cobra.Command{}
 	app.AddCommand(changelogMdFromGithubCmd(opts))
 	app.AddCommand(securityScanMdFromCmd(opts))
 	app.AddCommand(enterpriseHelmValuesMdFromGithubCmd(opts))
 	app.AddCommand(getReleasesCmd(opts))
 	app.AddCommand(runSecurityScanCmd(opts))
+
 	app.PersistentFlags().StringVarP(&opts.targetRepo, "TargetRepo", "r", glooOpenSourceRepo, "specify one of 'gloo' or 'glooe'")
 	_ = app.MarkFlagRequired("TargetRepo")
 
@@ -106,21 +114,34 @@ func enterpriseHelmValuesMdFromGithubCmd(opts *options) *cobra.Command {
 }
 
 // Command for running the actual security scan on the images
-// running this runs trivy on all images for versions greater than
-// MIN_SCANNED_VERSION.
-// Uploads scanning results to github security tab and google cloud bucket.
 func runSecurityScanCmd(opts *options) *cobra.Command {
+	scanOptions := &runSecurityScanOptions{
+		options: opts,
+	}
 
 	app := &cobra.Command{
 		Use:   "run-security-scan",
 		Short: "runs trivy scans on images from repo specified",
 		Long:  "runs trivy vulnerability scans on images from the repo specified. Only reports HIGH and CRITICAL-level vulnerabilities and uploads scan results to google cloud bucket and github security page",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			err := scanGlooImages(opts.ctx)
+			err := scanImagesForRepo(scanOptions.ctx, scanOptions.targetRepo, scanOptions.vulnerabilityAction)
 			return err
 		},
 	}
+
+	scanOptions.addToFlags(app.Flags())
+
 	return app
+}
+
+type runSecurityScanOptions struct {
+	*options
+
+	vulnerabilityAction string
+}
+
+func (r *runSecurityScanOptions) addToFlags(flags *pflag.FlagSet) {
+	flags.StringVarP(&r.vulnerabilityAction, "vulnerability-action", "a", "none", "action to take when a vulnerability is discovered {none, github-issue-all, github-issue-latest}")
 }
 
 // Fetches releases and serializes them and prints to stdout.
@@ -170,6 +191,7 @@ const (
 )
 
 const (
+	repoOwner          = "solo-io"
 	glooOpenSourceRepo = "gloo"
 	glooEnterpriseRepo = "solo-projects"
 )
@@ -236,13 +258,13 @@ func generateGlooEChangelog() error {
 	}
 	opts := changelogdocutils.Options{
 		NumVersions:           200,
-		MainRepo:              "solo-projects",
-		DependentRepo:         "gloo",
-		RepoOwner:             "solo-io",
+		MainRepo:              glooEnterpriseRepo,
+		DependentRepo:         glooOpenSourceRepo,
+		RepoOwner:             repoOwner,
 		MainRepoReleases:      getCachedReleases(glooeCachedReleasesFile),
 		DependentRepoReleases: getCachedReleases(glooCachedReleasesFile),
 	}
-	depFn, err := changelogdocutils.GetOSDependencyFunc("solo-io", "solo-projects", "gloo", ghToken)
+	depFn, err := changelogdocutils.GetOSDependencyFunc(repoOwner, glooEnterpriseRepo, glooOpenSourceRepo, ghToken)
 	if err != nil {
 		return err
 	}
@@ -292,53 +314,93 @@ func generateSecurityScanMd(opts *options) error {
 	return err
 }
 
-func scanGlooImages(ctx context.Context) error {
-	var (
-		stableOnlyConstraint *semver.Constraints
-		err                  error
-	)
-	minVersionToScan := os.Getenv("MIN_SCANNED_VERSION")
-	if minVersionToScan == "" {
-		log.Println("MIN_SCANNED_VERSION environment variable not set, scanning all versions from repo")
-	} else {
-		stableOnlyConstraint, err = semver.NewConstraint(fmt.Sprintf(">= %s", minVersionToScan))
-		if err != nil {
-			log.Fatalf("Invalid constraint version: %s", minVersionToScan)
-		}
+// scanImagesForRepo executes a SecurityScan for the repo provided
+func scanImagesForRepo(ctx context.Context, targetRepo string, vulnerabilityAction string) error {
+	contextutils.SetLogLevel(zapcore.DebugLevel)
+	logger := contextutils.LoggerFrom(ctx)
+
+	versionConstraint, err := getScannerVersionConstraint()
+	if err != nil {
+		logger.Fatalf("Invalid constraint version: %v", err)
 	}
+	if versionConstraint == nil {
+		// to be extra-safe, we should require devs to configure a constraint
+		logger.Fatalf("No version constraint defined")
+	}
+
+	outputDir := getScannerOutputDir()
+	logger.Debugf("Scanner will write results to directory: %s", outputDir)
+
+	var securityScanRepos []*securityscanutils.SecurityScanRepo
+
+	if targetRepo == glooDocGen {
+		securityScanRepos = append(securityScanRepos, &securityscanutils.SecurityScanRepo{
+			Repo:  glooOpenSourceRepo,
+			Owner: repoOwner,
+			Opts: &securityscanutils.SecurityScanOpts{
+				OutputDir: outputDir,
+				ImagesPerVersion: map[string][]string{
+					">=v1.12.3":            OpenSourceImages(version.MustParseSemantic("1.12.3")),  //extra images: [kubectl]
+					"<v1.12.3, >=v1.12.0":  OpenSourceImages(version.MustParseSemantic("1.12.0")),  //extra images: []
+					"<v1.12.0, >=v1.11.28": OpenSourceImages(version.MustParseSemantic("1.11.28")), //extra images: [gateway, kubectl]
+					"<v1.11.28, >=v1.10.0": OpenSourceImages(version.MustParseSemantic("1.10.0")),  //extra images: [gateway]
+				},
+				VersionConstraint:                      versionConstraint,
+				ImageRepo:                              "quay.io/solo-io",
+				UploadCodeScanToGithub:                 false,
+				CreateGithubIssuePerVersion:            vulnerabilityAction == "github-issue-all",
+				CreateGithubIssueForLatestPatchVersion: vulnerabilityAction == "github-issue-latest",
+			},
+		})
+	}
+
+	if targetRepo == glooEDocGen {
+		securityScanRepos = append(securityScanRepos, &securityscanutils.SecurityScanRepo{
+			Repo:  glooEnterpriseRepo,
+			Owner: repoOwner,
+			Opts: &securityscanutils.SecurityScanOpts{
+				OutputDir: outputDir,
+				ImagesPerVersion: map[string][]string{
+					">=v1.7.x": EnterpriseImages(version.MustParseSemantic("1.7.0")),
+				},
+				VersionConstraint:                      versionConstraint,
+				ImageRepo:                              "quay.io/solo-io",
+				UploadCodeScanToGithub:                 false,
+				CreateGithubIssuePerVersion:            vulnerabilityAction == "github-issue-all",
+				CreateGithubIssueForLatestPatchVersion: vulnerabilityAction == "github-issue-latest",
+			},
+		})
+	}
+
+	if securityScanRepos == nil {
+		logger.Fatalf("No repositories were targeted to be scanned")
+	}
+
 	scanner := &securityscanutils.SecurityScanner{
-		Repos: []*securityscanutils.SecurityScanRepo{
-			{
-				Repo:  "gloo",
-				Owner: "solo-io",
-				Opts: &securityscanutils.SecurityScanOpts{
-					OutputDir: "_output/scans",
-					ImagesPerVersion: map[string][]string{
-						">=v1.6.0": OpenSourceImages(),
-					},
-					VersionConstraint:      stableOnlyConstraint,
-					ImageRepo:              "quay.io/solo-io",
-					UploadCodeScanToGithub: true,
-				},
-			},
-			{
-				Repo:  "solo-projects",
-				Owner: "solo-io",
-				Opts: &securityscanutils.SecurityScanOpts{
-					OutputDir: "_output/scans",
-					ImagesPerVersion: map[string][]string{
-						"<=1.6.x":  EnterpriseImages(true),
-						">=v1.7.x": EnterpriseImages(false),
-					},
-					VersionConstraint:           stableOnlyConstraint,
-					ImageRepo:                   "quay.io/solo-io",
-					UploadCodeScanToGithub:      false,
-					CreateGithubIssuePerVersion: true,
-				},
-			},
-		},
+		Repos: securityScanRepos,
 	}
 	return scanner.GenerateSecurityScans(ctx)
+}
+
+func getScannerVersionConstraint() (*semver.Constraints, error) {
+	if versionConstraint := os.Getenv("VERSION_CONSTRAINT"); versionConstraint != "" {
+		return semver.NewConstraint(fmt.Sprintf("%s", versionConstraint))
+	}
+
+	if minVersionToScan := os.Getenv("MIN_SCANNED_VERSION"); minVersionToScan != "" {
+		return semver.NewConstraint(fmt.Sprintf(">= %s", minVersionToScan))
+	}
+
+	// no constraint applied
+	return nil, nil
+}
+
+// getScannerOutputDir returns the local directory where scans will be accumulated
+func getScannerOutputDir() string {
+	if scanDir := os.Getenv("SCAN_DIR"); scanDir != "" {
+		return scanDir
+	}
+	return "_output/scans"
 }
 
 func generateSecurityScanGloo(ctx context.Context) error {
@@ -351,7 +413,7 @@ func generateSecurityScanGloo(ctx context.Context) error {
 	if useCachedReleases() {
 		allReleases = getCachedReleases(glooCachedReleasesFile)
 	} else {
-		allReleases, err = githubutils.GetAllRepoReleases(ctx, client, "solo-io", glooOpenSourceRepo)
+		allReleases, err = githubutils.GetAllRepoReleases(ctx, client, repoOwner, glooOpenSourceRepo)
 		if err != nil {
 			return err
 		}
@@ -371,7 +433,7 @@ func generateSecurityScanGlooE(ctx context.Context) error {
 	if useCachedReleases() {
 		allReleases = getCachedReleases(glooeCachedReleasesFile)
 	} else {
-		allReleases, err = githubutils.GetAllRepoReleases(ctx, client, "solo-io", glooEnterpriseRepo)
+		allReleases, err = githubutils.GetAllRepoReleases(ctx, client, repoOwner, glooEnterpriseRepo)
 		if err != nil {
 			return err
 		}
@@ -400,7 +462,7 @@ func fetchEnterpriseHelmValues(args []string) error {
 		return err
 	}
 	minorReleaseTag := fmt.Sprintf("v%d.%d.x", version.Major(), version.Minor())
-	files, err := githubutils.GetFilesFromGit(ctx, client, "solo-io", glooEnterpriseRepo, minorReleaseTag, path)
+	files, err := githubutils.GetFilesFromGit(ctx, client, repoOwner, glooEnterpriseRepo, minorReleaseTag, path)
 	if err != nil {
 		return err
 	}

@@ -15,7 +15,7 @@ Gloo is shipped by default with prometheus 11.x charts, and provides a set of de
 {{% /notice %}}
 
 {{% notice note %}}
-For a complete set of options, please refer to: https://github.com/prometheus-community/helm-charts/blob/main/charts/prometheus/values.yaml, or run `helm show values prometheus-community/prometheus`
+For a complete set of options, refer to the [Prometheus community Helm charts](https://github.com/prometheus-community/helm-charts/blob/main/charts/prometheus/values.yaml), or run `helm show values prometheus-community/prometheus`.
 {{% /notice %}}
 
 ## Run Your Own Prometheus
@@ -38,11 +38,9 @@ grafana:
 The envoy pod publishes its fairly comprehensive metrics on port 19000. You can view the available ones by running:
 ```bash
 # Port-forward to envoy's admin port:
-kubectl port-forward deployment/gateway-proxy 19000
+kubectl -n gloo-system port-forward deployment/gateway-proxy 19000
 
 curl http://localhost:19000/stats/prometheus
 ```
 
 You can use these to customize the dashboards that get created for every upstream, as described [here]({{% versioned_link_path fromRoot="/guides/observability/grafana/dashboards/#dynamically-generated-dashboards" %}}).
-
-{{% children description="true" %}}

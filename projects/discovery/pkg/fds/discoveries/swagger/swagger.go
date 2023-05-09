@@ -12,14 +12,14 @@ import (
 	openapi "github.com/go-openapi/spec"
 	"github.com/go-openapi/swag"
 	"github.com/hashicorp/go-multierror"
-
+	errors "github.com/rotisserie/eris"
 	"github.com/solo-io/go-utils/contextutils"
 	"github.com/solo-io/go-utils/log"
 
-	errors "github.com/rotisserie/eris"
 	"github.com/solo-io/gloo/projects/discovery/pkg/fds"
 	transformation_plugins "github.com/solo-io/gloo/projects/gloo/pkg/api/external/envoy/extensions/transformation"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/enterprise/options/graphql/v1beta1"
 	plugins "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options"
 	rest_plugins "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/rest"
 )
@@ -35,13 +35,21 @@ var commonSwaggerURIs = []string{
 // TODO(yuval-k): run this in a back off for a limited amount of time, with high initial retry.
 // maybe backoff with initial 1 minute a total of 10 minutes till giving up. this should probably be configurable
 
+func NewFunctionDiscoveryFactory() fds.FunctionDiscoveryFactory {
+	return &SwaggerFunctionDiscoveryFactory{
+		DetectionTimeout: time.Minute,
+		FunctionPollTime: time.Second * 15,
+	}
+}
+
 type SwaggerFunctionDiscoveryFactory struct {
 	DetectionTimeout time.Duration
 	FunctionPollTime time.Duration
 	SwaggerUrisToTry []string
+	GraphqlClient    v1beta1.GraphQLApiClient
 }
 
-func (f *SwaggerFunctionDiscoveryFactory) NewFunctionDiscovery(u *v1.Upstream) fds.UpstreamFunctionDiscovery {
+func (f *SwaggerFunctionDiscoveryFactory) NewFunctionDiscovery(u *v1.Upstream, _ fds.AdditionalClients) fds.UpstreamFunctionDiscovery {
 	return &SwaggerFunctionDiscovery{
 		detectionTimeout: f.DetectionTimeout,
 		functionPollTime: f.FunctionPollTime,
@@ -57,7 +65,7 @@ type SwaggerFunctionDiscovery struct {
 	swaggerUrisToTry []string
 }
 
-func getswagspec(u *v1.Upstream) *rest_plugins.ServiceSpec_SwaggerInfo {
+func getSwagSpec(u *v1.Upstream) *rest_plugins.ServiceSpec_SwaggerInfo {
 	spec, ok := u.GetUpstreamType().(v1.ServiceSpecGetter)
 	if !ok {
 		return nil
@@ -66,28 +74,20 @@ func getswagspec(u *v1.Upstream) *rest_plugins.ServiceSpec_SwaggerInfo {
 	if serviceSpec == nil {
 		return nil
 	}
-	restwrapper, ok := serviceSpec.GetPluginType().(*plugins.ServiceSpec_Rest)
+	restWrapper, ok := serviceSpec.GetPluginType().(*plugins.ServiceSpec_Rest)
 	if !ok {
 		return nil
 	}
-	rest := restwrapper.Rest
+	rest := restWrapper.Rest
 	return rest.GetSwaggerInfo()
 }
 
 func (f *SwaggerFunctionDiscovery) IsFunctional() bool {
-	return getswagspec(f.upstream) != nil
+	return getSwagSpec(f.upstream) != nil
 }
 
 func (f *SwaggerFunctionDiscovery) DetectType(ctx context.Context, baseurl *url.URL) (*plugins.ServiceSpec, error) {
-	var spec *plugins.ServiceSpec
-
-	err := contextutils.NewExponentioalBackoff(contextutils.ExponentioalBackoff{MaxDuration: &f.detectionTimeout}).Backoff(ctx, func(ctx context.Context) error {
-		var err error
-		spec, err = f.detectUpstreamTypeOnce(ctx, baseurl)
-		return err
-	})
-
-	return spec, err
+	return f.detectUpstreamTypeOnce(ctx, baseurl)
 }
 
 func (f *SwaggerFunctionDiscovery) detectUpstreamTypeOnce(ctx context.Context, baseUrl *url.URL) (*plugins.ServiceSpec, error) {
@@ -121,7 +121,7 @@ func (f *SwaggerFunctionDiscovery) detectUpstreamTypeOnce(ctx context.Context, b
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil, ctx.Err()
+				return nil, multierror.Append(err, ctx.Err())
 			}
 			errs = multierror.Append(errs, errors.Wrapf(err, "could not perform HTTP GET on resolved addr: %v", url))
 			continue
@@ -131,7 +131,7 @@ func (f *SwaggerFunctionDiscovery) detectUpstreamTypeOnce(ctx context.Context, b
 			if _, err := RetrieveSwaggerDocFromUrl(ctx, url); err != nil {
 				// first check if this is a context error
 				if ctx.Err() != nil {
-					return nil, ctx.Err()
+					return nil, multierror.Append(err, ctx.Err())
 				}
 				errs = multierror.Append(errs, err)
 				continue
@@ -161,9 +161,9 @@ func (f *SwaggerFunctionDiscovery) detectUpstreamTypeOnce(ctx context.Context, b
 
 }
 
-func (f *SwaggerFunctionDiscovery) DetectFunctions(ctx context.Context, url *url.URL, _ func() fds.Dependencies, updatecb func(fds.UpstreamMutator) error) error {
+func (f *SwaggerFunctionDiscovery) DetectFunctions(ctx context.Context, _ *url.URL, _ func() fds.Dependencies, updatecb func(fds.UpstreamMutator) error) error {
 	in := f.upstream
-	spec := getswagspec(in)
+	spec := getSwagSpec(in)
 	if spec == nil || spec.GetSwaggerSpec() == nil {
 		// TODO: make this a fatal error that avoids restarts?
 		return errors.New("upstream doesn't have a swagger spec")
@@ -179,31 +179,33 @@ func (f *SwaggerFunctionDiscovery) DetectFunctions(ctx context.Context, url *url
 }
 
 func (f *SwaggerFunctionDiscovery) detectFunctionsFromUrl(ctx context.Context, url string, in *v1.Upstream, updatecb func(fds.UpstreamMutator) error) error {
-	for {
-		err := contextutils.NewExponentioalBackoff(contextutils.ExponentioalBackoff{}).Backoff(ctx, func(ctx context.Context) error {
+	err := contextutils.NewExponentialBackoff(contextutils.ExponentialBackoff{}).Backoff(ctx, func(ctx context.Context) error {
 
-			spec, err := RetrieveSwaggerDocFromUrl(ctx, url)
-			if err != nil {
-				return err
-			}
-			err = f.detectFunctionsFromSpec(ctx, spec, in, updatecb)
-			if err != nil {
-				return err
-			}
-			return nil
-		})
+		spec, err := RetrieveSwaggerDocFromUrl(ctx, url)
 		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			// ignore other erros as we would like to continue forever.
-		}
-
-		if err := contextutils.Sleep(ctx, f.functionPollTime); err != nil {
 			return err
 		}
+		err = f.detectFunctionsFromSpec(ctx, spec, in, updatecb)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		contextutils.LoggerFrom(ctx).Warnf("Unable to perform Swagger function discovery for upstream %s in namespace %s, error: ",
+			f.upstream.GetMetadata().GetName(),
+			f.upstream.GetMetadata().GetNamespace(),
+			err.Error(),
+		)
+		// ignore other errors as we would like to continue forever.
 	}
-
+	if err := contextutils.Sleep(ctx, f.functionPollTime); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (f *SwaggerFunctionDiscovery) detectFunctionsFromInline(ctx context.Context, document string, in *v1.Upstream, updatecb func(fds.UpstreamMutator) error) error {
@@ -250,15 +252,15 @@ func (f *SwaggerFunctionDiscovery) detectFunctionsFromSpec(ctx context.Context, 
 		if spec == nil {
 			spec = &plugins.ServiceSpec{}
 		}
-		restspec, ok := spec.GetPluginType().(*plugins.ServiceSpec_Rest)
+		restSpec, ok := spec.GetPluginType().(*plugins.ServiceSpec_Rest)
 		if !ok {
-			restspec = &plugins.ServiceSpec_Rest{
+			restSpec = &plugins.ServiceSpec_Rest{
 				Rest: &rest_plugins.ServiceSpec{},
 			}
 		}
 
-		restspec.Rest.Transformations = funcs
-		spec.PluginType = restspec
+		restSpec.Rest.Transformations = funcs
+		spec.PluginType = restSpec
 
 		upstreamSpec.SetServiceSpec(spec)
 		return nil

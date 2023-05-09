@@ -6,15 +6,16 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/ptypes/wrappers"
+
 	envoycore_sk "github.com/solo-io/solo-kit/pkg/api/external/envoy/api/v2/core"
 
 	"knative.dev/networking/pkg/apis/networking"
 	"knative.dev/pkg/network"
 
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/core/matchers"
+	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/ssl"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	v1alpha1 "github.com/solo-io/gloo/projects/knative/pkg/api/external/knative"
@@ -23,7 +24,6 @@ import (
 
 	errors "github.com/rotisserie/eris"
 	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
-	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/retries"
 	"github.com/solo-io/go-utils/log"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 	knativev1alpha1 "knative.dev/networking/pkg/apis/networking/v1alpha1"
@@ -47,7 +47,7 @@ const (
 	sslAnnotationKeySecretNamespace = "gloo.networking.knative.dev/ssl.secret_namespace"
 )
 
-func sslConfigFromAnnotations(annotations map[string]string, namespace string) *gloov1.SslConfig {
+func sslConfigFromAnnotations(annotations map[string]string, namespace string) *ssl.SslConfig {
 	secretName, ok := annotations[sslAnnotationKeySecretName]
 	if !ok {
 		return nil
@@ -60,8 +60,8 @@ func sslConfigFromAnnotations(annotations map[string]string, namespace string) *
 
 	sniDomains := strings.Split(annotations[sslAnnotationKeySniDomains], ",")
 
-	return &gloov1.SslConfig{
-		SslSecrets: &gloov1.SslConfig_SecretRef{
+	return &ssl.SslConfig{
+		SslSecrets: &ssl.SslConfig_SecretRef{
 			SecretRef: &core.ResourceRef{
 				Name:      secretName,
 				Namespace: secretNamespace,
@@ -123,10 +123,10 @@ func TranslateProxyFromSpecs(ctx context.Context, proxyName, proxyNamespace stri
 	}, nil
 }
 
-func routingConfig(ctx context.Context, ingresses map[*core.Metadata]knativev1alpha1.IngressSpec) ([]*gloov1.VirtualHost, []*gloov1.VirtualHost, []*gloov1.SslConfig, error) {
+func routingConfig(ctx context.Context, ingresses map[*core.Metadata]knativev1alpha1.IngressSpec) ([]*gloov1.VirtualHost, []*gloov1.VirtualHost, []*ssl.SslConfig, error) {
 
 	var virtualHostsHttp, virtualHostsHttps []*gloov1.VirtualHost
-	var sslConfigs []*gloov1.SslConfig
+	var sslConfigs []*ssl.SslConfig
 	for ing, spec := range ingresses {
 
 		for _, tls := range spec.TLS {
@@ -136,9 +136,9 @@ func routingConfig(ctx context.Context, ingresses map[*core.Metadata]knativev1al
 				secretNamespace = ing.GetNamespace()
 			}
 
-			sslConfigs = append(sslConfigs, &gloov1.SslConfig{
+			sslConfigs = append(sslConfigs, &ssl.SslConfig{
 				SniDomains: tls.Hosts,
-				SslSecrets: &gloov1.SslConfig_SecretRef{
+				SslSecrets: &ssl.SslConfig_SecretRef{
 					// pass secret through to gloo,
 					// allow Gloo to perform secret validation
 					SecretRef: &core.ResourceRef{
@@ -169,22 +169,6 @@ func routingConfig(ctx context.Context, ingresses map[*core.Metadata]knativev1al
 					pathRegex = ".*"
 				}
 
-				var timeout time.Duration
-				if route.DeprecatedTimeout != nil {
-					timeout = route.DeprecatedTimeout.Duration
-				}
-				var retryPolicy *retries.RetryPolicy
-				if route.DeprecatedRetries != nil {
-					var perTryTimeout time.Duration
-					if route.DeprecatedRetries.PerTryTimeout != nil {
-						perTryTimeout = route.DeprecatedRetries.PerTryTimeout.Duration
-					}
-					retryPolicy = &retries.RetryPolicy{
-						NumRetries:    uint32(route.DeprecatedRetries.Attempts),
-						PerTryTimeout: ptypes.DurationProto(perTryTimeout),
-					}
-				}
-
 				action, err := routeActionFromSplits(route.Splits)
 				if err != nil {
 					return nil, nil, nil, errors.Wrapf(err, "")
@@ -201,8 +185,6 @@ func routingConfig(ctx context.Context, ingresses map[*core.Metadata]knativev1al
 					},
 					Options: &gloov1.RouteOptions{
 						HeaderManipulation: getHeaderManipulation(route.AppendHeaders),
-						Timeout:            ptypes.DurationProto(timeout),
-						Retries:            retryPolicy,
 					},
 				}
 				routes = append(routes, route)
@@ -264,7 +246,7 @@ func routeActionFromSplits(splits []knativev1alpha1.IngressBackendSplit) (*gloov
 			Destination: &gloov1.Destination{
 				DestinationType: serviceForSplit(split),
 			},
-			Weight:  weight,
+			Weight:  &wrappers.UInt32Value{Value: weight},
 			Options: weightedDestinationPlugins,
 		})
 	}

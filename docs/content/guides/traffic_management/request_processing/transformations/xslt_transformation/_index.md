@@ -1,8 +1,12 @@
 ---
-title: SOAP/XSLT transformation
+title: SOAP/XSLT transformation (Enterprise)
 weight: 10
 description: Transforming the request body from SOAP/XML to a JSON.
 ---
+
+{{% notice note %}}
+This feature requires a Gloo Edge Enterprise license. 
+{{% /notice %}}
 
 ## Introduction
 
@@ -12,10 +16,6 @@ Modern services have adopted newer message formats, one of which is JSON. Modern
 JSON can often mean rewriting the service entirely. This guide shows you a way of allowing for clients and services'
 message formats to differ by performing the translation within Gloo Edge. We leverage 
 powerful XSLT transformations to allow for an XML-based SOAP service to communicate with a JSON client.
-
-{{% notice note %}}
-The XSLT transformation feature was introduced with **Gloo Edge Enterprise**, release 1.8.0-beta3. If you are using an earlier version, this tutorial will not work.
-{{% /notice %}}
 
 # Setup
 

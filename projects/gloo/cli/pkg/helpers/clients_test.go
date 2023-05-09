@@ -5,7 +5,7 @@ import (
 
 	"github.com/hashicorp/consul/api"
 	api2 "github.com/hashicorp/vault/api"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/consul"
@@ -52,7 +52,7 @@ var _ = Describe("Clients", func() {
 	})
 	Describe("UseConsulClients", func() {
 		BeforeEach(func() {
-			UseConsulClients(&api.Client{}, "")
+			UseConsulClients(&api.Client{}, "", &api.QueryOptions{})
 		})
 		AfterEach(func() {
 			UseDefaultClients()
@@ -75,7 +75,7 @@ var _ = Describe("Clients", func() {
 	})
 	Describe("UseVaultClients", func() {
 		BeforeEach(func() {
-			UseVaultClients(&api2.Client{}, "")
+			UseVaultClients(&api2.Client{}, "", "")
 		})
 		AfterEach(func() {
 			UseDefaultClients()

@@ -1,3 +1,4 @@
+//go:build ignore
 // +build ignore
 
 package docs_demo
@@ -151,7 +152,7 @@ func makeDesiredProxy(upstreams v1.UpstreamList) *v1.Proxy {
 			Routes: []*v1.Route{{
 				// use a basic catch-all matcher
 				Matchers: []*matchers.Matcher{
-					&matchers.Matcher{
+					{
 						PathSpecifier: &matchers.Matcher_Prefix{
 							Prefix: "/",
 						},

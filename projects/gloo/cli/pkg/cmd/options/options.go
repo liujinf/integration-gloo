@@ -3,13 +3,15 @@ package options
 import (
 	"context"
 	"sort"
+	"time"
+
+	"github.com/solo-io/gloo/projects/gloo/cli/pkg/cmd/options/contextoptions"
+	printTypes "github.com/solo-io/gloo/projects/gloo/cli/pkg/printers"
 
 	rltypes "github.com/solo-io/solo-apis/pkg/api/ratelimit.solo.io/v1alpha1"
 
-	"github.com/hashicorp/consul/api"
 	vaultapi "github.com/hashicorp/vault/api"
 	"github.com/rotisserie/eris"
-	printTypes "github.com/solo-io/gloo/projects/gloo/cli/pkg/printers"
 	extauth "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/enterprise/options/extauth/v1"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 )
@@ -30,20 +32,17 @@ type Options struct {
 	Istio     Istio
 	Remove    Remove
 	Cluster   Cluster
+	Check     Check
+	CheckCRD  CheckCRD
 }
-
 type Top struct {
-	Interactive    bool
-	File           string
-	CheckName      []string
-	Output         printTypes.OutputType
-	Ctx            context.Context
-	Verbose        bool   // currently only used by install and uninstall, sends kubectl command output to terminal
-	KubeConfig     string // file to use for kube config, if not standard one.
-	Zip            bool
-	ErrorsOnly     bool
-	ConfigFilePath string
-	Consul         Consul // use consul as config backend
+	contextoptions.ContextAccessible
+	CheckName          []string
+	Output             printTypes.OutputType
+	Ctx                context.Context
+	Zip                bool
+	PodSelector        string   // label selector for pod scanning
+	ResourceNamespaces []string // namespaces in which to check custom resources
 }
 
 type HelmInstall struct {
@@ -114,16 +113,20 @@ type Edit struct {
 type Route struct {
 }
 
-type Consul struct {
-	UseConsul bool // enable consul config clients
-	RootKey   string
-	Client    func() (*api.Client, error)
-}
-
 type Vault struct {
-	UseVault bool // enable vault secret clients
-	RootKey  string
-	Client   func() (*vaultapi.Client, error)
+	// enable vault secret clients
+	UseVault bool
+
+	// https://learn.hashicorp.com/tutorials/vault/getting-started-secrets-engines
+	// PathPrefix tells Vault which secrets engine to which it should route traffic.
+	PathPrefix string
+
+	// Secrets are persisted using a resource client constructed in solo-kit
+	// https://github.com/solo-io/solo-kit/blob/1d799ae290c2f516f01fc4ad20272d7d2d5db1e7/pkg/api/v1/clients/vault/resource_client.go#L311
+	// The RootKey is used to configure the path for the particular Gloo installation
+	// This ensures that you can run multiple instances of Gloo against the same Consul cluster
+	RootKey string
+	Client  func() (*vaultapi.Client, error)
 }
 
 type Create struct {
@@ -151,11 +154,12 @@ type Add struct {
 }
 
 type Istio struct {
-	Upstream           string // upstream for which we are changing the istio mTLS settings
-	IncludeUpstreams   bool   // whether or not to modify upstreams when uninstalling mTLS
-	Namespace          string // namespace in which istio is installed
-	IstioMetaMeshId    string // IstioMetaMeshId sets ISTIO_META_MESH_ID env var
-	IstioMetaClusterId string // IstioMetaClusterId sets ISTIO_META_CLUSTER_ID env var
+	Upstream              string // upstream for which we are changing the istio mTLS settings
+	IncludeUpstreams      bool   // whether or not to modify upstreams when uninstalling mTLS
+	Namespace             string // namespace in which istio is installed
+	IstioMetaMeshId       string // IstioMetaMeshId sets ISTIO_META_MESH_ID env var
+	IstioMetaClusterId    string // IstioMetaClusterId sets ISTIO_META_CLUSTER_ID env var
+	IstioDiscoveryAddress string // IstioDiscoveryAddress sets discoveryAddress field within PROXY_CONFIG env var
 }
 
 type InputRoute struct {
@@ -225,6 +229,8 @@ type Delegate struct {
 type AwsDestinationSpec struct {
 	LogicalName            string
 	ResponseTransformation bool
+	UnwrapAsAlb            bool
+	UnwrapAsAPIGateway     bool
 }
 
 type RestDestinationSpec struct {
@@ -428,4 +434,15 @@ type Register struct {
 	ClusterName                string
 	LocalClusterDomainOverride string
 	RemoteNamespace            string
+}
+
+type Check struct {
+	// The maximum length of time alloted to `glooctl check`. A value of zero means no timeout.
+	CheckTimeout time.Duration
+}
+
+type CheckCRD struct {
+	Version    string
+	LocalChart string
+	ShowYaml   bool
 }

@@ -8,7 +8,7 @@ import (
 
 	"github.com/solo-io/gloo/projects/gloo/cli/pkg/argsutils"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/solo-io/gloo/projects/gloo/cli/pkg/helpers"
@@ -57,13 +57,12 @@ var _ = Describe("ExtauthOauth", func() {
 		Expect(err).NotTo(HaveOccurred())
 		fmt.Print(out)
 		Expect(out).To(ContainSubstring(`data:
-  oauth: Y2xpZW50U2VjcmV0OiAiMTIzIgo=
+  client-secret: MTIz
 metadata:
-  annotations:
-    resource_kind: '*v1.Secret'
   creationTimestamp: null
   name: oauth
   namespace: gloo-system
+type: extauth.solo.io/oauth
 `))
 
 	})

@@ -493,6 +493,17 @@ func (m *TransformationTemplate) Equal(that interface{}) bool {
 
 	}
 
+	if len(m.GetHeadersToRemove()) != len(target.GetHeadersToRemove()) {
+		return false
+	}
+	for idx, v := range m.GetHeadersToRemove() {
+
+		if strings.Compare(v, target.GetHeadersToRemove()[idx]) != 0 {
+			return false
+		}
+
+	}
+
 	if m.GetParseBodyBehavior() != target.GetParseBodyBehavior() {
 		return false
 	}
@@ -669,6 +680,10 @@ func (m *HeaderBodyTransform) Equal(that interface{}) bool {
 	if target == nil {
 		return m == nil
 	} else if m == nil {
+		return false
+	}
+
+	if m.GetAddRequestMetadata() != target.GetAddRequestMetadata() {
 		return false
 	}
 

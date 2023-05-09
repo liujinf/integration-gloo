@@ -15,6 +15,15 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+var (
+	// Compile-time assertion
+	_ resources.InputResource = new(Proxy)
+)
+
+func NewProxyHashableResource() resources.HashableResource {
+	return new(Proxy)
+}
+
 func NewProxy(namespace, name string) *Proxy {
 	proxy := &Proxy{}
 	proxy.SetMetadata(&core.Metadata{

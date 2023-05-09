@@ -1,7 +1,6 @@
 package grpc
 
 import (
-	"context"
 	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
@@ -32,15 +31,28 @@ import (
 	"google.golang.org/genproto/googleapis/api/annotations"
 )
 
+var (
+	_ plugins.Plugin           = new(plugin)
+	_ plugins.UpstreamPlugin   = new(plugin)
+	_ plugins.RoutePlugin      = new(plugin)
+	_ plugins.HttpFilterPlugin = new(plugin)
+)
+
+const (
+	ExtensionName = "grpc"
+)
+
+var pluginStage = plugins.BeforeStage(plugins.OutAuthStage)
+
+type plugin struct {
+	recordedUpstreams map[string]*v1.Upstream
+	upstreamServices  []ServicesAndDescriptor
+}
+
 type ServicesAndDescriptor struct {
 	Spec        *grpcapi.ServiceSpec
 	Descriptors *descriptor.FileDescriptorSet
 }
-
-var _ plugins.Plugin = &plugin{}
-var _ plugins.UpstreamPlugin = &plugin{}
-var _ plugins.RoutePlugin = &plugin{}
-var _ plugins.HttpFilterPlugin = &plugin{}
 
 func NewPlugin() *plugin {
 	return &plugin{
@@ -48,18 +60,13 @@ func NewPlugin() *plugin {
 	}
 }
 
-type plugin struct {
-	recordedUpstreams map[string]*v1.Upstream
-	upstreamServices  []ServicesAndDescriptor
-
-	ctx context.Context
+func (p *plugin) Name() string {
+	return ExtensionName
 }
 
-var pluginStage = plugins.BeforeStage(plugins.OutAuthStage)
-
-func (p *plugin) Init(params plugins.InitParams) error {
-	p.ctx = params.Ctx
-	return nil
+func (p *plugin) Init(params plugins.InitParams) {
+	p.recordedUpstreams = make(map[string]*v1.Upstream)
+	p.upstreamServices = nil
 }
 
 func (p *plugin) ProcessUpstream(params plugins.Params, in *v1.Upstream, out *envoy_config_cluster_v3.Cluster) error {
@@ -71,13 +78,20 @@ func (p *plugin) ProcessUpstream(params plugins.Params, in *v1.Upstream, out *en
 	if upstreamType.GetServiceSpec() == nil {
 		return nil
 	}
-
+	// If the upstream uses the new API we should record that it exists for use in `ProcessRoute` but not make any changes
+	_, ok = upstreamType.GetServiceSpec().GetPluginType().(*glooplugins.ServiceSpec_GrpcJsonTranscoder)
+	if ok {
+		p.recordedUpstreams[translator.UpstreamToClusterName(in.GetMetadata().Ref())] = in
+		return nil
+	}
 	grpcWrapper, ok := upstreamType.GetServiceSpec().GetPluginType().(*glooplugins.ServiceSpec_Grpc)
 	if !ok {
 		return nil
 	}
+
 	grpcSpec := grpcWrapper.Grpc
 
+	// GRPC transcoding always requires http2
 	if out.GetHttp2ProtocolOptions() == nil {
 		out.Http2ProtocolOptions = &envoy_config_core_v3.Http2ProtocolOptions{}
 	}
@@ -107,7 +121,7 @@ func (p *plugin) ProcessUpstream(params plugins.Params, in *v1.Upstream, out *en
 		Descriptors: descriptors,
 		Spec:        grpcSpec,
 	})
-	contextutils.LoggerFrom(p.ctx).Debugf("in.Metadata.Namespace: %s, in.Metadata.Name: %s", in.GetMetadata().GetNamespace(), in.GetMetadata().GetName())
+	contextutils.LoggerFrom(params.Ctx).Debugf("record grpc upstream in.Metadata.Namespace: %s, in.Metadata.Name: %s cluster: %s", in.GetMetadata().GetNamespace(), in.GetMetadata().GetName(), translator.UpstreamToClusterName(in.GetMetadata().Ref()))
 
 	return nil
 }
@@ -136,7 +150,7 @@ func convertProto(encodedBytes []byte) (*descriptor.FileDescriptorSet, error) {
 // gloo creates these descriptors automatically (if gRPC reflection is enabled),
 // uses its transformation filter to provide the context for the json-grpc translation.
 func (p *plugin) ProcessRoute(params plugins.RouteParams, in *v1.Route, out *envoy_config_route_v3.Route) error {
-	return pluginutils.MarkPerFilterConfig(p.ctx, params.Snapshot, in, out, transformation.FilterName,
+	return pluginutils.MarkPerFilterConfig(params.Ctx, params.Snapshot, in, out, transformation.FilterName,
 		func(spec *v1.Destination) (proto.Message, error) {
 			// check if it's grpc destination
 			if spec.GetDestinationSpec() == nil {
@@ -166,15 +180,22 @@ func (p *plugin) ProcessRoute(params plugins.RouteParams, in *v1.Route, out *env
 
 			upstreamRef, err := upstreams.DestinationToUpstreamRef(spec)
 			if err != nil {
-				contextutils.LoggerFrom(p.ctx).Error(err)
+				contextutils.LoggerFrom(params.Ctx).Error(err)
 				return nil, err
 			}
 
 			upstream := p.recordedUpstreams[translator.UpstreamToClusterName(upstreamRef)]
 			if upstream == nil {
-				return nil, errors.New("upstream was not recorded for grpc route")
+				return nil, errors.New(fmt.Sprintf("upstream %v was not recorded for grpc route", upstreamRef))
 			}
+			// If we saved the upstream then it has a ServiceSpec that is either Grpc or GrpcJsonTranscoder
+			upstreamType, _ := upstream.GetUpstreamType().(v1.ServiceSpecGetter)
 
+			// If the upstream uses the new API we assume the descriptors and vs match and do not do any transformations
+			_, ok = upstreamType.GetServiceSpec().GetPluginType().(*glooplugins.ServiceSpec_GrpcJsonTranscoder)
+			if ok {
+				return nil, nil
+			}
 			// create the transformation for the route
 			outPath := httpPath(upstream, fullServiceName, methodName)
 
@@ -307,7 +328,7 @@ func (p *plugin) HttpFilters(params plugins.Params, listener *v1.HttpListener) (
 			MatchIncomingRequestRoute: true,
 		}
 
-		shf, err := plugins.NewStagedFilterWithConfig(wellknown.GRPCJSONTranscoder, filterConfig, pluginStage)
+		shf, err := plugins.NewStagedFilter(wellknown.GRPCJSONTranscoder, filterConfig, pluginStage)
 		if err != nil {
 			return nil, errors.Wrapf(err, "ERROR: marshaling GrpcJsonTranscoder config")
 		}

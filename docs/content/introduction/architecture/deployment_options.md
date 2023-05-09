@@ -30,7 +30,6 @@ The simplest and most common deployment option for Gloo Edge is using Kubernetes
 The following components of Gloo Edge are deployed as separate pods and deployments:
 
 * Gloo
-* Gateway
 * Discovery
 * Envoy
 
@@ -40,7 +39,7 @@ Each deployment creates a replica set for the pods, which can be used to scale t
 
 Along with the pods and deployments, three services are created.
 
-* `gloo`: Type ClusterIP exposing the ports 9966 (grpc metrics), 9977 (grpc-xds), 9979 (wasm-cache), and 9988 (grpc-validation)
+* `gloo`: Type ClusterIP exposing the ports 9966 (grpc-proxydebug), 9977 (grpc-xds), 9979 (wasm-cache), and 9988 (grpc-validation)
 * `gateway`: Type ClusterIP exposing the port 443
 * `gateway-proxy`: Type LoadBalancer exposing the ports 80, 443
 
@@ -67,7 +66,7 @@ Gloo Edge makes use of secrets in Kubernetes to store tokens, certificates, and 
 * gloo-token: Mounted as a volume on `gloo` pods.
 * sh.helm.release.v1.gloo.v1
 
-Gloo Edge makes use of certificates for validation and authentication. When Gloo Edge in gateway mode is installed, it runs a job to generate certificates. The resulting certificate is stored in a Kubernetes secret called `gateway-validation-certs`, and mapped as a volume to the `gateway` pods.
+Gloo Edge makes use of certificates for validation and authentication. When Gloo Edge is installed in gateway mode, it runs a job to generate certificates. The resulting certificate is stored in a Kubernetes secret called `gateway-validation-certs`, and mapped as a volume to the `gloo` pods.
 
 ### Custom Resource Definitions
 
@@ -102,7 +101,6 @@ Nomad is used to deploy the Gloo Edge containers by using Gloo Edge deployment j
 
 * gloo
 * discovery
-* gateway
 * gateway-proxy
 
 Within the definition of each task is the port mappings and service names for each group of containers.

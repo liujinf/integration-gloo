@@ -1,14 +1,24 @@
 package als_test
 
 import (
+	"strconv"
+
 	envoyal "github.com/envoyproxy/go-control-plane/envoy/config/accesslog/v3"
-	envoy_config_listener_v3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	envoy_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoy_route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoyalfile "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/file/v3"
+	envoy_extensions_filters_network_http_connection_manager_v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	envoy_types "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	structpb "github.com/golang/protobuf/ptypes/struct"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/als"
+	gloo_envoy_v3 "github.com/solo-io/gloo/projects/gloo/pkg/api/external/envoy/config/core/v3"
+	gloo_envoy_route "github.com/solo-io/gloo/projects/gloo/pkg/api/external/envoy/config/route/v3"
+	gloo_envoy_types "github.com/solo-io/gloo/projects/gloo/pkg/api/external/envoy/type/v3"
+	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	accessLogService "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/als"
+	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 	"github.com/solo-io/solo-kit/test/matchers"
 
@@ -16,39 +26,35 @@ import (
 	translatorutil "github.com/solo-io/gloo/projects/gloo/pkg/translator"
 
 	envoygrpc "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/grpc/v3"
-	envoyhttp "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
-	envoytcp "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
-	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
-	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
 )
 
 var _ = Describe("Plugin", func() {
-	var (
-		alsConfig *als.AccessLoggingService
+
+	const (
+		FILTER_RUNTIME_KEY                                 = "FILTER RUNTIME KEY"
+		STATUS_CODE_VALUE                           uint32 = 400
+		DURATION_FILTER_VALUE                       uint32 = 20
+		FRACTIONAL_PERCENT_NUMERATOR                uint32 = 25
+		FRACTIONAL_PERCENT_DENOMINATOR_TYPE         uint32 = 1
+		INVALID_FRACTIONAL_PERCENT_DENOMINATOR_TYPE uint32 = 10
+		INVALID_OP                                         = 10
+		HEADER_MATCHER_NAME_STRING                         = "HEADER MATCHER NAME STRING"
 	)
-	Context("grpc", func() {
 
+	// Fake constant for the slice
+	var response_flags_test_constant = []string{"LH", "UH", "UT"}
+
+	// Because we are just translatating the filters using marshaling/unmarshaling, we should test each filter type
+	// to make sure we copied/pasted correctly and that no changes made to the Envoy definitions broke anything
+	Describe("Test each Filter", func() {
 		var (
-			params plugins.Params
-			usRef  *core.ResourceRef
-
-			logName      string
-			extraHeaders []string
+			alsSettings      *accessLogService.AccessLoggingService
+			logName          string
+			extraHeaders     []string
+			usRef            *core.ResourceRef
+			accessLogConfigs []*envoyal.AccessLog
+			err              error
 		)
-
-		var checkConfig = func(al *envoyal.AccessLog) {
-			Expect(al.Name).To(Equal(wellknown.HTTPGRPCAccessLog))
-			var falCfg envoygrpc.HttpGrpcAccessLogConfig
-			err := translatorutil.ParseTypedConfig(al, &falCfg)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(falCfg.AdditionalResponseTrailersToLog).To(Equal(extraHeaders))
-			Expect(falCfg.AdditionalResponseTrailersToLog).To(Equal(extraHeaders))
-			Expect(falCfg.AdditionalResponseTrailersToLog).To(Equal(extraHeaders))
-			Expect(falCfg.CommonConfig.LogName).To(Equal(logName))
-			envoyGrpc := falCfg.CommonConfig.GetGrpcService().GetEnvoyGrpc()
-			Expect(envoyGrpc).NotTo(BeNil())
-			Expect(envoyGrpc.ClusterName).To(Equal(translatorutil.UpstreamToClusterName(usRef)))
-		}
 
 		BeforeEach(func() {
 			logName = "test"
@@ -57,13 +63,14 @@ var _ = Describe("Plugin", func() {
 				Name:      "default",
 				Namespace: "default",
 			}
-			alsConfig = &als.AccessLoggingService{
-				AccessLog: []*als.AccessLog{
+
+			alsSettings = &accessLogService.AccessLoggingService{
+				AccessLog: []*accessLogService.AccessLog{
 					{
-						OutputDestination: &als.AccessLog_GrpcService{
-							GrpcService: &als.GrpcService{
+						OutputDestination: &accessLogService.AccessLog_GrpcService{
+							GrpcService: &accessLogService.GrpcService{
 								LogName: logName,
-								ServiceRef: &als.GrpcService_StaticClusterName{
+								ServiceRef: &accessLogService.GrpcService_StaticClusterName{
 									StaticClusterName: translatorutil.UpstreamToClusterName(usRef),
 								},
 								AdditionalRequestHeadersToLog:   extraHeaders,
@@ -74,225 +81,626 @@ var _ = Describe("Plugin", func() {
 					},
 				},
 			}
-			params = plugins.Params{
-				Snapshot: &v1.ApiSnapshot{
-					Upstreams: v1.UpstreamList{
-						{
-							// UpstreamSpec: nil,
-							Metadata: &core.Metadata{
-								Name:      usRef.Name,
-								Namespace: usRef.Namespace,
+		})
+
+		Describe("Test each Filter", func() {
+			AfterEach(func() {
+				accessLogConfig := accessLogConfigs[0]
+
+				Expect(accessLogConfig.Name).To(Equal(wellknown.HTTPGRPCAccessLog))
+				var falCfg envoygrpc.HttpGrpcAccessLogConfig
+				err = translatorutil.ParseTypedConfig(accessLogConfig, &falCfg)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(falCfg.AdditionalRequestHeadersToLog).To(Equal(extraHeaders))
+				Expect(falCfg.AdditionalResponseHeadersToLog).To(Equal(extraHeaders))
+				Expect(falCfg.AdditionalResponseTrailersToLog).To(Equal(extraHeaders))
+				Expect(falCfg.CommonConfig.LogName).To(Equal(logName))
+				envoyGrpc := falCfg.CommonConfig.GetGrpcService().GetEnvoyGrpc()
+				Expect(envoyGrpc).NotTo(BeNil())
+				Expect(envoyGrpc.ClusterName).To(Equal(translatorutil.UpstreamToClusterName(usRef)))
+			})
+
+			DescribeTable("Test each filter is translated properly",
+				func(glooInputFilter *accessLogService.AccessLogFilter, expectedEnvoyFilter *envoyal.AccessLogFilter) {
+
+					accessLog := alsSettings.GetAccessLog()[0]
+					accessLog.Filter = glooInputFilter
+
+					accessLogConfigs, err = ProcessAccessLogPlugins(alsSettings, nil)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(accessLogConfigs).To(HaveLen(1))
+					accessLogConfig := accessLogConfigs[0]
+
+					accessLogFilter := accessLogConfig.GetFilter()
+					Expect(accessLogFilter).To(matchers.MatchProto(expectedEnvoyFilter))
+
+				},
+				Entry(
+					"nil filter",
+					&accessLogService.AccessLogFilter{},
+					&envoyal.AccessLogFilter{}),
+				Entry(
+					"StatusCodeFilter",
+					&accessLogService.AccessLogFilter{
+						FilterSpecifier: &accessLogService.AccessLogFilter_StatusCodeFilter{
+							StatusCodeFilter: &accessLogService.StatusCodeFilter{
+								Comparison: &accessLogService.ComparisonFilter{
+									Op:    accessLogService.ComparisonFilter_EQ,
+									Value: &gloo_envoy_v3.RuntimeUInt32{DefaultValue: STATUS_CODE_VALUE},
+								},
+							},
+						},
+					},
+					&envoyal.AccessLogFilter{
+						FilterSpecifier: &envoyal.AccessLogFilter_StatusCodeFilter{
+							StatusCodeFilter: &envoyal.StatusCodeFilter{
+								Comparison: &envoyal.ComparisonFilter{
+									Op:    envoyal.ComparisonFilter_EQ,
+									Value: &envoy_v3.RuntimeUInt32{DefaultValue: STATUS_CODE_VALUE},
+								},
+							},
+						},
+					}),
+				Entry(
+					"DurationFilter",
+					&accessLogService.AccessLogFilter{
+						FilterSpecifier: &accessLogService.AccessLogFilter_DurationFilter{
+							DurationFilter: &accessLogService.DurationFilter{
+								Comparison: &accessLogService.ComparisonFilter{
+									Op:    accessLogService.ComparisonFilter_EQ,
+									Value: &gloo_envoy_v3.RuntimeUInt32{DefaultValue: DURATION_FILTER_VALUE},
+								},
+							},
+						},
+					},
+					&envoyal.AccessLogFilter{
+						FilterSpecifier: &envoyal.AccessLogFilter_DurationFilter{
+							DurationFilter: &envoyal.DurationFilter{
+								Comparison: &envoyal.ComparisonFilter{
+									Op:    envoyal.ComparisonFilter_EQ,
+									Value: &envoy_v3.RuntimeUInt32{DefaultValue: DURATION_FILTER_VALUE},
+								},
+							},
+						},
+					}),
+				Entry(
+					"NotHealthCheckFilter",
+					&accessLogService.AccessLogFilter{
+						FilterSpecifier: &accessLogService.AccessLogFilter_NotHealthCheckFilter{
+							NotHealthCheckFilter: &accessLogService.NotHealthCheckFilter{},
+						},
+					},
+					&envoyal.AccessLogFilter{
+						FilterSpecifier: &envoyal.AccessLogFilter_NotHealthCheckFilter{
+							NotHealthCheckFilter: &envoyal.NotHealthCheckFilter{},
+						},
+					}),
+				Entry(
+					"TraceableFilter",
+					&accessLogService.AccessLogFilter{
+						FilterSpecifier: &accessLogService.AccessLogFilter_TraceableFilter{
+							TraceableFilter: &accessLogService.TraceableFilter{},
+						},
+					},
+					&envoyal.AccessLogFilter{
+						FilterSpecifier: &envoyal.AccessLogFilter_TraceableFilter{
+							TraceableFilter: &envoyal.TraceableFilter{},
+						},
+					}),
+				Entry(
+					"RuntimeFilter",
+					&accessLogService.AccessLogFilter{
+						FilterSpecifier: &accessLogService.AccessLogFilter_RuntimeFilter{
+							RuntimeFilter: &accessLogService.RuntimeFilter{
+								RuntimeKey: FILTER_RUNTIME_KEY,
+								PercentSampled: &gloo_envoy_types.FractionalPercent{
+									Numerator:   FRACTIONAL_PERCENT_NUMERATOR,
+									Denominator: gloo_envoy_types.FractionalPercent_DenominatorType(FRACTIONAL_PERCENT_DENOMINATOR_TYPE),
+								},
+								UseIndependentRandomness: true,
+							},
+						},
+					},
+					&envoyal.AccessLogFilter{
+						FilterSpecifier: &envoyal.AccessLogFilter_RuntimeFilter{
+							RuntimeFilter: &envoyal.RuntimeFilter{
+								RuntimeKey: FILTER_RUNTIME_KEY,
+								PercentSampled: &envoy_types.FractionalPercent{
+									Numerator:   FRACTIONAL_PERCENT_NUMERATOR,
+									Denominator: envoy_types.FractionalPercent_DenominatorType(FRACTIONAL_PERCENT_DENOMINATOR_TYPE),
+								},
+								UseIndependentRandomness: true,
+							},
+						},
+					}),
+				Entry(
+					"AndFilter",
+					&accessLogService.AccessLogFilter{
+						FilterSpecifier: &accessLogService.AccessLogFilter_AndFilter{
+							AndFilter: &accessLogService.AndFilter{
+								Filters: []*accessLogService.AccessLogFilter{
+									{
+										FilterSpecifier: &accessLogService.AccessLogFilter_HeaderFilter{},
+									},
+									{
+										FilterSpecifier: &accessLogService.AccessLogFilter_ResponseFlagFilter{},
+									},
+									{
+										FilterSpecifier: &accessLogService.AccessLogFilter_GrpcStatusFilter{},
+									},
+								},
+							},
+						},
+					},
+					&envoyal.AccessLogFilter{
+						FilterSpecifier: &envoyal.AccessLogFilter_AndFilter{
+							AndFilter: &envoyal.AndFilter{
+								Filters: []*envoyal.AccessLogFilter{
+									{
+										FilterSpecifier: &envoyal.AccessLogFilter_HeaderFilter{},
+									},
+									{
+										FilterSpecifier: &envoyal.AccessLogFilter_ResponseFlagFilter{},
+									},
+									{
+										FilterSpecifier: &envoyal.AccessLogFilter_GrpcStatusFilter{},
+									},
+								},
+							},
+						},
+					}),
+				Entry(
+					"OrFilter",
+					&accessLogService.AccessLogFilter{
+						FilterSpecifier: &accessLogService.AccessLogFilter_OrFilter{
+							OrFilter: &accessLogService.OrFilter{
+								Filters: []*accessLogService.AccessLogFilter{
+									{
+										FilterSpecifier: &accessLogService.AccessLogFilter_HeaderFilter{},
+									},
+									{
+										FilterSpecifier: &accessLogService.AccessLogFilter_ResponseFlagFilter{},
+									},
+									{
+										FilterSpecifier: &accessLogService.AccessLogFilter_GrpcStatusFilter{},
+									},
+								},
+							},
+						},
+					},
+					&envoyal.AccessLogFilter{
+						FilterSpecifier: &envoyal.AccessLogFilter_OrFilter{
+							OrFilter: &envoyal.OrFilter{
+								Filters: []*envoyal.AccessLogFilter{
+									{
+										FilterSpecifier: &envoyal.AccessLogFilter_HeaderFilter{},
+									},
+									{
+										FilterSpecifier: &envoyal.AccessLogFilter_ResponseFlagFilter{},
+									},
+									{
+										FilterSpecifier: &envoyal.AccessLogFilter_GrpcStatusFilter{},
+									},
+								},
+							},
+						},
+					}),
+				Entry(
+					"HeaderFilter",
+					&accessLogService.AccessLogFilter{
+						FilterSpecifier: &accessLogService.AccessLogFilter_HeaderFilter{
+							HeaderFilter: &accessLogService.HeaderFilter{
+								Header: &gloo_envoy_route.HeaderMatcher{
+									Name:        HEADER_MATCHER_NAME_STRING,
+									InvertMatch: true,
+								},
+							},
+						},
+					},
+					&envoyal.AccessLogFilter{
+						FilterSpecifier: &envoyal.AccessLogFilter_HeaderFilter{
+							HeaderFilter: &envoyal.HeaderFilter{
+								Header: &envoy_route.HeaderMatcher{
+									Name:        HEADER_MATCHER_NAME_STRING,
+									InvertMatch: true,
+								},
+							},
+						},
+					}),
+				Entry(
+					"ResponseFlagFilter",
+					&accessLogService.AccessLogFilter{
+						FilterSpecifier: &accessLogService.AccessLogFilter_ResponseFlagFilter{
+							ResponseFlagFilter: &accessLogService.ResponseFlagFilter{
+								Flags: response_flags_test_constant,
+							},
+						},
+					},
+					&envoyal.AccessLogFilter{
+						FilterSpecifier: &envoyal.AccessLogFilter_ResponseFlagFilter{
+							ResponseFlagFilter: &envoyal.ResponseFlagFilter{
+								Flags: response_flags_test_constant,
+							},
+						},
+					}),
+				Entry(
+					"GrpcStatusFilter",
+					&accessLogService.AccessLogFilter{
+						FilterSpecifier: &accessLogService.AccessLogFilter_GrpcStatusFilter{
+							GrpcStatusFilter: &accessLogService.GrpcStatusFilter{
+								// We're using CONSTANTS elsewhere, but its easier to just put the values directly
+								// into the literal slice, especially since the gloo/envoy types are technically different
+								Statuses: []accessLogService.GrpcStatusFilter_Status{1, 2},
+								Exclude:  false,
+							},
+						},
+					},
+					&envoyal.AccessLogFilter{
+						FilterSpecifier: &envoyal.AccessLogFilter_GrpcStatusFilter{
+							GrpcStatusFilter: &envoyal.GrpcStatusFilter{
+								Statuses: []envoyal.GrpcStatusFilter_Status{1, 2},
+								Exclude:  false,
+							},
+						},
+					}),
+			)
+
+		})
+
+		DescribeTable("Test We Correctly Handle Bad Enum",
+			func(glooInputFilter *accessLogService.AccessLogFilter, expectedError error) {
+
+				accessLog := alsSettings.GetAccessLog()[0]
+				accessLog.Filter = glooInputFilter
+
+				accessLogConfigs, err = ProcessAccessLogPlugins(alsSettings, nil)
+				Expect(err).To(HaveOccurred())
+				Expect(err).Should(MatchError(expectedError))
+
+				Expect(accessLogConfigs).To(HaveLen(0))
+			},
+			Entry(
+				"Bad Denominator in RuntimeFilter",
+				&accessLogService.AccessLogFilter{
+					FilterSpecifier: &accessLogService.AccessLogFilter_RuntimeFilter{
+						RuntimeFilter: &accessLogService.RuntimeFilter{
+							RuntimeKey: FILTER_RUNTIME_KEY,
+							PercentSampled: &gloo_envoy_types.FractionalPercent{
+								Numerator:   FRACTIONAL_PERCENT_NUMERATOR,
+								Denominator: gloo_envoy_types.FractionalPercent_DenominatorType(INVALID_FRACTIONAL_PERCENT_DENOMINATOR_TYPE),
+							},
+							UseIndependentRandomness: true,
+						},
+					},
+				},
+				InvalidEnumValueError("RuntimeFilter", "FractionalPercent.Denominator", strconv.FormatUint(uint64(INVALID_FRACTIONAL_PERCENT_DENOMINATOR_TYPE), 10)),
+			),
+			Entry(
+				"Bad OP in StatusCodeFilter",
+				&accessLogService.AccessLogFilter{
+					FilterSpecifier: &accessLogService.AccessLogFilter_StatusCodeFilter{
+						StatusCodeFilter: &accessLogService.StatusCodeFilter{
+							Comparison: &accessLogService.ComparisonFilter{
+								Op:    accessLogService.ComparisonFilter_Op(INVALID_OP),
+								Value: &gloo_envoy_v3.RuntimeUInt32{DefaultValue: STATUS_CODE_VALUE},
 							},
 						},
 					},
 				},
-			}
-		})
-		It("http", func() {
-			hl := &v1.HttpListener{}
-
-			in := &v1.Listener{
-				ListenerType: &v1.Listener_HttpListener{
-					HttpListener: hl,
+				InvalidEnumValueError("StatusCodeFilter", "ComparisonFilter.Op", strconv.Itoa(INVALID_OP)),
+			),
+			Entry(
+				"Bad OP in DurationFilter",
+				&accessLogService.AccessLogFilter{
+					FilterSpecifier: &accessLogService.AccessLogFilter_DurationFilter{
+						DurationFilter: &accessLogService.DurationFilter{
+							Comparison: &accessLogService.ComparisonFilter{
+								Op:    accessLogService.ComparisonFilter_Op(INVALID_OP),
+								Value: &gloo_envoy_v3.RuntimeUInt32{DefaultValue: STATUS_CODE_VALUE},
+							},
+						},
+					},
 				},
-				Options: &v1.ListenerOptions{
-					AccessLoggingService: alsConfig,
+				InvalidEnumValueError("DurationFilter", "ComparisonFilter.Op", strconv.Itoa(INVALID_OP)),
+			),
+			Entry(
+				"Bad Subfilter in AndFilter",
+				&accessLogService.AccessLogFilter{
+					FilterSpecifier: &accessLogService.AccessLogFilter_AndFilter{
+						AndFilter: &accessLogService.AndFilter{
+							Filters: []*accessLogService.AccessLogFilter{
+								{
+									FilterSpecifier: &accessLogService.AccessLogFilter_HeaderFilter{},
+								},
+								{
+									FilterSpecifier: &accessLogService.AccessLogFilter_ResponseFlagFilter{},
+								},
+								{
+									FilterSpecifier: &accessLogService.AccessLogFilter_RuntimeFilter{
+										RuntimeFilter: &accessLogService.RuntimeFilter{
+											RuntimeKey: FILTER_RUNTIME_KEY,
+											PercentSampled: &gloo_envoy_types.FractionalPercent{
+												Numerator:   FRACTIONAL_PERCENT_NUMERATOR,
+												Denominator: gloo_envoy_types.FractionalPercent_DenominatorType(INVALID_FRACTIONAL_PERCENT_DENOMINATOR_TYPE),
+											},
+											UseIndependentRandomness: true,
+										},
+									},
+								},
+							},
+						},
+					},
 				},
-			}
-
-			filters := []*envoy_config_listener_v3.Filter{{
-				Name: wellknown.HTTPConnectionManager,
-			}}
-
-			outl := &envoy_config_listener_v3.Listener{
-				FilterChains: []*envoy_config_listener_v3.FilterChain{{
-					Filters: filters,
-				}},
-			}
-
-			p := NewPlugin()
-			err := p.ProcessListener(params, in, outl)
-			Expect(err).NotTo(HaveOccurred())
-
-			var cfg envoyhttp.HttpConnectionManager
-			err = translatorutil.ParseTypedConfig(filters[0], &cfg)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(cfg.AccessLog).To(HaveLen(1))
-			al := cfg.AccessLog[0]
-			checkConfig(al)
-		})
-		It("tcp", func() {
-			tl := &v1.TcpListener{}
-			in := &v1.Listener{
-				ListenerType: &v1.Listener_TcpListener{
-					TcpListener: tl,
+				WrapInvalidEnumValueError(
+					"AndFilter",
+					InvalidEnumValueError("RuntimeFilter", "FractionalPercent.Denominator", strconv.FormatUint(uint64(INVALID_FRACTIONAL_PERCENT_DENOMINATOR_TYPE), 10)),
+				),
+			),
+			Entry(
+				"Bad Subfilter in OrFilter",
+				&accessLogService.AccessLogFilter{
+					FilterSpecifier: &accessLogService.AccessLogFilter_OrFilter{
+						OrFilter: &accessLogService.OrFilter{
+							Filters: []*accessLogService.AccessLogFilter{
+								{
+									FilterSpecifier: &accessLogService.AccessLogFilter_HeaderFilter{},
+								},
+								{
+									FilterSpecifier: &accessLogService.AccessLogFilter_ResponseFlagFilter{},
+								},
+								{
+									FilterSpecifier: &accessLogService.AccessLogFilter_RuntimeFilter{
+										RuntimeFilter: &accessLogService.RuntimeFilter{
+											RuntimeKey: FILTER_RUNTIME_KEY,
+											PercentSampled: &gloo_envoy_types.FractionalPercent{
+												Numerator:   FRACTIONAL_PERCENT_NUMERATOR,
+												Denominator: gloo_envoy_types.FractionalPercent_DenominatorType(INVALID_FRACTIONAL_PERCENT_DENOMINATOR_TYPE),
+											},
+											UseIndependentRandomness: true,
+										},
+									},
+								},
+							},
+						},
+					},
 				},
-				Options: &v1.ListenerOptions{
-					AccessLoggingService: alsConfig,
+				WrapInvalidEnumValueError(
+					"OrFilter",
+					InvalidEnumValueError("RuntimeFilter", "FractionalPercent.Denominator", strconv.FormatUint(uint64(INVALID_FRACTIONAL_PERCENT_DENOMINATOR_TYPE), 10)),
+				),
+			),
+			Entry(
+				"Bad status in GrpcStatusFilter",
+				&accessLogService.AccessLogFilter{
+					FilterSpecifier: &accessLogService.AccessLogFilter_GrpcStatusFilter{
+						GrpcStatusFilter: &accessLogService.GrpcStatusFilter{
+							Statuses: []accessLogService.GrpcStatusFilter_Status{100},
+							Exclude:  false,
+						},
+					},
 				},
-			}
+				InvalidEnumValueError("GrpcStatusFilter", "Status", "100"),
+			),
+		)
 
-			filters := []*envoy_config_listener_v3.Filter{{
-				Name: wellknown.TCPProxy,
-			}}
-
-			outl := &envoy_config_listener_v3.Listener{
-				FilterChains: []*envoy_config_listener_v3.FilterChain{{
-					Filters: filters,
-				}},
-			}
-
-			p := NewPlugin()
-			err := p.ProcessListener(params, in, outl)
-			Expect(err).NotTo(HaveOccurred())
-
-			var cfg envoytcp.TcpProxy
-			err = translatorutil.ParseTypedConfig(filters[0], &cfg)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(cfg.AccessLog).To(HaveLen(1))
-			al := cfg.AccessLog[0]
-			checkConfig(al)
-		})
 	})
 
-	Context("file", func() {
+	Context("ProcessAccessLogPlugins", func() {
+
+		var alsSettings *accessLogService.AccessLoggingService
+
+		Context("grpc", func() {
+
+			var (
+				usRef *core.ResourceRef
+
+				logName      string
+				extraHeaders []string
+			)
+
+			BeforeEach(func() {
+				logName = "test"
+				extraHeaders = []string{"test"}
+				usRef = &core.ResourceRef{
+					Name:      "default",
+					Namespace: "default",
+				}
+				alsSettings = &accessLogService.AccessLoggingService{
+					AccessLog: []*accessLogService.AccessLog{
+						{
+							OutputDestination: &accessLogService.AccessLog_GrpcService{
+								GrpcService: &accessLogService.GrpcService{
+									LogName: logName,
+									ServiceRef: &accessLogService.GrpcService_StaticClusterName{
+										StaticClusterName: translatorutil.UpstreamToClusterName(usRef),
+									},
+									AdditionalRequestHeadersToLog:   extraHeaders,
+									AdditionalResponseHeadersToLog:  extraHeaders,
+									AdditionalResponseTrailersToLog: extraHeaders,
+								},
+							},
+						},
+					},
+				}
+			})
+
+			It("works", func() {
+				accessLogConfigs, err := ProcessAccessLogPlugins(alsSettings, nil)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(accessLogConfigs).To(HaveLen(1))
+				alConfig := accessLogConfigs[0]
+
+				Expect(alConfig.Name).To(Equal(wellknown.HTTPGRPCAccessLog))
+				var falCfg envoygrpc.HttpGrpcAccessLogConfig
+				err = translatorutil.ParseTypedConfig(alConfig, &falCfg)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(falCfg.AdditionalRequestHeadersToLog).To(Equal(extraHeaders))
+				Expect(falCfg.AdditionalResponseHeadersToLog).To(Equal(extraHeaders))
+				Expect(falCfg.AdditionalResponseTrailersToLog).To(Equal(extraHeaders))
+				Expect(falCfg.CommonConfig.LogName).To(Equal(logName))
+				envoyGrpc := falCfg.CommonConfig.GetGrpcService().GetEnvoyGrpc()
+				Expect(envoyGrpc).NotTo(BeNil())
+				Expect(envoyGrpc.ClusterName).To(Equal(translatorutil.UpstreamToClusterName(usRef)))
+			})
+
+		})
+
+		Context("file", func() {
+
+			var (
+				strFormat, path string
+				jsonFormat      *structpb.Struct
+				fsStrFormat     *accessLogService.FileSink_StringFormat
+				fsJsonFormat    *accessLogService.FileSink_JsonFormat
+			)
+
+			BeforeEach(func() {
+				strFormat, path = "formatting string", "path"
+				jsonFormat = &structpb.Struct{
+					Fields: map[string]*structpb.Value{},
+				}
+				fsStrFormat = &accessLogService.FileSink_StringFormat{
+					StringFormat: strFormat,
+				}
+				fsJsonFormat = &accessLogService.FileSink_JsonFormat{
+					JsonFormat: jsonFormat,
+				}
+			})
+
+			Context("string", func() {
+
+				BeforeEach(func() {
+					alsSettings = &accessLogService.AccessLoggingService{
+						AccessLog: []*accessLogService.AccessLog{
+							{
+								OutputDestination: &accessLogService.AccessLog_FileSink{
+									FileSink: &accessLogService.FileSink{
+										Path:         path,
+										OutputFormat: fsStrFormat,
+									},
+								},
+							},
+						},
+					}
+				})
+
+				It("works", func() {
+					accessLogConfigs, err := ProcessAccessLogPlugins(alsSettings, nil)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(accessLogConfigs).To(HaveLen(1))
+					alConfig := accessLogConfigs[0]
+
+					Expect(alConfig.Name).To(Equal(wellknown.FileAccessLog))
+					var falCfg envoyalfile.FileAccessLog
+					err = translatorutil.ParseTypedConfig(alConfig, &falCfg)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(falCfg.Path).To(Equal(path))
+					str := falCfg.GetLogFormat().GetTextFormat()
+					Expect(str).To(Equal(strFormat))
+				})
+
+			})
+
+			Context("json", func() {
+
+				BeforeEach(func() {
+					alsSettings = &accessLogService.AccessLoggingService{
+						AccessLog: []*accessLogService.AccessLog{
+							{
+								OutputDestination: &accessLogService.AccessLog_FileSink{
+									FileSink: &accessLogService.FileSink{
+										Path:         path,
+										OutputFormat: fsJsonFormat,
+									},
+								},
+							},
+						},
+					}
+				})
+
+				It("works", func() {
+					accessLogConfigs, err := ProcessAccessLogPlugins(alsSettings, nil)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(accessLogConfigs).To(HaveLen(1))
+					alConfig := accessLogConfigs[0]
+
+					Expect(alConfig.Name).To(Equal(wellknown.FileAccessLog))
+					var falCfg envoyalfile.FileAccessLog
+					err = translatorutil.ParseTypedConfig(alConfig, &falCfg)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(falCfg.Path).To(Equal(path))
+					jsn := falCfg.GetLogFormat().GetJsonFormat()
+					Expect(jsn).To(matchers.MatchProto(jsonFormat))
+				})
+
+			})
+		})
+
+	})
+
+	Context("ProcessHcmNetworkFilter", func() {
+
 		var (
-			strFormat, path string
-			jsonFormat      *structpb.Struct
-			fsStrFormat     *als.FileSink_StringFormat
-			fsJsonFormat    *als.FileSink_JsonFormat
+			plugin       plugins.HttpConnectionManagerPlugin
+			pluginParams plugins.Params
+
+			parentListener *v1.Listener
+			listener       *v1.HttpListener
+
+			envoyHcmConfig *envoy_extensions_filters_network_http_connection_manager_v3.HttpConnectionManager
 		)
 
 		BeforeEach(func() {
-			strFormat, path = "formatting string", "path"
-			jsonFormat = &structpb.Struct{
-				Fields: map[string]*structpb.Value{},
-			}
-			fsStrFormat = &als.FileSink_StringFormat{
-				StringFormat: strFormat,
-			}
-			fsJsonFormat = &als.FileSink_JsonFormat{
-				JsonFormat: jsonFormat,
-			}
+			plugin = NewPlugin()
+			pluginParams = plugins.Params{}
+
+			parentListener = &v1.Listener{}
+			listener = &v1.HttpListener{}
+
+			envoyHcmConfig = &envoy_extensions_filters_network_http_connection_manager_v3.HttpConnectionManager{}
 		})
 
-		Context("string", func() {
-
-			var checkConfig = func(al *envoyal.AccessLog) {
-				Expect(al.Name).To(Equal(wellknown.FileAccessLog))
-				var falCfg envoyalfile.FileAccessLog
-				err := translatorutil.ParseTypedConfig(al, &falCfg)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(falCfg.Path).To(Equal(path))
-				str := falCfg.GetLogFormat().GetTextFormat()
-				Expect(str).To(Equal(strFormat))
-			}
+		When("parent listener has no access log settings defined", func() {
 
 			BeforeEach(func() {
-				alsConfig = &als.AccessLoggingService{
-					AccessLog: []*als.AccessLog{
-						{
-							OutputDestination: &als.AccessLog_FileSink{
-								FileSink: &als.FileSink{
-									Path:         path,
-									OutputFormat: fsStrFormat,
-								},
-							},
-						},
-					},
-				}
+				parentListener.Options = nil
 			})
-			It("http", func() {
-				hl := &v1.HttpListener{}
 
-				in := &v1.Listener{
-					ListenerType: &v1.Listener_HttpListener{
-						HttpListener: hl,
-					},
-					Options: &v1.ListenerOptions{
-						AccessLoggingService: alsConfig,
-					},
-				}
-
-				filters := []*envoy_config_listener_v3.Filter{{
-					Name: wellknown.HTTPConnectionManager,
-				}}
-
-				outl := &envoy_config_listener_v3.Listener{
-					FilterChains: []*envoy_config_listener_v3.FilterChain{{
-						Filters: filters,
-					}},
-				}
-
-				p := NewPlugin()
-				err := p.ProcessListener(plugins.Params{}, in, outl)
+			It("does not configure access log config", func() {
+				err := plugin.ProcessHcmNetworkFilter(pluginParams, parentListener, listener, envoyHcmConfig)
 				Expect(err).NotTo(HaveOccurred())
-
-				var cfg envoyhttp.HttpConnectionManager
-				err = translatorutil.ParseTypedConfig(filters[0], &cfg)
-				Expect(err).NotTo(HaveOccurred())
-
-				Expect(cfg.AccessLog).To(HaveLen(1))
-				al := cfg.AccessLog[0]
-				checkConfig(al)
-			})
-			It("tcp", func() {
-				tl := &v1.TcpListener{}
-				in := &v1.Listener{
-					ListenerType: &v1.Listener_TcpListener{
-						TcpListener: tl,
-					},
-					Options: &v1.ListenerOptions{
-						AccessLoggingService: alsConfig,
-					},
-				}
-
-				filters := []*envoy_config_listener_v3.Filter{{
-					Name: wellknown.TCPProxy,
-				}}
-
-				outl := &envoy_config_listener_v3.Listener{
-					FilterChains: []*envoy_config_listener_v3.FilterChain{{
-						Filters: filters,
-					}},
-				}
-
-				p := NewPlugin()
-				err := p.ProcessListener(plugins.Params{}, in, outl)
-				Expect(err).NotTo(HaveOccurred())
-
-				var cfg envoytcp.TcpProxy
-				err = translatorutil.ParseTypedConfig(filters[0], &cfg)
-				Expect(err).NotTo(HaveOccurred())
-
-				Expect(cfg.AccessLog).To(HaveLen(1))
-				al := cfg.AccessLog[0]
-				checkConfig(al)
+				Expect(envoyHcmConfig.GetAccessLog()).To(BeNil())
 			})
 
 		})
 
-		Context("json", func() {
-			var checkConfig = func(al *envoyal.AccessLog) {
-				Expect(al.Name).To(Equal(wellknown.FileAccessLog))
-				var falCfg envoyalfile.FileAccessLog
-				err := translatorutil.ParseTypedConfig(al, &falCfg)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(falCfg.Path).To(Equal(path))
-				jsn := falCfg.GetLogFormat().GetJsonFormat()
-				Expect(jsn).To(matchers.MatchProto(jsonFormat))
-			}
+		When("parent listener has access log settings defined", func() {
 
 			BeforeEach(func() {
-				alsConfig = &als.AccessLoggingService{
-					AccessLog: []*als.AccessLog{
-						{
-							OutputDestination: &als.AccessLog_FileSink{
-								FileSink: &als.FileSink{
-									Path:         path,
-									OutputFormat: fsJsonFormat,
+				logName := "test"
+				extraHeaders := []string{"test"}
+				usRef := &core.ResourceRef{
+					Name:      "default",
+					Namespace: "default",
+				}
+				parentListener.Options = &v1.ListenerOptions{
+					AccessLoggingService: &accessLogService.AccessLoggingService{
+						AccessLog: []*accessLogService.AccessLog{
+							{
+								OutputDestination: &accessLogService.AccessLog_GrpcService{
+									GrpcService: &accessLogService.GrpcService{
+										LogName: logName,
+										ServiceRef: &accessLogService.GrpcService_StaticClusterName{
+											StaticClusterName: translatorutil.UpstreamToClusterName(usRef),
+										},
+										AdditionalRequestHeadersToLog:   extraHeaders,
+										AdditionalResponseHeadersToLog:  extraHeaders,
+										AdditionalResponseTrailersToLog: extraHeaders,
+									},
 								},
 							},
 						},
@@ -300,72 +708,66 @@ var _ = Describe("Plugin", func() {
 				}
 			})
 
-			It("http", func() {
-				hl := &v1.HttpListener{}
-				in := &v1.Listener{
-					ListenerType: &v1.Listener_HttpListener{
-						HttpListener: hl,
-					},
-					Options: &v1.ListenerOptions{
-						AccessLoggingService: alsConfig,
-					},
-				}
-
-				filters := []*envoy_config_listener_v3.Filter{{
-					Name: wellknown.HTTPConnectionManager,
-				}}
-
-				outl := &envoy_config_listener_v3.Listener{
-					FilterChains: []*envoy_config_listener_v3.FilterChain{{
-						Filters: filters,
-					}},
-				}
-
-				p := NewPlugin()
-				err := p.ProcessListener(plugins.Params{}, in, outl)
+			It("does configure access log config", func() {
+				err := plugin.ProcessHcmNetworkFilter(pluginParams, parentListener, listener, envoyHcmConfig)
 				Expect(err).NotTo(HaveOccurred())
-
-				var cfg envoyhttp.HttpConnectionManager
-				err = translatorutil.ParseTypedConfig(filters[0], &cfg)
-				Expect(err).NotTo(HaveOccurred())
-
-				Expect(cfg.AccessLog).To(HaveLen(1))
-				al := cfg.AccessLog[0]
-				checkConfig(al)
+				Expect(envoyHcmConfig.GetAccessLog()).NotTo(BeNil())
 			})
-			It("tcp", func() {
-				tl := &v1.TcpListener{}
-				in := &v1.Listener{
-					ListenerType: &v1.Listener_TcpListener{
-						TcpListener: tl,
-					},
-					Options: &v1.ListenerOptions{
-						AccessLoggingService: alsConfig,
-					},
-				}
 
-				filters := []*envoy_config_listener_v3.Filter{{
-					Name: wellknown.TCPProxy,
-				}}
-
-				outl := &envoy_config_listener_v3.Listener{
-					FilterChains: []*envoy_config_listener_v3.FilterChain{{
-						Filters: filters,
-					}},
-				}
-
-				p := NewPlugin()
-				err := p.ProcessListener(plugins.Params{}, in, outl)
-				Expect(err).NotTo(HaveOccurred())
-
-				var cfg envoytcp.TcpProxy
-				err = translatorutil.ParseTypedConfig(filters[0], &cfg)
-				Expect(err).NotTo(HaveOccurred())
-
-				Expect(cfg.AccessLog).To(HaveLen(1))
-				al := cfg.AccessLog[0]
-				checkConfig(al)
-			})
 		})
+
+		When("parent listener has access log settings with filters defined", func() {
+
+			BeforeEach(func() {
+				logName := "test"
+				extraHeaders := []string{"test"}
+				usRef := &core.ResourceRef{
+					Name:      "default",
+					Namespace: "default",
+				}
+				filter_runtime_key := "default"
+				parentListener.Options = &v1.ListenerOptions{
+					AccessLoggingService: &accessLogService.AccessLoggingService{
+						AccessLog: []*accessLogService.AccessLog{
+							{
+								OutputDestination: &accessLogService.AccessLog_GrpcService{
+									GrpcService: &accessLogService.GrpcService{
+										LogName: logName,
+										ServiceRef: &accessLogService.GrpcService_StaticClusterName{
+											StaticClusterName: translatorutil.UpstreamToClusterName(usRef),
+										},
+										AdditionalRequestHeadersToLog:   extraHeaders,
+										AdditionalResponseHeadersToLog:  extraHeaders,
+										AdditionalResponseTrailersToLog: extraHeaders,
+									},
+								},
+
+								Filter: &accessLogService.AccessLogFilter{
+									FilterSpecifier: &accessLogService.AccessLogFilter_RuntimeFilter{
+										RuntimeFilter: &accessLogService.RuntimeFilter{
+											RuntimeKey: filter_runtime_key,
+											PercentSampled: &gloo_envoy_types.FractionalPercent{
+												Numerator:   FRACTIONAL_PERCENT_NUMERATOR,
+												Denominator: gloo_envoy_types.FractionalPercent_DenominatorType(FRACTIONAL_PERCENT_DENOMINATOR_TYPE),
+											},
+											UseIndependentRandomness: true,
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+			})
+
+			It("does configure access log config", func() {
+				err := plugin.ProcessHcmNetworkFilter(pluginParams, parentListener, listener, envoyHcmConfig)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(envoyHcmConfig.GetAccessLog()).NotTo(BeNil())
+			})
+
+		})
+
 	})
+
 })

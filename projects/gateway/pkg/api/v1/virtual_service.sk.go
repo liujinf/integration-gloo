@@ -15,6 +15,15 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+var (
+	// Compile-time assertion
+	_ resources.InputResource = new(VirtualService)
+)
+
+func NewVirtualServiceHashableResource() resources.HashableResource {
+	return new(VirtualService)
+}
+
 func NewVirtualService(namespace, name string) *VirtualService {
 	virtualservice := &VirtualService{}
 	virtualservice.SetMetadata(&core.Metadata{

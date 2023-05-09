@@ -5,13 +5,14 @@ option go_package = "github.com/solo-io/gloo/projects/gateway/pkg/api/v1";
 import "extproto/ext.proto";
 option (extproto.equal_all) = true;
 option (extproto.hash_all) = true;
+option (extproto.clone_all) = true;
 
 import "google/protobuf/wrappers.proto";
 import "github.com/solo-io/solo-kit/api/v1/metadata.proto";
 import "github.com/solo-io/solo-kit/api/v1/status.proto";
 import "github.com/solo-io/solo-kit/api/v1/ref.proto";
 import "github.com/solo-io/solo-kit/api/v1/solo-kit.proto";
-import "github.com/solo-io/gloo/projects/gloo/api/v1/ssl.proto";
+import "github.com/solo-io/gloo/projects/gloo/api/v1/ssl/ssl.proto";
 import "github.com/solo-io/gloo/projects/gloo/api/v1/proxy.proto";
 import "github.com/solo-io/gloo/projects/gloo/api/v1/options.proto";
 import "github.com/solo-io/gloo/projects/gloo/api/v1/core/matchers/matchers.proto";
@@ -147,8 +148,8 @@ An HTTP request is first matched to a virtual host based on its host header, the
 
 If a request is not matched to any virtual host or a route therein, the target proxy will reply with a 404.
 
-Unlike the [Gloo Virtual Host]({{< ref "/reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/proxy.proto.sk.md" >}}/#virtualhost),
-*Gateway* Virtual Hosts can **delegate** their routes to `RouteTables`.
+Unlike the [Gloo Virtual Host]({{< versioned_link_path fromRoot="/reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/proxy.proto.sk/#virtualhost" >}}),
+_Gateway_ Virtual Hosts can delegate their routes to `RouteTables`.
 
  */
 message VirtualHost {
@@ -191,7 +192,7 @@ message VirtualHost {
 * - *Route* the request to a destination
 * - Reply with a *Direct Response*
 * - Send a *Redirect* response to the client
-* - *Delegate* the action for the request to one or more top-level [`RouteTable`]({{< ref "/reference/api/github.com/solo-io/gloo/projects/gateway/api/v1/route_table.proto.sk.md" >}}) resources
+* - *Delegate* the action for the request to one or more top-level [`RouteTable`]({{< versioned_link_path fromRoot="/reference/api/github.com/solo-io/gloo/projects/gateway/api/v1/route_table.proto.sk.md" >}}) resources
 * DelegateActions can be used to delegate the behavior for a set out routes with a given *prefix* to
 * top-level `RouteTable` resources.
 */
@@ -223,6 +224,13 @@ message Route {
 
         // Delegate routing actions for the given matcher to one or more RouteTables.
         DelegateAction delegate_action = 5;
+
+        // Enterprise-Only: THIS FEATURE IS IN TECH PREVIEW. APIs are versioned as alpha and subject to change.
+        // A reference to a GraphQLApi CR. Resolution of the client request to upstream(s) will be delegated to
+        // the resolution policies defined in the GraphQLApi CR. If configured, the graphql filter will operate
+        // instead of the envoy router filter, so configuration (such as retries) that applies to the router filter
+        // will not be applied.
+        core.solo.io.ResourceRef graphql_api_ref = 11;
     }
 
     // Route Options extend the behavior of routes.

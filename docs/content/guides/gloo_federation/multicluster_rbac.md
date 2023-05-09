@@ -1,7 +1,7 @@
 ---
 title: Multicluster RBAC
 description: Applying role-based access control to multiple Gloo Edge instances
-weight: 40
+weight: 50
 ---
 
 Gloo Edge Federation allows you to administer multiple instances of Gloo Edge across multiple Kubernetes clusters. One Gloo Edge Federation object might modify configuration across many instances of Gloo Edge across many Kubernetes clusters. Multicluster role-based access control is a feature of Gloo Edge Federation that controls access and actions on Gloo Edge Federation APIs that might reconfigure many Gloo Edge instances. The feature ensures that users are only allowed to modify Gloo Edge Federation resources that configure Gloo Edge resources in clusters and namespaces that they have explicitly been granted access to in order to facilitate multitenancy in the Gloo Edge Federation control plane.
@@ -15,9 +15,13 @@ To successfully follow this Multicluster RBAC guide, you will need the following
 * [Kind](https://kind.sigs.k8s.io/) - Required if using the `glooctl` federation demo environment
 * Docker - Required if using the `glooctl` federation demo environment
 
-In this guide we are going to use the Gloo Edge Federation environment available from the `glooctl demo federation` command. You can follow the directions in the [Getting Started guide]({{% versioned_link_path fromRoot="/guides/gloo_federation/getting_started/" %}}) to set up the demonstration environment. Otherwise, you will need at least one Kubernetes cluster running Gloo Edge Enterprise and Gloo Edge Federation.
+You will need at least one Kubernetes cluster running Gloo Edge Enterprise and Gloo Edge Federation. For the purposes of this example, we have two clusters `local` and `remote`. The local cluster is also running Gloo Edge Federation in addition to Gloo Edge Enterprise. The kubectl context for the local cluster is `kind-local` and the remote cluster is `kind-remote`.
 
-For the purposes of this example, we have two clusters `local` and `remote`. The local cluster is also running Gloo Edge Federation in addition to Gloo Edge Enterprise. The kubectl context for the local cluster is `kind-local` and the remote cluster is `kind-remote`.
+<!--federation demo hidden for now
+{{% notice tip %}}
+Want to spin up a demo environment to quickly validate the federation process? Try out the [Getting Started guide]({{% versioned_link_path fromRoot="/guides/gloo_federation/demo/" %}}).
+{{% /notice%}}
+-->
 
 ## Enable Multicluster RBAC
 
@@ -41,14 +45,14 @@ helm repo add gloo-fed https://storage.googleapis.com/gloo-fed-helm
 helm repo update
 
 # Upgrade your Gloo Edge Federation deployment
-# Assumes your install is called gloo-fed in the gloo-system namspace
-helm upgrade -n gloo-system gloo-fed gloo-fed/gloo-fed --set enableMultiClusterRbac=true
+# Assumes your install is called gloo in the gloo-system namspace on the cluster you have installed gloo-fed
+helm upgrade -n gloo-system gloo gloo-fed/gloo-fed --set enableMultiClusterRbac=true
 ```
 
 Once the installation or upgrade is complete, you can verify by running the following:
 
 ```bash
-kubectl get deployment -n gloo-system rbac-validating-webhook-gloo-fed
+kubectl get deployment -n gloo-system rbac-validating-webhook
 ```
 
 You should see the following output:

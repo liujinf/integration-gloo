@@ -4,6 +4,10 @@ description: How to install Gloo Edge to run in Knative Mode on Kubernetes.
 weight: 40
 ---
 
+{{% notice warning %}}
+Gloo Edge Knative Ingress is deprecated in 1.10 and will not be available in 1.11
+{{% /notice %}}
+
 For the purpose of running Knative, Gloo Edge can function as a complete replacement for Istio (supporting all documented Knative features), requiring less resource usage and operational overhead. 
 
 This guide walks you through installing Gloo Edge and Knative using either `glooctl` (the Gloo Edge command line) or Helm. 
@@ -18,9 +22,9 @@ This guide walks you through installing Gloo Edge and Knative using either `gloo
 
 These directions assume you've prepared your Kubernetes cluster appropriately. Full details on setting up your Kubernetes cluster can be found [here]({{< versioned_link_path fromRoot="/installation/platform_configuration/cluster_setup/" >}}). You can install Gloo Edge Knative Ingress using using `glooctl` or through Helm. Helm is the recommended method for installing in a Production environment.
 
-{{< readfile file="installation/glooctl_setup.md" markdown="true" >}}
-
 ### Installing on Kubernetes with `glooctl`
+
+Before you begin, make sure that you [install `glooctl`]({{< versioned_link_path fromRoot="/installation/preparation/" >}}), the Gloo Edge command line tool (CLI).
 
 Using `glooctl` will install Knative Serving components to the `knative-serving` namespace if it does not already exist in your cluster and install Gloo Edge's Knative Ingress. The Knative installation is a modified version of the Knative Serving manifest with the dependencies on Istio removed. 
 
@@ -100,8 +104,7 @@ For our example, we would Replace the `{{ . }}` with `v0.10.0`.
 Save the file and then run the following commands to install the Gloo Edge components.
 
 ```shell
-kubectl create namespace gloo-system
-helm install gloo gloo/gloo --namespace gloo-system -f values.yaml
+helm install gloo gloo/gloo --namespace gloo-system --create-namespace -f values.yaml
 ```
 
 Gloo Edge can be installed to a namespace of your choosing with the `--namespace` flag.
@@ -113,8 +116,7 @@ Instead of creating a `values.yaml` file, you can simply define the settings in-
 Run the following commands to install the Gloo Edge components with version `v0.10.0` of Knative.
 
 ```shell
-kubectl create namespace gloo-system
-helm install gloo gloo/gloo --namespace gloo-system \
+helm install gloo gloo/gloo --namespace gloo-system --create-namespace \
   --set gateway.enabled=false,settings.integrations.knative.enabled=true,settings.integrations.knative.version=v0.10.0
 ```
 

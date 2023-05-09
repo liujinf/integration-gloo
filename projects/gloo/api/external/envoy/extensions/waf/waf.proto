@@ -5,6 +5,9 @@ option go_package = "github.com/solo-io/gloo/projects/gloo/pkg/api/external/envo
 import "extproto/ext.proto";
 option (extproto.equal_all) = true;
 option (extproto.hash_all) = true;
+option (extproto.clone_all) = true;
+
+import "github.com/solo-io/gloo/projects/gloo/api/external/envoy/extensions/transformation_ee/transformation.proto";
 
 message AuditLogging {
   enum AuditLogAction {
@@ -50,14 +53,16 @@ message ModSecurity {
   // this format is a multiline log format, so it is disabled for regular use.
   // do not enable this in production!
   bool regression_logs = 4;
+  envoy.config.filter.http.transformation_ee.v2.DlpTransformation dlp_transformation = 8;
 }
 
 message RuleSet {
   // String of rules which are added directly
   string rule_str = 1;
-  // Array of files to include
+  // Array of files with rules to include. 
+	// Any subsequent changes to the rules in these files are not automatically updated. To update rules from files, version and update the file name. 
+	// If you want dynamically updated rules, use the `configMapRuleSets` option instead.
   repeated string files = 3;
-
   // A directory to include. all *.conf files in this directory will be
   // included. sub directories will NOT be checked.
   string directory = 4;
@@ -76,4 +81,5 @@ message ModSecurityPerRoute {
   // This can help improve performance.
   bool request_headers_only = 6;
   bool response_headers_only = 7;
+  envoy.config.filter.http.transformation_ee.v2.DlpTransformation dlp_transformation = 8;
 }

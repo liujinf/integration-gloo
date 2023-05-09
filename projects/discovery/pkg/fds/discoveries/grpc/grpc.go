@@ -2,26 +2,27 @@ package grpc
 
 import (
 	"context"
-	"encoding/base64"
 	"net/url"
-	"strings"
 	"time"
+
+	"github.com/hashicorp/go-multierror"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/protoc-gen-go/descriptor"
 	"github.com/jhump/protoreflect/desc"
 	"github.com/jhump/protoreflect/grpcreflect"
 	errors "github.com/rotisserie/eris"
-	"github.com/solo-io/gloo/projects/discovery/pkg/fds"
-	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
-	plugins "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options"
-	grpc_plugins "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/grpc"
 	"github.com/solo-io/go-utils/contextutils"
 	"google.golang.org/grpc"
 	reflectpb "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
+
+	"github.com/solo-io/gloo/projects/discovery/pkg/fds"
+	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	plugins "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options"
+	grpc_json_plugins "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/grpc_json"
 )
 
-func getgrpcspec(u *v1.Upstream) *grpc_plugins.ServiceSpec {
+func getGrpcspec(u *v1.Upstream) *grpc_json_plugins.GrpcJsonTranscoder {
 	upstreamType, ok := u.GetUpstreamType().(v1.ServiceSpecGetter)
 	if !ok {
 		return nil
@@ -31,14 +32,37 @@ func getgrpcspec(u *v1.Upstream) *grpc_plugins.ServiceSpec {
 		return nil
 	}
 
-	grpcwrapper, ok := upstreamType.GetServiceSpec().GetPluginType().(*plugins.ServiceSpec_Grpc)
+	grpcWrapper, ok := upstreamType.GetServiceSpec().GetPluginType().(*plugins.ServiceSpec_GrpcJsonTranscoder)
 	if !ok {
 		return nil
 	}
-	grpc := grpcwrapper.Grpc
-	return grpc
+	return grpcWrapper.GrpcJsonTranscoder
+}
+func isDeprecatedGrpcspec(u *v1.Upstream) bool {
+
+	upstreamType, ok := u.GetUpstreamType().(v1.ServiceSpecGetter)
+	if !ok {
+		return false
+	}
+
+	if upstreamType.GetServiceSpec() == nil {
+		return false
+	}
+	_, ok = upstreamType.GetServiceSpec().GetPluginType().(*plugins.ServiceSpec_Grpc)
+	if ok {
+		return true
+	}
+	return false
 }
 
+func NewFunctionDiscoveryFactory() fds.FunctionDiscoveryFactory {
+	return &FunctionDiscoveryFactory{
+		DetectionTimeout: time.Minute,
+		FunctionPollTime: time.Second * 15,
+	}
+}
+
+// FunctionDiscoveryFactory returns a FunctionDiscovery that can be used to discover functions
 // ilackarms: this is the root object
 type FunctionDiscoveryFactory struct {
 	// TODO: yuval-k: integrate backoff stuff here
@@ -49,25 +73,30 @@ type FunctionDiscoveryFactory struct {
 	Artifacts v1.ArtifactClient
 }
 
-func (f *FunctionDiscoveryFactory) NewFunctionDiscovery(u *v1.Upstream) fds.UpstreamFunctionDiscovery {
+// NewFunctionDiscovery returns a FunctionDiscovery that can be used to discover functions
+func (f *FunctionDiscoveryFactory) NewFunctionDiscovery(u *v1.Upstream, _ fds.AdditionalClients) fds.UpstreamFunctionDiscovery {
 	return &UpstreamFunctionDiscovery{
-		upstream: u,
+		upstream:     u,
+		clientGetter: getClient,
 	}
 }
 
+// UpstreamFunctionDiscovery represents a function discovery for upstream
 type UpstreamFunctionDiscovery struct {
-	upstream *v1.Upstream
+	upstream     *v1.Upstream
+	clientGetter func(ctx context.Context, url *url.URL) (*grpcreflect.Client, func() error, error)
 }
 
+// IsFunctional returns true if the upstream is functional
 func (f *UpstreamFunctionDiscovery) IsFunctional() bool {
-	return getgrpcspec(f.upstream) != nil
+	return getGrpcspec(f.upstream) != nil
 }
 
 func (f *UpstreamFunctionDiscovery) DetectType(ctx context.Context, url *url.URL) (*plugins.ServiceSpec, error) {
 	log := contextutils.LoggerFrom(ctx)
 	log.Debugf("attempting to detect GRPC for %s", f.upstream.GetMetadata().GetName())
 
-	refClient, closeConn, err := getclient(ctx, url)
+	refClient, closeConn, err := f.clientGetter(ctx, url)
 	if err != nil {
 		return nil, err
 	}
@@ -80,33 +109,38 @@ func (f *UpstreamFunctionDiscovery) DetectType(ctx context.Context, url *url.URL
 	}
 
 	svcInfo := &plugins.ServiceSpec{
-		PluginType: &plugins.ServiceSpec_Grpc{
-			Grpc: &grpc_plugins.ServiceSpec{},
+		PluginType: &plugins.ServiceSpec_GrpcJsonTranscoder{
+			GrpcJsonTranscoder: &grpc_json_plugins.GrpcJsonTranscoder{
+				AutoMapping: false,
+			},
 		},
 	}
 	return svcInfo, nil
 }
 
 func (f *UpstreamFunctionDiscovery) DetectFunctions(ctx context.Context, url *url.URL, _ func() fds.Dependencies, updatecb func(fds.UpstreamMutator) error) error {
-	for {
-		// TODO: get backoff values from config?
-		err := contextutils.NewExponentioalBackoff(contextutils.ExponentioalBackoff{}).Backoff(ctx, func(ctx context.Context) error {
-			return f.DetectFunctionsOnce(ctx, url, updatecb)
-		})
-
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			// ignore other errors as we would like to continue forever.
+	// TODO: get backoff values from config?
+	err := contextutils.NewExponentioalBackoff(contextutils.ExponentioalBackoff{}).Backoff(ctx, func(ctx context.Context) error {
+		return f.DetectFunctionsOnce(ctx, url, updatecb)
+	})
+	if err != nil {
+		if ctx.Err() != nil {
+			return multierror.Append(err, ctx.Err())
 		}
-
-		// sleep so we are not hogging
-		// TODO(yuval-k): customize time to sleep in config
-		if err := contextutils.Sleep(ctx, time.Minute); err != nil {
-			return err
-		}
+		// only log other errors as we would like to continue forever.
+		contextutils.LoggerFrom(ctx).Warnf("Unable to perform grpc function discovery for upstream %s in namespace %s, error: ",
+			f.upstream.GetMetadata().GetName(),
+			f.upstream.GetMetadata().GetNamespace(),
+			err.Error(),
+		)
 	}
+
+	// sleep so we are not hogging
+	// TODO(yuval-k): customize time to sleep in config
+	if err := contextutils.Sleep(ctx, time.Minute); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (f *UpstreamFunctionDiscovery) DetectFunctionsOnce(ctx context.Context, url *url.URL, updatecb func(fds.UpstreamMutator) error) error {
@@ -114,7 +148,7 @@ func (f *UpstreamFunctionDiscovery) DetectFunctionsOnce(ctx context.Context, url
 
 	log.Infof("%v discovered as a gRPC service", url)
 
-	refClient, closeConn, err := getclient(ctx, url)
+	refClient, closeConn, err := getClient(ctx, url)
 	if err != nil {
 		return err
 	}
@@ -126,9 +160,8 @@ func (f *UpstreamFunctionDiscovery) DetectFunctionsOnce(ctx context.Context, url
 	}
 
 	descriptors := &descriptor.FileDescriptorSet{}
-
-	var grpcservices []*grpc_plugins.ServiceSpec_GrpcService
-
+	// grpcJsonTranscoder API uses list of services
+	var servicesDiscovered []string
 	for _, s := range services {
 		// ignore the reflection descriptor
 		if s == "grpc.reflection.v1alpha.ServerReflection" {
@@ -143,58 +176,44 @@ func (f *UpstreamFunctionDiscovery) DetectFunctionsOnce(ctx context.Context, url
 
 		descriptors.File = append(descriptors.GetFile(), files...)
 
-		parts := strings.Split(s, ".")
-		serviceName := parts[len(parts)-1]
-		servicePackage := strings.Join(parts[:len(parts)-1], ".")
-		grpcservice := &grpc_plugins.ServiceSpec_GrpcService{
-			PackageName: servicePackage,
-			ServiceName: serviceName,
-		}
-		// find the service in the file and get its functions
-		for _, svc := range root.GetServices() {
-			if svc.GetName() == serviceName {
-				methods := svc.GetMethods()
-				for _, method := range methods {
-					methodname := method.GetName()
-					grpcservice.FunctionNames = append(grpcservice.GetFunctionNames(), methodname)
-				}
-			}
-		}
-		grpcservices = append(grpcservices, grpcservice)
+		servicesDiscovered = append(servicesDiscovered, s)
 	}
 
 	rawDescriptors, err := proto.Marshal(descriptors)
 	if err != nil {
 		return errors.Wrap(err, "marshalling proto descriptors")
 	}
-
-	encodedDescriptors := []byte(base64.StdEncoding.EncodeToString(rawDescriptors))
-
 	return updatecb(func(out *v1.Upstream) error {
-		svcspec := getgrpcspec(out)
-		if svcspec == nil {
+		svcSpec := getGrpcspec(out)
+		if svcSpec == nil {
+			if isDeprecatedGrpcspec(out) {
+				//TODO: description of how to find migration guide
+				return errors.New("Existing upstream with deprecated API found")
+			}
 			return errors.New("not a GRPC upstream")
 		}
-		// TODO(yuval-k): ideally GrpcServices should be google.protobuf.FileDescriptorSet
-		//  but that doesn't work with gogoproto.equal_all.
-		svcspec.GrpcServices = grpcservices
-		svcspec.Descriptors = encodedDescriptors
+		svcSpec.DescriptorSet = &grpc_json_plugins.GrpcJsonTranscoder_ProtoDescriptorBin{ProtoDescriptorBin: rawDescriptors}
+		svcSpec.Services = servicesDiscovered
+		svcSpec.MatchIncomingRequestRoute = true
 		return nil
 	})
 }
-
-func getclient(ctx context.Context, url *url.URL) (*grpcreflect.Client, func() error, error) {
-	var dialopts []grpc.DialOption
+func getClient(ctx context.Context, url *url.URL) (*grpcreflect.Client, func() error, error) {
+	var dialOpts []grpc.DialOption
 	if url.Scheme != "https" {
-		dialopts = append(dialopts, grpc.WithInsecure())
+		dialOpts = append(dialOpts, grpc.WithInsecure())
 	}
 
-	cc, err := grpc.Dial(url.Host, dialopts...)
+	cc, err := grpc.Dial(url.Host, dialOpts...)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "dialing grpc on %v", url.Host)
 	}
 	refClient := grpcreflect.NewClient(ctx, reflectpb.NewServerReflectionClient(cc))
-	return refClient, cc.Close, nil
+	closeConn := func() error {
+		refClient.Reset()
+		return cc.Close()
+	}
+	return refClient, closeConn, nil
 }
 
 func getDepTree(root *desc.FileDescriptor) []*descriptor.FileDescriptorProto {

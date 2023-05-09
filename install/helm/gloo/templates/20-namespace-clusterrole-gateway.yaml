@@ -12,9 +12,43 @@ metadata:
         app: gloo
         gloo: rbac
 rules:
-- apiGroups: [""]
-  resources: ["pods", "services", "secrets", "endpoints", "configmaps", "namespaces"]
-  verbs: ["get", "list", "watch"]
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - services
+  - secrets
+  - endpoints
+  - configmaps
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+---
+kind: {{ include "gloo.roleKind" . }}
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: kube-leader-election{{ include "gloo.rbacNameSuffix" . }}
+  {{- if .Values.global.glooRbac.namespaced }}
+  namespace: {{ .Release.Namespace }}
+  {{- end }}
+  labels:
+    app: gloo
+    gloo: rbac
+rules:
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - "*"
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - "*"
 ---
 kind: {{ include "gloo.roleKind" . }}
 apiVersion: rbac.authorization.k8s.io/v1
@@ -24,13 +58,21 @@ metadata:
     namespace: {{ .Release.Namespace }}
 {{- end }}
     labels:
-        app: gloo
-        gloo: rbac
+      app: gloo
+      gloo: rbac
 rules:
-- apiGroups: ["gloo.solo.io"]
-  resources: ["upstreams"]
-  # update is needed for status updates
-  verbs: ["get", "list", "watch", "create", "update", "delete"]
+- apiGroups:
+  - gloo.solo.io
+  resources:
+  - upstreams
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
 ---
 kind: {{ include "gloo.roleKind" . }}
 apiVersion: rbac.authorization.k8s.io/v1
@@ -40,19 +82,51 @@ metadata:
     namespace: {{ .Release.Namespace }}
 {{- end }}
     labels:
-        app: gloo
-        gloo: rbac
+      app: gloo
+      gloo: rbac
 rules:
-- apiGroups: ["gloo.solo.io", "enterprise.gloo.solo.io"]
-  resources: ["upstreams","upstreamgroups", "proxies", "authconfigs"]
-  # update is needed for status updates
-  verbs: ["get", "list", "watch", "update"]
-- apiGroups: ["ratelimit.solo.io"]
-  resources: ["ratelimitconfigs","ratelimitconfigs/status"]
-  verbs: ["get", "list", "watch", "update"]
-- apiGroups: [""] # get/update on configmaps for recording envoy metrics
-  resources: ["configmaps"]
-  verbs: ["get", "update"]
+- apiGroups:
+  - gloo.solo.io
+  resources:
+  - upstreams
+  - upstreamgroups
+  - proxies
+  verbs:
+  - get
+  - list
+  - watch
+  - patch # needed for status updates for skv1
+- apiGroups:
+  - enterprise.gloo.solo.io
+  resources:
+  - authconfigs
+  verbs:
+  - get
+  - list
+  - watch
+  - patch # needed for status updates for skv1
+- apiGroups:
+  - ratelimit.solo.io
+  resources:
+  - ratelimitconfigs
+  - ratelimitconfigs/status
+  verbs:
+  - get
+  - list
+  - watch
+  - patch # needed for status updates for skv1
+  - update # needed for status updates for skv2
+- apiGroups:
+  - graphql.gloo.solo.io
+  resources:
+  - graphqlapis
+  - graphqlapis/status
+  verbs:
+  - get
+  - list
+  - watch
+  - patch # needed for status updates for skv1
+  - update # needed for status updates for skv2
 ---
 kind: {{ include "gloo.roleKind" . }}
 apiVersion: rbac.authorization.k8s.io/v1
@@ -62,13 +136,17 @@ metadata:
     namespace: {{ .Release.Namespace }}
 {{- end }}
     labels:
-        app: gloo
-        gloo: rbac
+      app: gloo
+      gloo: rbac
 rules:
-- apiGroups: ["gloo.solo.io"]
-  resources: ["settings"]
-  # update is needed for status updates
-  verbs: ["get", "list", "watch", "create"]
+- apiGroups:
+  - gloo.solo.io
+  resources:
+  - settings
+  verbs:
+  - get
+  - list
+  - watch
 ---
 kind: {{ include "gloo.roleKind" . }}
 apiVersion: rbac.authorization.k8s.io/v1
@@ -78,12 +156,21 @@ metadata:
     namespace: {{ .Release.Namespace }}
 {{- end }}
     labels:
-        app: gloo
-        gloo: rbac
+      app: gloo
+      gloo: rbac
 rules:
-- apiGroups: ["gloo.solo.io"]
-  resources: ["proxies"]
-  verbs: ["get", "list", "watch", "create", "update", "delete"]
+- apiGroups:
+  - gloo.solo.io
+  resources:
+  - proxies
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
 ---
 kind: {{ include "gloo.roleKind" . }}
 apiVersion: rbac.authorization.k8s.io/v1
@@ -93,17 +180,46 @@ metadata:
     namespace: {{ .Release.Namespace }}
 {{- end }}
     labels:
-        app: gloo
-        gloo: rbac
+      app: gloo
+      gloo: rbac
 rules:
-- apiGroups: ["gateway.solo.io"]
-  resources: ["virtualservices", "routetables", "virtualhostoptions", "routeoptions"]
-  # update is needed for status updates
-  verbs: ["get", "list", "watch", "update"]
-- apiGroups: ["gateway.solo.io"]
-  resources: ["gateways"]
-  # update is needed for status updates, create for creating the default ones.
-  verbs: ["get", "list", "watch", "create", "update"]
-
+- apiGroups:
+  - gateway.solo.io
+  resources:
+  - gateways
+  - httpgateways
+  - virtualservices
+  - routetables
+  - virtualhostoptions
+  - routeoptions
+  verbs:
+  - get
+  - list
+  - watch
+  - patch # needed for status updates
+---
+kind: {{ include "gloo.roleKind" . }}
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: gloo-graphqlapi-mutator{{ include "gloo.rbacNameSuffix" . }}
+  {{- if .Values.global.glooRbac.namespaced }}
+  namespace: {{ .Release.Namespace }}
+  {{- end }}
+  labels:
+    app: gloo
+    gloo: rbac
+rules:
+- apiGroups:
+  - graphql.gloo.solo.io
+  resources:
+  - graphqlapis
+  - graphqlapis/status
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+  - patch
+  - create
 {{- end -}}
 {{- end -}}

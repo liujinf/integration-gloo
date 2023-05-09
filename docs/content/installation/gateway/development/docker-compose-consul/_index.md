@@ -64,8 +64,11 @@ The files used for installation live in the `install/docker-compose-consul` dire
 ```bash
 ├── data
 │   ├── envoy-config.yaml
-│   └── gloo-system
-│       └── default.yaml
+│   ├── gloo-system
+│   │   └── default.yaml
+│   └── gateways
+│       └── gloo-system
+│           └── gw-proxy.yaml
 ├── docker-compose.yaml
 └── prepare-directories.sh
 ```
@@ -76,7 +79,7 @@ Now we are ready to deploy the containers using Docker Compose.
 
 ## Deploying with Docker Compose
 
-Now that we have all the necessary files, it is time to deploy the containers using Docker Compose. The `docker-compose.yaml` file will create seven containers: `consul`, `vault`, `petstore`, `gloo`, `discovery`, `gateway`, and `gateway-proxy`.
+Now that we have all the necessary files, it is time to deploy the containers using Docker Compose. The `docker-compose.yaml` file will create seven containers: `consul`, `vault`, `petstore`, `gloo`, `discovery`, and `gateway-proxy`.
 
 First we need to create some directories that will be used by the Gloo Edge containers. Running the `prepare-directories.sh` script will create the necessary directory structure in the `data` directory.
 
@@ -102,6 +105,8 @@ The following ports will be exposed to the host machine:
 | gloo/admin | 19000 | 
 
 You can view resources stored in the Consul UI at [http://localhost:8500/ui](http://localhost:8500/ui).
+
+You can also view secrets stored in the Vault UI at [http://localhost:8200/ui](http://localhost:8200/ui). Use the `Token` sign-in method, with `root` as the token.
 
 With all the containers now running, it is time to configure the *Upstream* for the Per Store application and a *Virtual Service* on the Gloo Edge gateway to serve content from the Pet Store app.
 

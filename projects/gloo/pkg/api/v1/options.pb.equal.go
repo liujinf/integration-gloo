@@ -93,6 +93,60 @@ func (m *ListenerOptions) Equal(that interface{}) bool {
 
 	}
 
+	if h, ok := interface{}(m.GetProxyProtocol()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetProxyProtocol()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetProxyProtocol(), target.GetProxyProtocol()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetConnectionBalanceConfig()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetConnectionBalanceConfig()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetConnectionBalanceConfig(), target.GetConnectionBalanceConfig()) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ConnectionBalanceConfig) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ConnectionBalanceConfig)
+	if !ok {
+		that2, ok := that.(ConnectionBalanceConfig)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if h, ok := interface{}(m.GetExactBalance()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetExactBalance()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetExactBalance(), target.GetExactBalance()) {
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -241,6 +295,16 @@ func (m *HttpListenerOptions) Equal(that interface{}) bool {
 		}
 	}
 
+	if h, ok := interface{}(m.GetCaching()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetCaching()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetCaching(), target.GetCaching()) {
+			return false
+		}
+	}
+
 	if h, ok := interface{}(m.GetGzip()).(equality.Equalizer); ok {
 		if !h.Equal(target.GetGzip()) {
 			return false
@@ -307,6 +371,26 @@ func (m *HttpListenerOptions) Equal(that interface{}) bool {
 		}
 	} else {
 		if !proto.Equal(m.GetLeftmostXffAddress(), target.GetLeftmostXffAddress()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetDynamicForwardProxy()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetDynamicForwardProxy()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetDynamicForwardProxy(), target.GetDynamicForwardProxy()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetRouter()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetRouter()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetRouter(), target.GetRouter()) {
 			return false
 		}
 	}
@@ -529,6 +613,45 @@ func (m *VirtualHostOptions) Equal(that interface{}) bool {
 		}
 	}
 
+	switch m.RateLimitEarlyConfigType.(type) {
+
+	case *VirtualHostOptions_RatelimitEarly:
+		if _, ok := target.RateLimitEarlyConfigType.(*VirtualHostOptions_RatelimitEarly); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetRatelimitEarly()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetRatelimitEarly()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetRatelimitEarly(), target.GetRatelimitEarly()) {
+				return false
+			}
+		}
+
+	case *VirtualHostOptions_RateLimitEarlyConfigs:
+		if _, ok := target.RateLimitEarlyConfigType.(*VirtualHostOptions_RateLimitEarlyConfigs); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetRateLimitEarlyConfigs()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetRateLimitEarlyConfigs()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetRateLimitEarlyConfigs(), target.GetRateLimitEarlyConfigs()) {
+				return false
+			}
+		}
+
+	default:
+		// m is nil but target is not nil
+		if m.RateLimitEarlyConfigType != target.RateLimitEarlyConfigType {
+			return false
+		}
+	}
+
 	switch m.RateLimitConfigType.(type) {
 
 	case *VirtualHostOptions_Ratelimit:
@@ -564,6 +687,45 @@ func (m *VirtualHostOptions) Equal(that interface{}) bool {
 	default:
 		// m is nil but target is not nil
 		if m.RateLimitConfigType != target.RateLimitConfigType {
+			return false
+		}
+	}
+
+	switch m.RateLimitRegularConfigType.(type) {
+
+	case *VirtualHostOptions_RatelimitRegular:
+		if _, ok := target.RateLimitRegularConfigType.(*VirtualHostOptions_RatelimitRegular); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetRatelimitRegular()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetRatelimitRegular()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetRatelimitRegular(), target.GetRatelimitRegular()) {
+				return false
+			}
+		}
+
+	case *VirtualHostOptions_RateLimitRegularConfigs:
+		if _, ok := target.RateLimitRegularConfigType.(*VirtualHostOptions_RateLimitRegularConfigs); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetRateLimitRegularConfigs()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetRateLimitRegularConfigs()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetRateLimitRegularConfigs(), target.GetRateLimitRegularConfigs()) {
+				return false
+			}
+		}
+
+	default:
+		// m is nil but target is not nil
+		if m.RateLimitRegularConfigType != target.RateLimitRegularConfigType {
 			return false
 		}
 	}
@@ -865,6 +1027,26 @@ func (m *RouteOptions) Equal(that interface{}) bool {
 		}
 	}
 
+	if h, ok := interface{}(m.GetMaxStreamDuration()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetMaxStreamDuration()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetMaxStreamDuration(), target.GetMaxStreamDuration()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetIdleTimeout()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetIdleTimeout()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetIdleTimeout(), target.GetIdleTimeout()) {
+			return false
+		}
+	}
+
 	switch m.HostRewriteType.(type) {
 
 	case *RouteOptions_HostRewrite:
@@ -891,9 +1073,63 @@ func (m *RouteOptions) Equal(that interface{}) bool {
 			}
 		}
 
+	case *RouteOptions_HostRewritePathRegex:
+		if _, ok := target.HostRewriteType.(*RouteOptions_HostRewritePathRegex); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetHostRewritePathRegex()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetHostRewritePathRegex()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetHostRewritePathRegex(), target.GetHostRewritePathRegex()) {
+				return false
+			}
+		}
+
 	default:
 		// m is nil but target is not nil
 		if m.HostRewriteType != target.HostRewriteType {
+			return false
+		}
+	}
+
+	switch m.RateLimitEarlyConfigType.(type) {
+
+	case *RouteOptions_RatelimitEarly:
+		if _, ok := target.RateLimitEarlyConfigType.(*RouteOptions_RatelimitEarly); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetRatelimitEarly()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetRatelimitEarly()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetRatelimitEarly(), target.GetRatelimitEarly()) {
+				return false
+			}
+		}
+
+	case *RouteOptions_RateLimitEarlyConfigs:
+		if _, ok := target.RateLimitEarlyConfigType.(*RouteOptions_RateLimitEarlyConfigs); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetRateLimitEarlyConfigs()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetRateLimitEarlyConfigs()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetRateLimitEarlyConfigs(), target.GetRateLimitEarlyConfigs()) {
+				return false
+			}
+		}
+
+	default:
+		// m is nil but target is not nil
+		if m.RateLimitEarlyConfigType != target.RateLimitEarlyConfigType {
 			return false
 		}
 	}
@@ -933,6 +1169,45 @@ func (m *RouteOptions) Equal(that interface{}) bool {
 	default:
 		// m is nil but target is not nil
 		if m.RateLimitConfigType != target.RateLimitConfigType {
+			return false
+		}
+	}
+
+	switch m.RateLimitRegularConfigType.(type) {
+
+	case *RouteOptions_RatelimitRegular:
+		if _, ok := target.RateLimitRegularConfigType.(*RouteOptions_RatelimitRegular); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetRatelimitRegular()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetRatelimitRegular()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetRatelimitRegular(), target.GetRatelimitRegular()) {
+				return false
+			}
+		}
+
+	case *RouteOptions_RateLimitRegularConfigs:
+		if _, ok := target.RateLimitRegularConfigType.(*RouteOptions_RateLimitRegularConfigs); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetRateLimitRegularConfigs()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetRateLimitRegularConfigs()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetRateLimitRegularConfigs(), target.GetRateLimitRegularConfigs()) {
+				return false
+			}
+		}
+
+	default:
+		// m is nil but target is not nil
+		if m.RateLimitRegularConfigType != target.RateLimitRegularConfigType {
 			return false
 		}
 	}
@@ -1159,6 +1434,84 @@ func (m *WeightedDestinationOptions) Equal(that interface{}) bool {
 		}
 	} else {
 		if !proto.Equal(m.GetStagedTransformations(), target.GetStagedTransformations()) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ConnectionBalanceConfig_ExactBalance) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ConnectionBalanceConfig_ExactBalance)
+	if !ok {
+		that2, ok := that.(ConnectionBalanceConfig_ExactBalance)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	return true
+}
+
+// Equal function
+func (m *RouteOptions_MaxStreamDuration) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*RouteOptions_MaxStreamDuration)
+	if !ok {
+		that2, ok := that.(RouteOptions_MaxStreamDuration)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if h, ok := interface{}(m.GetMaxStreamDuration()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetMaxStreamDuration()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetMaxStreamDuration(), target.GetMaxStreamDuration()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetGrpcTimeoutHeaderMax()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetGrpcTimeoutHeaderMax()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetGrpcTimeoutHeaderMax(), target.GetGrpcTimeoutHeaderMax()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetGrpcTimeoutHeaderOffset()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetGrpcTimeoutHeaderOffset()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetGrpcTimeoutHeaderOffset(), target.GetGrpcTimeoutHeaderOffset()) {
 			return false
 		}
 	}

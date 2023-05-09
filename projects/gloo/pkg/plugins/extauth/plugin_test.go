@@ -3,18 +3,21 @@ package extauth_test
 import (
 	"context"
 
+	"github.com/golang/protobuf/ptypes/wrappers"
+
 	envoy_config_route_v3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 
 	envoyauth "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_authz/v3"
 	"github.com/golang/protobuf/ptypes/any"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/core/matchers"
 	extauthv1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/enterprise/options/extauth/v1"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/enterprise/options/extauth/v1"
+	v1snap "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/gloosnapshot"
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/static"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
 	. "github.com/solo-io/gloo/projects/gloo/pkg/plugins/extauth"
@@ -60,7 +63,7 @@ var _ = Describe("Process Custom Extauth configuration", func() {
 				pluginContext := getPluginContext(globalSettings, input, Undefined, Undefined)
 
 				var out envoy_config_route_v3.VirtualHost
-				err := pluginContext.PluginInstance.ProcessVirtualHost(pluginContext.VirtualHostParams, pluginContext.VirtualHost, &out)
+				err := pluginContext.PluginInstance.(plugins.VirtualHostPlugin).ProcessVirtualHost(pluginContext.VirtualHostParams, pluginContext.VirtualHost, &out)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(validationFuncForConfigValue[expected](&out)).To(BeTrue())
 			},
@@ -74,7 +77,7 @@ var _ = Describe("Process Custom Extauth configuration", func() {
 				pluginContext := getPluginContext(globalSettings, Undefined, input, Undefined)
 
 				var out envoy_config_route_v3.Route
-				err := pluginContext.PluginInstance.ProcessRoute(pluginContext.RouteParams, pluginContext.Route, &out)
+				err := pluginContext.PluginInstance.(plugins.RoutePlugin).ProcessRoute(pluginContext.RouteParams, pluginContext.Route, &out)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(validationFuncForConfigValue[expected](&out)).To(BeTrue())
 			},
@@ -88,7 +91,7 @@ var _ = Describe("Process Custom Extauth configuration", func() {
 				pluginContext := getPluginContext(globalSettings, Undefined, Undefined, input)
 
 				var out envoy_config_route_v3.WeightedCluster_ClusterWeight
-				err := pluginContext.PluginInstance.ProcessWeightedDestination(pluginContext.RouteParams, pluginContext.WeightedDestination, &out)
+				err := pluginContext.PluginInstance.(plugins.WeightedDestinationPlugin).ProcessWeightedDestination(pluginContext.RouteParams, pluginContext.WeightedDestination, &out)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(validationFuncForConfigValue[expected](&out)).To(BeTrue())
 			},
@@ -108,7 +111,7 @@ var _ = Describe("Process Custom Extauth configuration", func() {
 })
 
 type pluginContext struct {
-	PluginInstance      *Plugin
+	PluginInstance      plugins.Plugin
 	VirtualHost         *gloov1.VirtualHost
 	VirtualHostParams   plugins.VirtualHostParams
 	Route               *gloov1.Route
@@ -163,7 +166,7 @@ func getPluginContext(globalSettings bool, authOnVirtualHost, authOnRoute, authO
 				Upstream: extAuthServerUpstream.Metadata.Ref(),
 			},
 		},
-		Weight:  1,
+		Weight:  &wrappers.UInt32Value{Value: 1},
 		Options: &gloov1.WeightedDestinationOptions{}, // will be set below
 	}
 
@@ -257,22 +260,23 @@ func getPluginContext(globalSettings bool, authOnVirtualHost, authOnRoute, authO
 	// ----------------------------------------------------------------------------
 	params := plugins.Params{
 		Ctx: ctx,
-		Snapshot: &gloov1.ApiSnapshot{
+		Snapshot: &v1snap.ApiSnapshot{
 			Proxies:   gloov1.ProxyList{proxy},
 			Upstreams: gloov1.UpstreamList{extAuthServerUpstream},
 		},
 	}
 	virtualHostParams := plugins.VirtualHostParams{
-		Params:   params,
-		Proxy:    proxy,
-		Listener: proxy.Listeners[0],
+		Params:       params,
+		Proxy:        proxy,
+		Listener:     proxy.Listeners[0],
+		HttpListener: proxy.Listeners[0].GetHttpListener(),
 	}
 	routeParams := plugins.RouteParams{
 		VirtualHostParams: virtualHostParams,
 		VirtualHost:       virtualHost,
 	}
 
-	plugin := NewCustomAuthPlugin()
+	plugin := NewPlugin()
 	initParams := plugins.InitParams{Ctx: ctx}
 	initParams.Settings = &gloov1.Settings{}
 
@@ -280,8 +284,7 @@ func getPluginContext(globalSettings bool, authOnVirtualHost, authOnRoute, authO
 		initParams.Settings.Extauth = settings
 	}
 
-	err := plugin.Init(initParams)
-	ExpectWithOffset(1, err).ToNot(HaveOccurred())
+	plugin.Init(initParams)
 
 	return &pluginContext{
 		PluginInstance:      plugin,

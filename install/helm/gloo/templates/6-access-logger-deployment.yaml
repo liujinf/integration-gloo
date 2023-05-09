@@ -30,14 +30,14 @@ spec:
         {{ $key }}: {{ $value | quote }}
         {{- end }}
         {{- end }}
+        {{- if .Values.global.istioIntegration.disableAutoinjection }}
+        sidecar.istio.io/inject: "false"
+        {{- end }}
       annotations:
         {{- if $statsConfig.enabled }}
         prometheus.io/path: /metrics
         prometheus.io/port: "9091"
         prometheus.io/scrape: "true"
-        {{- end }}
-        {{- if .Values.global.istioIntegration.disableAutoinjection }}
-        sidecar.istio.io/inject: "false"
         {{- end }}
         {{- if .Values.accessLogger.extraAccessLoggerAnnotations }}
         {{- range $key, $value := .Values.accessLogger.extraAccessLoggerAnnotations }}
@@ -83,6 +83,10 @@ spec:
           - containerPort: {{ .Values.accessLogger.port }}
             name: http
             protocol: TCP
+{{- if and $statsConfig.enabled $statsConfig.podMonitorEnabled }}
+          - name: http-monitoring
+            containerPort: 9091
+{{- end }} {{/* if $statsConfig.podMonitorEnabled */}}
 {{- end }} {{/* if and .Values.gateway.enabled .Values.accessLogger.enabled */}}
 {{- end }} {{/* define "accessLogger.deploymentSpec" */}}
 

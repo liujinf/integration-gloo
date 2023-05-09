@@ -3,9 +3,11 @@ package sanitizer_test
 import (
 	"context"
 
+	v1snap "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/gloosnapshot"
+
 	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoyclusterapi "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/rotisserie/eris"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
@@ -13,6 +15,7 @@ import (
 	"github.com/solo-io/gloo/projects/gloo/pkg/xds"
 	envoycache "github.com/solo-io/solo-kit/pkg/api/v1/control-plane/cache"
 	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/resource"
+	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/types"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 	"github.com/solo-io/solo-kit/pkg/api/v2/reporter"
 
@@ -86,14 +89,13 @@ var _ = Describe("UpstreamRemovingSanitizer", func() {
 			},
 		}
 
-		glooSnapshot := &v1.ApiSnapshot{
+		glooSnapshot := &v1snap.ApiSnapshot{
 			Upstreams: v1.UpstreamList{us, badUs},
 		}
 
-		snap, err := sanitizer.SanitizeSnapshot(context.TODO(), glooSnapshot, xdsSnapshot, reports)
-		Expect(err).NotTo(HaveOccurred())
+		snap := sanitizer.SanitizeSnapshot(context.TODO(), glooSnapshot, xdsSnapshot, reports)
 
-		clusters := snap.GetResources(resource.ClusterTypeV3)
+		clusters := snap.GetResources(types.ClusterTypeV3)
 
 		Expect(clusters.Items).To(HaveLen(1))
 		Expect(clusters.Items[goodClusterName].ResourceProto()).To(Equal(goodCluster))

@@ -41,7 +41,7 @@ spec:
       oidcAuthorizationCode:
         issuerUrl: theissuer.com
         appUrl: https://myapp.com
-        authEndpoint_query_params:
+        authEndpointQueryParams:
           paramKey: paramValue
         callbackPath: /my/callback/path/
         clientId: myclientid
@@ -74,25 +74,27 @@ The callback path must have a matching route in the VirtualService associated wi
 - `client_id`: This is the **client id** that you obtained when you registered your application with the identity provider.
 - `client_secret_ref`: This is a reference to a Kubernetes secret containing the **client secret** that you obtained 
 when you registered your application with the identity provider. The easiest way to create the Kubernetes secret in the 
-expected format is to use `glooctl`, but you can also provide it by `kubectl apply`ing YAML to your cluster:
+expected format is to use `glooctl`, but you can use `kubectl create secret` or `kubectl apply` as well. If you use `kubectl create secret`, be sure to annotate the secret with `*v1.Secret` so that Gloo Edge detects the secret. {{% notice note %}}In Gloo Edge versions 1.11 and later, specify a secret of `type: extauth.solo.io/oauth`. If your `glooctl` client still runs version 1.10 or earlier, the `glooctl create secret` command creates a secret of `type: Opaque`. To ensure that you create an `extauth.solo.io/oauth` secret, either [update `glooctl` to 1.11 or later]({{< versioned_link_path fromRoot="/installation/preparation/#update-glooctl" >}}) before using `glooctl create secret`, or use the `kubectl` tabs.{{% /notice %}}
 {{< tabs >}}
 {{< tab name="glooctl" codelang="shell">}}
-glooctl create secret oauth --namespace gloo-system --name oidc --client-secret secretvalue
+glooctl create secret oauth --namespace gloo-system --name oidc --client-secret <client_secret_value>
 {{< /tab >}}
-{{< tab name="kubectl" codelang="yaml">}}
+{{< tab name="kubectl create secret" codelang="shell">}}
+kubectl create secret generic oidc --from-literal=client-secret=<client_secret>
+kubectl annotate secret oidc resource_kind='*v1.Secret' # Important, since gloo-edge does not watch for opaque secrets without this setting
+{{< /tab >}}
+{{< tab name="kubectl apply" codelang="yaml">}}
 apiVersion: v1
 kind: Secret
-type: Opaque
+type: extauth.solo.io/oauth
 metadata:
-  annotations:
-    resource_kind: '*v1.Secret'
   name: oidc
   namespace: gloo-system
 data:
   # The value is a base64 encoding of the following YAML:
   # client_secret: secretvalue
   # Gloo Edge expects OAuth client secrets in this format.
-  oauth: Y2xpZW50U2VjcmV0OiBzZWNyZXR2YWx1ZQo=
+  client-secret: Y2xpZW50U2VjcmV0OiBzZWNyZXR2YWx1ZQo=
 {{< /tab >}}
 {{< /tabs >}} 
 - `scopes`: scopes to request in addition to the `openid` scope.
@@ -134,7 +136,7 @@ spec:
 ## Logout URL
 
 Gloo also supports specifying a logout url. When specified, accessing this url will
-trigger a deletion of the user session, with an empty 200 OK response returned.
+trigger a deletion of the user session and revoke the user's access token. This action returns with an empty 200 HTTP response.
 
 Example configuration:
 
@@ -160,12 +162,85 @@ spec:
         logoutPath: /logout
 {{< /highlight >}}
 
-When this url is accessed, the user session and cookie will be deleted.
+When this URL is accessed, the user session and cookie are deleted. 
+The access token on the server is also revoked based on the discovered revocation endpoint. 
+You can also override the revocation endpoint through the [DiscoveryOverride field]({{< versioned_link_path fromRoot="/reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/extauth/v1/extauth.proto.sk/#discoveryoverride" >}}) in `AuthConfig`.
+
+{{% notice warning %}}
+If the authorization server has a service error, Gloo logs out the user, but does not retry revoking the access token. Check the logs and your identity provider for errors, and manually revoke the access token.
+{{% /notice %}}
+
+## Sessions in Cookies
+
+You can store the ID token, access token, and other tokens that are returned from your OIDC provider in a cookie on the client side. To do this, you configure your cookie options, such as the `keyPrefix` that you want to add to the token name, in the `oauth2.oidcAuthorizationCode.session.cookie` section of your authconfig as shown in the following example. After a client successfully authenticates with the OIDC provider, the tokens are stored in the `Set-Cookie` response header and sent to the client. If you set a `keyPrefix` value in your cookie configuration, the prefix is added to the name of the token before it is sent to the client, such as `Set-Cookie: <myprefix>_id-token=<ID_token>`. To prove successful authentication with the OIDC provider in subsequent requests, clients send their tokens in a `Cookie` header. 
+
+Cookie headers can have a maximum size of 4KB. If you find that your cookie header exceeds this value, you can either limit the size of the cookie header or [store the tokens in Redis](#sessions-in-redis) and send back a Redis session ID instead. 
+
+{{% notice warning %}}
+Storing the raw, unencrypted tokens in a cookie header is not a recommended security practice as they can be manipulated through malicious attacks. To encrypt your tokens, see [Symmetric cookie encryption](#symmetric-cookie-encryption). For a more secure setup, [store the tokens in a Redis instance](#sessions-in-redis) and send back a Redis session ID in the cookie header. 
+{{% /notice %}}
+
+
+Example configuration:
+{{< highlight yaml "hl_lines=19-21" >}}
+apiVersion: enterprise.gloo.solo.io/v1
+kind: AuthConfig
+metadata:
+  name: oidc-dex
+  namespace: gloo-system
+spec:
+  configs:
+  - oauth2:
+      oidcAuthorizationCode:
+        appUrl: http://localhost:8080/
+        callbackPath: /callback
+        clientId: gloo
+        clientSecretRef:
+          name: oauth
+          namespace: gloo-system
+        issuerUrl: http://dex.gloo-system.svc.cluster.local:32000/
+        scopes:
+        - email
+        session:
+          cookie:
+            keyPrefix: "my_cookie_prefix"
+{{< /highlight >}}
+
+### Symmetric cookie encryption
+
+By default, the tokens that are sent in the cookie header are not encrypted and can be manipulated through malicious attacks. To encrypt the cookie values, you can add a `cipherConfig` section to your session configuration as shown in the following example. 
+
+{{% notice note %}}
+Setting the `cipherConfig` attribute is supported in Gloo Edge version 1.15 and later and can be used only to encrypt cookie sessions. You cannot use this feature to encrypt Redis sessions. 
+{{% /notice %}}
+
+1. Create a secret with your encryption key. Note that the key must be 32 bytes in length. 
+   ```shell
+   glooctl create secret encryptionkey --name my-encryption-key --key "an example of an encryption key1"
+   ```
+
+2. Reference the secret in the `cipherConfig` section of your authconfig. 
+   {{< highlight yaml "hl_lines=8-11" >}}
+   ...
+   kind: AuthConfig
+   spec:
+     configs:
+     - oauth2:
+          oidcAuthorizationCode:
+            session:
+              cipherConfig:
+                keyRef:
+                  name: my-encryption-key
+                  namespace: gloo-system
+                cookie:
+                  keyPrefix: "my_cookie_prefix"
+   {{< /highlight >}}
 
 ## Sessions in Redis
 
 By default, the tokens will be saved in a secure client side cookie.
 Gloo can instead use Redis to save the OIDC tokens, and set a randomly generated session id in the user's cookie.
+Going forward in the Gloo Edge documentation, we will be using examples of OIDC using a redis session.
 
 Example configuration:
 

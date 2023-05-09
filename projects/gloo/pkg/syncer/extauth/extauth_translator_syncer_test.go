@@ -3,10 +3,14 @@ package extauth_test
 import (
 	"context"
 
-	. "github.com/onsi/ginkgo"
+	"github.com/hashicorp/go-multierror"
+	"github.com/solo-io/go-utils/testutils"
+
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	extauth "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/enterprise/options/extauth/v1"
+	gloov1snap "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/gloosnapshot"
 	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
 	"github.com/solo-io/gloo/projects/gloo/pkg/syncer"
 	skcore "github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
@@ -18,30 +22,42 @@ import (
 var _ = Describe("ExtauthTranslatorSyncer", func() {
 
 	var (
-		ctx             context.Context
-		cancel          context.CancelFunc
-		translator      syncer.TranslatorSyncerExtension
-		apiSnapshot     *gloov1.ApiSnapshot
-		snapCache       *syncer.MockXdsCache
-		settings        *gloov1.Settings
-		resourceReports reporter.ResourceReports
+		ctx         context.Context
+		cancel      context.CancelFunc
+		translator  syncer.TranslatorSyncerExtension
+		apiSnapshot *gloov1snap.ApiSnapshot
+		settings    *gloov1.Settings
 	)
 
 	BeforeEach(func() {
 		ctx, cancel = context.WithCancel(context.Background())
-		var err error
+		translator = NewTranslatorSyncerExtension(ctx, syncer.TranslatorSyncerExtensionParams{})
 
-		translator, err = NewTranslatorSyncerExtension(ctx, syncer.TranslatorSyncerExtensionParams{})
-		Expect(err).NotTo(HaveOccurred())
-
-		apiSnapshot = &gloov1.ApiSnapshot{}
 		settings = &gloov1.Settings{}
-		resourceReports = make(reporter.ResourceReports)
+		apiSnapshot = &gloov1snap.ApiSnapshot{}
 	})
 
 	AfterEach(func() {
 		cancel()
 	})
+
+	ExpectSyncGeneratesEnterpriseOnlyError := func() {
+		reports := make(reporter.ResourceReports)
+		translator.Sync(ctx, apiSnapshot, settings, &syncer.MockXdsCache{}, reports)
+
+		err := reports.ValidateStrict()
+		multiErr, ok := err.(*multierror.Error)
+		ExpectWithOffset(1, ok).To(BeTrue())
+		ExpectWithOffset(1, multiErr.WrappedErrors()).To(ContainElement(testutils.HaveInErrorChain(ErrEnterpriseOnly)))
+	}
+
+	ExpectSyncDoesNotError := func() {
+		reports := make(reporter.ResourceReports)
+		translator.Sync(ctx, apiSnapshot, settings, &syncer.MockXdsCache{}, reports)
+
+		err := reports.ValidateStrict()
+		ExpectWithOffset(1, err).To(BeNil())
+	}
 
 	Context("Listener contains ExtAuthExtension.ConfigRef", func() {
 
@@ -72,16 +88,29 @@ var _ = Describe("ExtauthTranslatorSyncer", func() {
 
 			BeforeEach(func() {
 				proxy := getProxyWithVirtualHostExtAuthExtension(extAuthExtension)
-				apiSnapshot = &gloov1.ApiSnapshot{
+				apiSnapshot = &gloov1snap.ApiSnapshot{
 					Proxies:     gloov1.ProxyList{proxy},
 					AuthConfigs: extauth.AuthConfigList{authConfig},
 				}
 			})
 
 			It("should error", func() {
-				_, err := translator.Sync(ctx, apiSnapshot, settings, snapCache, resourceReports)
-				Expect(err).To(HaveOccurred())
-				Expect(err).To(MatchError(ErrEnterpriseOnly))
+				ExpectSyncGeneratesEnterpriseOnlyError()
+			})
+		})
+
+		When("defined on VirtualHost in HybridListener", func() {
+
+			BeforeEach(func() {
+				proxy := getProxyWithHybridListenerVirtualHostExtAuthExtension(extAuthExtension)
+				apiSnapshot = &gloov1snap.ApiSnapshot{
+					Proxies:     gloov1.ProxyList{proxy},
+					AuthConfigs: extauth.AuthConfigList{authConfig},
+				}
+			})
+
+			It("should error", func() {
+				ExpectSyncGeneratesEnterpriseOnlyError()
 			})
 		})
 
@@ -89,16 +118,14 @@ var _ = Describe("ExtauthTranslatorSyncer", func() {
 
 			BeforeEach(func() {
 				proxy := getProxyWithRouteExtAuthExtension(extAuthExtension)
-				apiSnapshot = &gloov1.ApiSnapshot{
+				apiSnapshot = &gloov1snap.ApiSnapshot{
 					Proxies:     gloov1.ProxyList{proxy},
 					AuthConfigs: extauth.AuthConfigList{authConfig},
 				}
 			})
 
 			It("should error", func() {
-				_, err := translator.Sync(ctx, apiSnapshot, settings, snapCache, resourceReports)
-				Expect(err).To(HaveOccurred())
-				Expect(err).To(MatchError(ErrEnterpriseOnly))
+				ExpectSyncGeneratesEnterpriseOnlyError()
 			})
 		})
 
@@ -106,16 +133,14 @@ var _ = Describe("ExtauthTranslatorSyncer", func() {
 
 			BeforeEach(func() {
 				proxy := getProxyWithWeightedDestinationAuthExtension(extAuthExtension)
-				apiSnapshot = &gloov1.ApiSnapshot{
+				apiSnapshot = &gloov1snap.ApiSnapshot{
 					Proxies:     gloov1.ProxyList{proxy},
 					AuthConfigs: extauth.AuthConfigList{authConfig},
 				}
 			})
 
 			It("should error", func() {
-				_, err := translator.Sync(ctx, apiSnapshot, settings, snapCache, resourceReports)
-				Expect(err).To(HaveOccurred())
-				Expect(err).To(MatchError(ErrEnterpriseOnly))
+				ExpectSyncGeneratesEnterpriseOnlyError()
 			})
 		})
 
@@ -141,15 +166,13 @@ var _ = Describe("ExtauthTranslatorSyncer", func() {
 
 			BeforeEach(func() {
 				proxy := getProxyWithVirtualHostExtAuthExtension(extAuthExtension)
-				apiSnapshot = &gloov1.ApiSnapshot{
+				apiSnapshot = &gloov1snap.ApiSnapshot{
 					Proxies: gloov1.ProxyList{proxy},
 				}
 			})
 
 			It("should error", func() {
-				_, err := translator.Sync(ctx, apiSnapshot, settings, snapCache, resourceReports)
-				Expect(err).To(HaveOccurred())
-				Expect(err).To(MatchError(ErrEnterpriseOnly))
+				ExpectSyncGeneratesEnterpriseOnlyError()
 			})
 		})
 
@@ -157,15 +180,13 @@ var _ = Describe("ExtauthTranslatorSyncer", func() {
 
 			BeforeEach(func() {
 				proxy := getProxyWithRouteExtAuthExtension(extAuthExtension)
-				apiSnapshot = &gloov1.ApiSnapshot{
+				apiSnapshot = &gloov1snap.ApiSnapshot{
 					Proxies: gloov1.ProxyList{proxy},
 				}
 			})
 
 			It("should error", func() {
-				_, err := translator.Sync(ctx, apiSnapshot, settings, snapCache, resourceReports)
-				Expect(err).To(HaveOccurred())
-				Expect(err).To(MatchError(ErrEnterpriseOnly))
+				ExpectSyncGeneratesEnterpriseOnlyError()
 			})
 		})
 
@@ -173,15 +194,13 @@ var _ = Describe("ExtauthTranslatorSyncer", func() {
 
 			BeforeEach(func() {
 				proxy := getProxyWithWeightedDestinationAuthExtension(extAuthExtension)
-				apiSnapshot = &gloov1.ApiSnapshot{
+				apiSnapshot = &gloov1snap.ApiSnapshot{
 					Proxies: gloov1.ProxyList{proxy},
 				}
 			})
 
 			It("should error", func() {
-				_, err := translator.Sync(ctx, apiSnapshot, settings, snapCache, resourceReports)
-				Expect(err).To(HaveOccurred())
-				Expect(err).To(MatchError(ErrEnterpriseOnly))
+				ExpectSyncGeneratesEnterpriseOnlyError()
 			})
 		})
 
@@ -191,14 +210,13 @@ var _ = Describe("ExtauthTranslatorSyncer", func() {
 
 		BeforeEach(func() {
 			proxy := getProxyWithVirtualHostExtAuthExtension(nil)
-			apiSnapshot = &gloov1.ApiSnapshot{
+			apiSnapshot = &gloov1snap.ApiSnapshot{
 				Proxies: gloov1.ProxyList{proxy},
 			}
 		})
 
 		It("should not error", func() {
-			_, err := translator.Sync(ctx, apiSnapshot, settings, snapCache, resourceReports)
-			Expect(err).NotTo(HaveOccurred())
+			ExpectSyncDoesNotError()
 		})
 
 	})
@@ -211,10 +229,10 @@ var _ = Describe("ExtauthTranslatorSyncer", func() {
 			}
 		})
 
-		It("should error", func() {
-			_, err := translator.Sync(ctx, apiSnapshot, settings, snapCache, resourceReports)
-			Expect(err).To(HaveOccurred())
-			Expect(err).To(MatchError(ErrEnterpriseOnly))
+		It("should not error", func() {
+			// Currently, we do not aggregate errors from Settings on resourceReports
+			// We will only log this error
+			ExpectSyncDoesNotError()
 		})
 
 	})
@@ -230,6 +248,17 @@ func getProxyWithVirtualHostExtAuthExtension(extension *extauth.ExtAuthExtension
 	}
 
 	return getBasicProxy(virtualHost)
+}
+
+func getProxyWithHybridListenerVirtualHostExtAuthExtension(extension *extauth.ExtAuthExtension) *gloov1.Proxy {
+	virtualHost := &gloov1.VirtualHost{
+		Name: "gloo-system.default",
+		Options: &gloov1.VirtualHostOptions{
+			Extauth: extension,
+		},
+	}
+
+	return getBasicHybridListenerProxy(virtualHost)
 }
 
 func getProxyWithRouteExtAuthExtension(extension *extauth.ExtAuthExtension) *gloov1.Proxy {
@@ -281,6 +310,31 @@ func getBasicProxy(virtualHost *gloov1.VirtualHost) *gloov1.Proxy {
 			ListenerType: &gloov1.Listener_HttpListener{
 				HttpListener: &gloov1.HttpListener{
 					VirtualHosts: []*gloov1.VirtualHost{virtualHost},
+				},
+			},
+		}},
+	}
+}
+
+func getBasicHybridListenerProxy(virtualHost *gloov1.VirtualHost) *gloov1.Proxy {
+	return &gloov1.Proxy{
+		Metadata: &skcore.Metadata{
+			Name:      "proxy",
+			Namespace: "gloo-system",
+		},
+		Listeners: []*gloov1.Listener{{
+			Name: "listener-::-8443",
+			ListenerType: &gloov1.Listener_HybridListener{
+				HybridListener: &gloov1.HybridListener{
+					MatchedListeners: []*gloov1.MatchedListener{
+						{
+							ListenerType: &gloov1.MatchedListener_HttpListener{
+								HttpListener: &gloov1.HttpListener{
+									VirtualHosts: []*gloov1.VirtualHost{virtualHost},
+								},
+							},
+						},
+					},
 				},
 			},
 		}},

@@ -7,6 +7,7 @@ import (
 	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
 
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/ssl"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 
 	consulplugin "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/consul"
@@ -75,8 +76,8 @@ func CreateUpstreamsFromService(service *ServiceMeta, consulConfig *v1.Settings_
 					Name:      fakeUpstreamName(service.Name + "-tls"),
 					Namespace: defaults.GlooSystem,
 				},
-				SslConfig: &v1.UpstreamSslConfig{
-					SslSecrets: &v1.UpstreamSslConfig_SecretRef{
+				SslConfig: &ssl.UpstreamSslConfig{
+					SslSecrets: &ssl.UpstreamSslConfig_SecretRef{
 						SecretRef: &core.ResourceRef{
 							Name:      consulConfig.GetRootCa().GetName(),
 							Namespace: consulConfig.GetRootCa().GetNamespace(),
@@ -85,10 +86,12 @@ func CreateUpstreamsFromService(service *ServiceMeta, consulConfig *v1.Settings_
 				},
 				UpstreamType: &v1.Upstream_Consul{
 					Consul: &consulplugin.UpstreamSpec{
-						ServiceName:  service.Name,
-						DataCenters:  service.DataCenters,
-						ServiceTags:  service.Tags,
-						InstanceTags: tlsInstanceTags,
+						ServiceName:     service.Name,
+						DataCenters:     service.DataCenters,
+						ServiceTags:     service.Tags,
+						InstanceTags:    tlsInstanceTags,
+						ConsistencyMode: consulplugin.ConsulConsistencyModes(consulConfig.GetConsistencyMode()),
+						QueryOptions:    consulConfig.GetQueryOptions(),
 					},
 				},
 			})
@@ -109,6 +112,8 @@ func CreateUpstreamsFromService(service *ServiceMeta, consulConfig *v1.Settings_
 				DataCenters:           service.DataCenters,
 				ServiceTags:           service.Tags,
 				InstanceBlacklistTags: tlsInstanceTags, // Set blacklist on non-tls upstreams to the tls tag.
+				ConsistencyMode:       consulplugin.ConsulConsistencyModes(consulConfig.GetConsistencyMode()),
+				QueryOptions:          consulConfig.GetQueryOptions(),
 			},
 		},
 	})

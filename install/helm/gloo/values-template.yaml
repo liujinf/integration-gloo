@@ -46,6 +46,7 @@ gloo:
     xdsPort: 9977
     restXdsPort: 9976
     validationPort: 9988
+    proxyDebugPort: 9966
     replicas: 1
     runAsUser: 10101
     serviceAccount: {}
@@ -63,24 +64,21 @@ discovery:
 gateway:
   enabled: true
   readGatewaysFromAllNamespaces: false
+  isolateVirtualHostsBySslConfig: false
   validation:
     enabled: true
     failurePolicy: "Ignore"
     secretName: gateway-validation-certs
     alwaysAcceptResources: true
     allowWarnings: true
+    serverEnabled: true
     disableTransformationValidation: false
     warnRouteShortCircuiting: false
-    validationServerGrpcMaxSizeBytes: 4000000
+    validationServerGrpcMaxSizeBytes: 104857600
     webhook:
       enabled: true
       disableHelmHook: false
       extraAnnotations: {}
-  deployment:
-    image:
-      repository: gateway
-    replicas: 1
-    runAsUser: 10101
   certGenJob:
     enabled: true
     image:
@@ -89,12 +87,30 @@ gateway:
     setTtlAfterFinished: true
     ttlSecondsAfterFinished: 60
     runAsUser: 10101
+    cron:
+      enabled: false
+      schedule: "* * * * *"
+    runOnUpdate: false
+  rolloutJob:
+    enabled: true
+    image:
+      repository: kubectl
+    restartPolicy: OnFailure
+    runAsUser: 10101
+    ttlSecondsAfterFinished: 60
+  cleanupJob:
+    enabled: true
+    image:
+      repository: kubectl
+    restartPolicy: OnFailure
+    runAsUser: 10101
+    ttlSecondsAfterFinished: 60
   proxyServiceAccount: {}
-  serviceAccount: {}
 gatewayProxies:
   gatewayProxy:
     envoyApiVersion: V3
     gatewaySettings:
+      enabled: true
       useProxyProto: false
     failover:
       enabled: false
@@ -118,6 +134,7 @@ gatewayProxies:
         enabled: false
         sleepTimeSeconds: 25
       customReadinessProbe: {}
+      customLivenessProbe: {}
     service:
       customPorts: []
       type: LoadBalancer
@@ -131,8 +148,16 @@ gatewayProxies:
     configMap:
       data:
     loopBackAddress: 127.0.0.1
+    envoyOverloadManager:
+      enabled: false
+      actions: []
+      bufferFactoryConfig: 
+      refreshInterval: 1s
+      resourceMonitors: []
     globalDownstreamMaxConnections: 250000
     healthyPanicThreshold: 50
+    tcpKeepaliveTimeSeconds: 60
+    disableCoreDumps: false
     # intentionally unset, so we default to the gloo service address. if set, this overrides the derived gloo service address
     # xdsServiceAddress: xds-relay.default.svc.cluster.local
     # intentionally unset, so we default to the gloo service port. if set, this overrides .Values.gloo.deployment.xdsPort
@@ -183,11 +208,19 @@ global:
   glooStats:
     enabled: true
     routePrefixRewrite: /stats/prometheus
+    setDatadogAnnotations: false
+    enableStatsRoute: false
+    statsPrefixRewrite: /stats
   glooMtls:
     enabled: false
     sds:
       image:
         repository: sds
+    istioProxy:
+      image:
+        repository: proxyv2
+        registry: docker.io/istio
+        tag: 1.9.5
     envoy:
       image:
         repository: gloo-envoy-wrapper
@@ -197,6 +230,8 @@ global:
     labelInstallNamespace: false
     whitelistDiscovery: false
     disableAutoinjection: false
+    enableIstioSidecarOnGateway: false
   # AddEnterpriseSettings and extauthCustomYaml control differences in the settings manifest between open source and enterprise
   AddEnterpriseSettings: false
   extauthCustomYaml: true
+  

@@ -2,26 +2,30 @@ package test
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
+	"strings"
 	"testing"
 	"text/template"
 
-	"github.com/solo-io/solo-kit/pkg/utils/statusutils"
+	"github.com/pkg/errors"
+	"github.com/solo-io/k8s-utils/installutils/kuberesource"
+	rbacv1 "k8s.io/api/rbac/v1"
 
-	"github.com/onsi/ginkgo/reporters"
+	"github.com/solo-io/gloo/install/helm/gloo/generate"
 
 	"github.com/ghodss/yaml"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/solo-io/gloo/pkg/cliutil/helm"
-	glooVersion "github.com/solo-io/gloo/pkg/version"
 	"github.com/solo-io/gloo/projects/gloo/cli/pkg/cmd/install"
 	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
 	"github.com/solo-io/go-utils/testutils"
-	"github.com/solo-io/go-utils/versionutils/git"
 	. "github.com/solo-io/k8s-utils/manifesttestutils"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart/loader"
@@ -33,34 +37,29 @@ import (
 	k8syamlutil "sigs.k8s.io/yaml"
 )
 
+const (
+	namespace      = defaults.GlooSystem
+	releaseName    = "gloo"
+	chartDir       = "../helm/gloo"
+	debugOutputDir = "../../_output/helm/charts"
+)
+
+var (
+	version    string
+	pullPolicy v1.PullPolicy
+)
+
 func TestHelm(t *testing.T) {
 	RegisterFailHandler(Fail)
 	testutils.RegisterCommonFailHandlers()
-	junitReporter := reporters.NewJUnitReporter("junit.xml")
-	RunSpecsWithDefaultAndCustomReporters(t, "Helm Suite", []Reporter{junitReporter})
+	RunSpecs(t, "Helm Suite")
 }
 
 var _ = BeforeSuite(func() {
-	err := os.Setenv(statusutils.PodNamespaceEnvName, namespace)
-	Expect(err).NotTo(HaveOccurred())
-
-	version = os.Getenv("TAGGED_VERSION")
-	if !glooVersion.IsReleaseVersion() {
-		gitInfo, err := git.GetGitRefInfo("./")
-		Expect(err).NotTo(HaveOccurred())
-		// remove the "v" prefix
-		version = gitInfo.Tag[1:]
-	} else {
-		version = version[1:]
-	}
+	version = MustGetVersion()
 	pullPolicy = v1.PullIfNotPresent
 	// generate the values.yaml and Chart.yaml files
 	MustMake(".", "-C", "../../", "generate-helm-files", "-B")
-})
-
-var _ = AfterSuite(func() {
-	err := os.Unsetenv(statusutils.PodNamespaceEnvName)
-	Expect(err).NotTo(HaveOccurred())
 })
 
 type renderTestCase struct {
@@ -69,7 +68,10 @@ type renderTestCase struct {
 }
 
 var renderers = []renderTestCase{
-	{"Helm 3", helm3Renderer{chartDir}},
+	{"Helm 3", helm3Renderer{
+		chartDir:          chartDir,
+		manifestOutputDir: "", // set to debugOutputDir when debugging locally
+	}},
 }
 
 func runTests(callback func(testCase renderTestCase)) {
@@ -77,16 +79,6 @@ func runTests(callback func(testCase renderTestCase)) {
 		callback(r)
 	}
 }
-
-const (
-	namespace = defaults.GlooSystem
-	chartDir  = "../helm/gloo"
-)
-
-var (
-	version    string
-	pullPolicy v1.PullPolicy
-)
 
 func MustMake(dir string, args ...string) {
 	makeCmd := exec.Command("make", args...)
@@ -97,6 +89,55 @@ func MustMake(dir string, args ...string) {
 	err := makeCmd.Run()
 
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+}
+
+func MustMakeReturnStdout(dir string, args ...string) string {
+	makeCmd := exec.Command("make", args...)
+	makeCmd.Dir = dir
+
+	var stdout bytes.Buffer
+	makeCmd.Stdout = &stdout
+
+	makeCmd.Stderr = GinkgoWriter
+	err := makeCmd.Run()
+
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+
+	return stdout.String()
+}
+
+// MustGetVersion returns the VERSION that will be used to build the chart
+func MustGetVersion() string {
+	output := MustMakeReturnStdout(".", "-C", "../../", "print-VERSION") // use print-VERSION so version matches on forks
+	lines := strings.Split(output, "\n")
+
+	// output from a fork:
+	// <[]string | len:4, cap:4>: [
+	//	"make[1]: Entering directory '/workspace/gloo'",
+	//	"<VERSION>",
+	//	"make[1]: Leaving directory '/workspace/gloo'",
+	//	"",
+	// ]
+
+	// output from the gloo repo:
+	// <[]string | len:2, cap:2>: [
+	//	"<VERSION>",
+	//	"",
+	// ]
+
+	if len(lines) == 4 {
+		// This is being executed from a fork
+		return lines[1]
+	}
+
+	if len(lines) == 2 {
+		// This is being executed from the Gloo repo
+		return lines[0]
+	}
+
+	// Error loudly to prevent subtle failures
+	Fail(fmt.Sprintf("print-VERSION output returned unknown format. %v", lines))
+	return "version-not-found"
 }
 
 type helmValues struct {
@@ -113,52 +154,80 @@ var _ ChartRenderer = &helm3Renderer{}
 
 type helm3Renderer struct {
 	chartDir string
+	// manifestOutputDir is a useful field to set when running tests locally
+	// it will output the generated manifest to a directory that you can easily
+	// inspect. If this value is an empty string, it will print the manifest to a temporary
+	// file and automatically clean it up.
+	manifestOutputDir string
 }
 
 func (h3 helm3Renderer) RenderManifest(namespace string, values helmValues) (TestManifest, error) {
-	rel, err := BuildHelm3Release(h3.chartDir, namespace, values)
+	rel, err := buildHelm3Release(h3.chartDir, namespace, values)
 	if err != nil {
-		return nil, err
+		return nil, errors.Errorf("failure in buildHelm3Release: %s", err.Error())
 	}
 
-	// the test manifest utils can only read from a file, ugh
-	f, err := ioutil.TempFile("", "*.yaml")
-	Expect(err).NotTo(HaveOccurred(), "Should be able to write a temp file for the helm unit test manifest")
-	defer func() { _ = os.Remove(f.Name()) }()
+	// the test manifest utils can only read from a file
+	var testManifestFile *os.File
 
-	_, err = f.Write([]byte(rel.Manifest))
-	Expect(err).NotTo(HaveOccurred(), "Should be able to write the release manifest to the temp file for the helm unit tests")
+	if h3.manifestOutputDir == "" {
+		testManifestFile, err = ioutil.TempFile("", "*.yaml")
+		Expect(err).NotTo(HaveOccurred(), "Should be able to write a temp file for the helm unit test manifest")
+		defer func() {
+			_ = os.Remove(testManifestFile.Name())
+
+		}()
+	} else {
+		// Create a new file, with the version name, or truncate the file if one already exists
+		testManifestFile, err = os.Create(fmt.Sprintf("%s.yaml", filepath.Join(h3.manifestOutputDir, version)))
+		Expect(err).NotTo(HaveOccurred(), "Should be able to write a file to the manifestOutputDir for the helm unit test manifest")
+	}
+
+	_, err = testManifestFile.Write([]byte(rel.Manifest))
+	Expect(err).NotTo(HaveOccurred(), "Should be able to write the release manifest to the manifest file for the helm unit tests")
 
 	hooks, err := helm.GetHooks(rel.Hooks)
-
 	Expect(err).NotTo(HaveOccurred(), "Should be able to get the hooks in the helm unit test setup")
 
 	for _, hook := range hooks {
 		manifest := hook.Manifest
-		_, err = f.Write([]byte("\n---\n" + manifest))
-		Expect(err).NotTo(HaveOccurred(), "Should be able to write the hook manifest to the temp file for the helm unit tests")
+		_, err = testManifestFile.Write([]byte("\n---\n" + manifest))
+		Expect(err).NotTo(HaveOccurred(), "Should be able to write the hook manifest to the manifest file for the helm unit tests")
 	}
 
-	return NewTestManifest(f.Name()), nil
+	err = testManifestFile.Close()
+	Expect(err).NotTo(HaveOccurred(), "Should be able to close the manifest file")
+
+	return NewTestManifest(testManifestFile.Name()), nil
 }
 
-func BuildHelm3Release(chartDir, namespace string, values helmValues) (*release.Release, error) {
+func buildHelm3Release(chartDir, namespace string, values helmValues) (*release.Release, error) {
 	chartRequested, err := loader.Load(chartDir)
 	if err != nil {
-		return nil, err
+		return nil, errors.Errorf("failed to load chart directory: %s", err.Error())
 	}
 
 	helmValues, err := buildHelmValues(chartDir, values)
 	if err != nil {
-		return nil, err
+		return nil, errors.Errorf("failure in buildHelmValues: %s", err.Error())
 	}
 
-	client, err := buildRenderer(namespace)
+	// Validate that the provided values match the Go types used to construct out docs
+	err = validateHelmValues(helmValues)
 	if err != nil {
-		return nil, err
+		return nil, errors.Errorf("failure in validateHelmValues: %s", err.Error())
 	}
 
-	return client.Run(chartRequested, helmValues)
+	// Install the chart
+	installAction, err := createInstallAction(namespace)
+	if err != nil {
+		return nil, errors.Errorf("failure in createInstallAction: %s", err.Error())
+	}
+	release, err := installAction.Run(chartRequested, helmValues)
+	if err != nil {
+		return nil, errors.Errorf("failure in installAction.run: %s", err.Error())
+	}
+	return release, err
 }
 
 // each entry in valuesArgs should look like `path.to.helm.field=value`
@@ -191,6 +260,40 @@ func buildHelmValues(chartDir string, values helmValues) (map[string]interface{}
 	return finalValues, nil
 }
 
+// validateHelmValues ensures that the unstructured helm values that are provided
+// to a chart match the Go type used to generate the Helm documentation
+// Returns nil if all the provided values are all included in the Go struct
+// Returns an error if a provided value is not included in the Go struct.
+//
+// Example:
+//
+//	Failed to render manifest
+//	    Unexpected error:
+//	        <*errors.errorString | 0xc000fedf40>: {
+//	            s: "error unmarshaling JSON: while decoding JSON: json: unknown field \"useTlsTagging\"",
+//	        }
+//	        error unmarshaling JSON: while decoding JSON: json: unknown field "useTlsTagging"
+//	    occurred
+//
+// This means that the unstructured values provided to the Helm chart contain a field `useTlsTagging`
+// but the Go struct does not contain that field.
+func validateHelmValues(unstructuredHelmValues map[string]interface{}) error {
+	// This Go type is the source of truth for the Helm docs
+	var structuredHelmValues generate.HelmConfig
+
+	unstructuredHelmValueBytes, err := json.Marshal(unstructuredHelmValues)
+	if err != nil {
+		return err
+	}
+
+	// This ensures that an error will be raised if there is an unstructured helm value
+	// defined but there is not the equivalent type defined in our Go struct
+	//
+	// When an error occurs, this means the Go type needs to be amended
+	// to include the new field (which is the source of truth for our docs)
+	return k8syamlutil.UnmarshalStrict(unstructuredHelmValueBytes, &structuredHelmValues)
+}
+
 func readValuesFile(filePath string) (map[string]interface{}, error) {
 	mapFromFile := map[string]interface{}{}
 
@@ -209,14 +312,14 @@ func readValuesFile(filePath string) (map[string]interface{}, error) {
 	return mapFromFile, nil
 }
 
-func buildRenderer(namespace string) (*action.Install, error) {
-	settings := install.NewCLISettings(namespace)
+func createInstallAction(namespace string) (*action.Install, error) {
+	settings := install.NewCLISettings(namespace, "")
 	actionConfig := new(action.Configuration)
 	noOpDebugLog := func(format string, v ...interface{}) {}
 
 	if err := actionConfig.Init(
 		settings.RESTClientGetter(),
-		defaults.GlooSystem,
+		namespace,
 		os.Getenv("HELM_DRIVER"),
 		noOpDebugLog,
 	); err != nil {
@@ -226,8 +329,7 @@ func buildRenderer(namespace string) (*action.Install, error) {
 	renderer := action.NewInstall(actionConfig)
 	renderer.DryRun = true
 	renderer.Namespace = namespace
-	renderer.ReleaseName = "gloo"
-	renderer.Namespace = defaults.GlooSystem
+	renderer.ReleaseName = releaseName
 	renderer.ClientOnly = true
 
 	return renderer, nil
@@ -269,4 +371,20 @@ func makeUnstructureFromTemplateFile(fixtureName string, values interface{}) *un
 	err = tmpl.Execute(&b, values)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	return makeUnstructured(b.String())
+}
+
+func makeRoleBindingFromUnstructured(resource *unstructured.Unstructured) *rbacv1.RoleBinding {
+	bindingObject, err := kuberesource.ConvertUnstructured(resource)
+	Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("RoleBinding %+v should be able to convert from unstructured", resource))
+	structuredRoleBinding, ok := bindingObject.(*rbacv1.RoleBinding)
+	Expect(ok).To(BeTrue(), fmt.Sprintf("RoleBinding %+v should be able to cast to a structured role binding", resource))
+	return structuredRoleBinding
+}
+
+func makeClusterRoleBindingFromUnstructured(resource *unstructured.Unstructured) *rbacv1.ClusterRoleBinding {
+	bindingObject, err := kuberesource.ConvertUnstructured(resource)
+	Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("ClusterRoleBinding %+v should be able to convert from unstructured", resource))
+	structuredClusterRoleBinding, ok := bindingObject.(*rbacv1.ClusterRoleBinding)
+	Expect(ok).To(BeTrue(), fmt.Sprintf("ClusterRoleBinding %+v should be able to cast to a structured cluster role binding", resource))
+	return structuredClusterRoleBinding
 }

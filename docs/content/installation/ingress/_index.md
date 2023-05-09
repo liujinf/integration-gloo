@@ -8,9 +8,9 @@ Gloo Edge can be used as a simple ingress controller on Kubernetes. This guide w
 
 These directions assume you've prepared your Kubernetes cluster appropriately. Full details on setting up your Kubernetes cluster [here]({{< versioned_link_path fromRoot="/installation/platform_configuration/cluster_setup/" >}}).
 
-{{< readfile file="installation/glooctl_setup.md" markdown="true" >}}
-
 ## Installing on Kubernetes with `glooctl`
+
+Before you begin, make sure that you [install `glooctl`]({{< versioned_link_path fromRoot="/installation/preparation/" >}}), the Gloo Edge command line tool (CLI).
 
 Once your Kubernetes cluster is up and running, run the following command to deploy the Gloo Edge Ingress Controller to the `gloo-system` namespace:
 
@@ -51,8 +51,7 @@ ingress:
 Then install Gloo Edge using the following command:
 
 ```shell
-kubectl create namespace gloo-system
-helm install gloo gloo/gloo --namespace gloo-system -f values.yaml
+helm install gloo gloo/gloo --namespace gloo-system --create-namespace -f values.yaml
 ```
 
 Gloo Edge can be installed to a namespace of your choosing with the `--namespace` flag.
@@ -64,8 +63,7 @@ Instead of creating a `values.yaml` file, you can simply define the settings in-
 Run the following commands to install the Gloo Edge ingress controller.
 
 ```shell
-kubectl create namespace gloo-system
-helm install gloo gloo/gloo --namespace gloo-system \
+helm install gloo gloo/gloo --namespace gloo-system --create-namespace \
   --set gateway.enabled=false,ingress.enabled=true
 ```
 
@@ -122,3 +120,5 @@ glooctl uninstall -n my-namespace
 ## Next Steps
 
 To begin using Gloo Edge with the Kubernetes Ingress API, check out the [Ingress Controller guide]({{< versioned_link_path fromRoot="/guides/integrations/ingress/" >}}).
+
+{{< readfile file="static/content/upgrade-note.md" markdown="true">}}

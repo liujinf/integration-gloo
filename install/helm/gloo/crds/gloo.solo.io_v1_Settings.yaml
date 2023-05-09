@@ -15,6 +15,7 @@ spec:
     plural: settings
     shortNames:
     - st
+    - gst
   scope: Namespaced
   versions:
   - name: v1
@@ -23,6 +24,60 @@ spec:
         properties:
           spec:
             properties:
+              cachingServer:
+                properties:
+                  allowedVaryHeaders:
+                    items:
+                      properties:
+                        exact:
+                          type: string
+                        ignoreCase:
+                          type: boolean
+                        prefix:
+                          type: string
+                        safeRegex:
+                          properties:
+                            googleRe2:
+                              properties:
+                                maxProgramSize:
+                                  maximum: 4294967295
+                                  minimum: 0
+                                  nullable: true
+                                  type: integer
+                              type: object
+                            regex:
+                              type: string
+                          type: object
+                        suffix:
+                          type: string
+                      type: object
+                    type: array
+                  cachingServiceRef:
+                    properties:
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    type: object
+                  maxPayloadSize:
+                    properties:
+                      value:
+                        format: int64
+                        type: integer
+                        x-kubernetes-int-or-string: true
+                    type: object
+                  timeout:
+                    type: string
+                type: object
+              consoleOptions:
+                properties:
+                  apiExplorerEnabled:
+                    nullable: true
+                    type: boolean
+                  readOnly:
+                    nullable: true
+                    type: boolean
+                type: object
               consul:
                 properties:
                   address:
@@ -64,6 +119,18 @@ spec:
                 type: object
               consulDiscovery:
                 properties:
+                  consistencyMode:
+                    type: string
+                    x-kubernetes-int-or-string: true
+                  edsBlockingQueries:
+                    nullable: true
+                    type: boolean
+                  queryOptions:
+                    properties:
+                      useCache:
+                        nullable: true
+                        type: boolean
+                    type: object
                   rootCa:
                     properties:
                       name:
@@ -71,6 +138,10 @@ spec:
                       namespace:
                         type: string
                     type: object
+                  serviceTagsAllowlist:
+                    items:
+                      type: string
+                    type: array
                   splitTlsServices:
                     type: boolean
                   tlsTagName:
@@ -110,6 +181,22 @@ spec:
                   fdsMode:
                     type: string
                     x-kubernetes-int-or-string: true
+                  fdsOptions:
+                    properties:
+                      graphqlEnabled:
+                        nullable: true
+                        type: boolean
+                    type: object
+                  udsOptions:
+                    properties:
+                      enabled:
+                        nullable: true
+                        type: boolean
+                      watchLabels:
+                        additionalProperties:
+                          type: string
+                        type: object
+                    type: object
                 type: object
               discoveryNamespace:
                 type: string
@@ -126,6 +213,11 @@ spec:
                     type: object
                   failureModeAllow:
                     type: boolean
+                  grpcService:
+                    properties:
+                      authority:
+                        type: string
+                    type: object
                   httpService:
                     properties:
                       pathPrefix:
@@ -133,6 +225,10 @@ spec:
                       request:
                         properties:
                           allowedHeaders:
+                            items:
+                              type: string
+                            type: array
+                          allowedHeadersRegex:
                             items:
                               type: string
                             type: array
@@ -148,6 +244,10 @@ spec:
                               type: string
                             type: array
                           allowedUpstreamHeaders:
+                            items:
+                              type: string
+                            type: array
+                          allowedUpstreamHeadersToAppend:
                             items:
                               type: string
                             type: array
@@ -190,6 +290,15 @@ spec:
                     type: boolean
                   compressedProxySpec:
                     type: boolean
+                  enableGatewayController:
+                    nullable: true
+                    type: boolean
+                  isolateVirtualHostsBySslConfig:
+                    nullable: true
+                    type: boolean
+                  persistProxySpec:
+                    nullable: true
+                    type: boolean
                   readGatewaysFromAllNamespaces:
                     type: boolean
                   validation:
@@ -207,6 +316,9 @@ spec:
                         type: boolean
                       proxyValidationServerAddr:
                         type: string
+                      serverEnabled:
+                        nullable: true
+                        type: boolean
                       validationServerGrpcMaxSizeBytes:
                         maximum: 2147483647
                         minimum: -2147483648
@@ -233,7 +345,15 @@ spec:
                 properties:
                   awsOptions:
                     properties:
+                      credentialRefreshDelay:
+                        type: string
                       enableCredentialsDiscovey:
+                        type: boolean
+                      fallbackToFirstFunction:
+                        nullable: true
+                        type: boolean
+                      propagateOriginalRouting:
+                        nullable: true
                         type: boolean
                       serviceAccountCredentials:
                         properties:
@@ -293,17 +413,36 @@ spec:
                       replaceInvalidRoutes:
                         type: boolean
                     type: object
+                  proxyDebugBindAddr:
+                    type: string
                   regexMaxProgramSize:
                     maximum: 4294967295
                     minimum: 0
                     nullable: true
                     type: integer
+                  removeUnusedFilters:
+                    nullable: true
+                    type: boolean
                   restXdsBindAddr:
                     type: string
                   validationBindAddr:
                     type: string
                   xdsBindAddr:
                     type: string
+                type: object
+              graphqlOptions:
+                properties:
+                  schemaChangeValidationOptions:
+                    properties:
+                      processingRules:
+                        items:
+                          type: string
+                          x-kubernetes-int-or-string: true
+                        type: array
+                      rejectBreakingChanges:
+                        nullable: true
+                        type: boolean
+                    type: object
                 type: object
               knative:
                 properties:
@@ -347,6 +486,11 @@ spec:
                       type: object
                     failureModeAllow:
                       type: boolean
+                    grpcService:
+                      properties:
+                        authority:
+                          type: string
+                      type: object
                     httpService:
                       properties:
                         pathPrefix:
@@ -354,6 +498,10 @@ spec:
                         request:
                           properties:
                             allowedHeaders:
+                              items:
+                                type: string
+                              type: array
+                            allowedHeadersRegex:
                               items:
                                 type: string
                               type: array
@@ -369,6 +517,10 @@ spec:
                                 type: string
                               type: array
                             allowedUpstreamHeaders:
+                              items:
+                                type: string
+                              type: array
+                            allowedUpstreamHeadersToAppend:
                               items:
                                 type: string
                               type: array
@@ -408,6 +560,15 @@ spec:
                 type: object
               observabilityOptions:
                 properties:
+                  configStatusMetricLabels:
+                    additionalProperties:
+                      properties:
+                        labelToPath:
+                          additionalProperties:
+                            type: string
+                          type: object
+                      type: object
+                    type: object
                   grafanaIntegration:
                     properties:
                       defaultDashboardFolderId:
@@ -454,6 +615,8 @@ spec:
                 properties:
                   denyOnFail:
                     type: boolean
+                  enableXRatelimitHeaders:
+                    type: boolean
                   rateLimitBeforeAuth:
                     type: boolean
                   ratelimitServerRef:
@@ -475,6 +638,10 @@ spec:
                 type: string
               upstreamOptions:
                 properties:
+                  globalAnnotations:
+                    additionalProperties:
+                      type: string
+                    type: object
                   sslParameters:
                     properties:
                       cipherSuites:
@@ -495,8 +662,27 @@ spec:
                 type: object
               vaultSecretSource:
                 properties:
+                  accessToken:
+                    type: string
                   address:
                     type: string
+                  aws:
+                    properties:
+                      accessKeyId:
+                        type: string
+                      iamServerIdHeader:
+                        type: string
+                      mountPath:
+                        type: string
+                      region:
+                        type: string
+                      secretAccessKey:
+                        type: string
+                      sessionToken:
+                        type: string
+                      vaultRole:
+                        type: string
+                    type: object
                   caCert:
                     type: string
                   caPath:
@@ -508,8 +694,26 @@ spec:
                   insecure:
                     nullable: true
                     type: boolean
+                  pathPrefix:
+                    type: string
                   rootKey:
                     type: string
+                  tlsConfig:
+                    properties:
+                      caCert:
+                        type: string
+                      caPath:
+                        type: string
+                      clientCert:
+                        type: string
+                      clientKey:
+                        type: string
+                      insecure:
+                        nullable: true
+                        type: boolean
+                      tlsServerName:
+                        type: string
+                    type: object
                   tlsServerName:
                     type: string
                   token:
@@ -521,6 +725,12 @@ spec:
                 type: array
             type: object
           status:
+            default: {}
+            properties:
+              statuses:
+                default: {}
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
             type: object
             x-kubernetes-preserve-unknown-fields: true
         type: object

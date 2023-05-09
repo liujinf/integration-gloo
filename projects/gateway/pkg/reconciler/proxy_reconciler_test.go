@@ -3,9 +3,8 @@ package reconciler_test
 import (
 	"context"
 
-	"github.com/golang/mock/gomock"
 	"github.com/golang/protobuf/proto"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/format"
 	"github.com/onsi/gomega/types"
@@ -16,7 +15,6 @@ import (
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/grpc/validation"
 	validationutils "github.com/solo-io/gloo/projects/gloo/pkg/utils/validation"
 	"github.com/solo-io/gloo/test/debugprint"
-	mock_validation "github.com/solo-io/gloo/test/mocks/gloo"
 	"github.com/solo-io/gloo/test/samples"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/factory"
@@ -27,6 +25,7 @@ import (
 
 	errors "github.com/rotisserie/eris"
 	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	gloov1snap "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/gloosnapshot"
 )
 
 var _ = Describe("ReconcileGatewayProxies", func() {
@@ -43,52 +42,77 @@ var _ = Describe("ReconcileGatewayProxies", func() {
 	// defined by the name of those resources.
 
 	var (
-		ctx = context.TODO()
+		ctx    context.Context
+		cancel context.CancelFunc
 
-		snap         *v1.ApiSnapshot
+		snap         *gloov1snap.ApiSnapshot
 		proxy        *gloov1.Proxy
 		reports      reporter.ResourceReports
 		proxyToWrite GeneratedProxies
 		ns           = "namespace"
 		us           = &core.ResourceRef{Name: "upstream-name", Namespace: ns}
 
-		proxyClient, _ = gloov1.NewProxyClient(ctx, &factory.MemoryResourceClientFactory{
-			Cache: memory.NewInMemoryResourceCache(),
-		})
+		proxyClient gloov1.ProxyClient
 
-		validationClient *mock_validation.MockGlooValidationServiceClient
-		statusClient     resources.StatusClient
+		validationClient func(
+			context.Context,
+			*validation.GlooValidationServiceRequest,
+		) (*validation.GlooValidationServiceResponse, error)
+		statusClient resources.StatusClient
 
 		reconciler ProxyReconciler
 	)
 
-	genProxy := func() {
-		tx := translator.NewTranslator([]translator.ListenerFactory{&translator.HttpTranslator{}, &translator.TcpTranslator{}}, translator.Opts{})
-		proxy, reports = tx.Translate(context.TODO(), "proxy-name", ns, snap, snap.Gateways)
+	genProxyWithTranslatorOpts := func(opts translator.Opts) {
+		tx := translator.NewDefaultTranslator(opts)
+		proxy, reports = tx.Translate(ctx, "proxy-name", snap, snap.Gateways)
 
 		proxyToWrite = GeneratedProxies{proxy: reports}
 	}
 
+	genProxy := func() {
+		genProxyWithTranslatorOpts(translator.Opts{
+			WriteNamespace:                 ns,
+			IsolateVirtualHostsBySslConfig: false,
+		})
+	}
+
+	genProxyWithIsolatedVirtualHosts := func() {
+		genProxyWithTranslatorOpts(translator.Opts{
+			WriteNamespace:                 ns,
+			IsolateVirtualHostsBySslConfig: true,
+		})
+	}
+
 	BeforeEach(func() {
-		mockCtrl := gomock.NewController(GinkgoT())
-		validationClient = mock_validation.NewMockGlooValidationServiceClient(mockCtrl)
-		validationClient.EXPECT().Validate(ctx, gomock.Any()).DoAndReturn(
-			func(_ context.Context, req *validation.GlooValidationServiceRequest) (*validation.GlooValidationServiceResponse, error) {
-				return &validation.GlooValidationServiceResponse{
-					ValidationReports: []*validation.ValidationReport{
-						{
-							ProxyReport: validationutils.MakeReport(req.Proxy),
-						},
+		var err error
+		ctx, cancel = context.WithCancel(context.Background())
+
+		proxyClient, err = gloov1.NewProxyClient(ctx, &factory.MemoryResourceClientFactory{
+			Cache: memory.NewInMemoryResourceCache(),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		validationClient = func(_ context.Context, req *validation.GlooValidationServiceRequest) (*validation.GlooValidationServiceResponse, error) {
+			return &validation.GlooValidationServiceResponse{
+				ValidationReports: []*validation.ValidationReport{
+					{
+						ProxyReport: validationutils.MakeReport(req.Proxy),
 					},
-				}, nil
-			}).AnyTimes()
+				},
+			}, nil
+		}
 
 		statusClient = statusutils.GetStatusClientFromEnvOrDefault(ns)
 		reconciler = NewProxyReconciler(validationClient, proxyClient, statusClient)
 
-		snap = samples.SimpleGatewaySnapshot(us, ns)
+		snap = samples.SimpleGlooSnapshot(ns)
 
 		genProxy()
+	})
+
+	AfterEach(func() {
+		cancel()
 	})
 
 	addErr := func(resource resources.InputResource) {
@@ -98,12 +122,12 @@ var _ = Describe("ReconcileGatewayProxies", func() {
 	}
 
 	reconcile := func() {
-		err := reconciler.ReconcileProxies(ctx, proxyToWrite, ns, map[string]string{})
+		err := reconciler.ReconcileProxies(ctx, proxyToWrite, ns, clients.ListOpts{Selector: map[string]string{}})
 		ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	}
 
 	getProxy := func() *gloov1.Proxy {
-		px, err := proxyClient.Read(proxy.Metadata.Namespace, proxy.Metadata.Name, clients.ReadOpts{})
+		px, err := proxyClient.Read(proxy.GetMetadata().GetNamespace(), proxy.GetMetadata().GetName(), clients.ReadOpts{Ctx: ctx})
 		ExpectWithOffset(1, err).NotTo(HaveOccurred())
 		return px
 	}
@@ -116,14 +140,15 @@ var _ = Describe("ReconcileGatewayProxies", func() {
 				reconcile()
 
 				px := getProxy()
-
-				Expect(px.Listeners).To(HaveLen(2))
+				Expect(px.Listeners).To(HaveLen(3))
 				Expect(px.Listeners).NotTo(ContainName(proxy.Listeners[0].Name))
 			})
 		})
+
 		Context("a virtual service has a reported error", func() {
+
 			It("only creates the valid virtual hosts", func() {
-				samples.AddVsToSnap(snap, us, ns)
+				samples.AddVsToGwSnap(snap, us, ns)
 				genProxy()
 
 				addErr(snap.VirtualServices[1])
@@ -134,10 +159,33 @@ var _ = Describe("ReconcileGatewayProxies", func() {
 
 				goodVs := snap.VirtualServices[0]
 
+				// http
 				vhosts := px.Listeners[1].GetHttpListener().GetVirtualHosts()
-
 				Expect(vhosts).To(HaveLen(1))
 				Expect(vhosts).To(ContainName(translator.VirtualHostName(goodVs)))
+
+				// hybrid
+				vhosts = px.Listeners[2].GetHybridListener().GetMatchedListeners()[0].GetHttpListener().GetVirtualHosts()
+				Expect(vhosts).To(HaveLen(1))
+				Expect(vhosts).To(ContainName(translator.VirtualHostName(goodVs)))
+			})
+
+			It("only creates the valid virtual hosts (using IsolateVirtualHosts Feature)", func() {
+				samples.AddVsToGwSnap(snap, us, ns)
+				genProxyWithIsolatedVirtualHosts()
+
+				addErr(snap.VirtualServices[1])
+
+				reconcile()
+
+				px := getProxy()
+
+				goodVs := snap.VirtualServices[0]
+
+				// aggregate listener
+				vhostRefs := px.Listeners[1].GetAggregateListener().GetHttpFilterChains()[0].GetVirtualHostRefs()
+				Expect(vhostRefs).To(HaveLen(1))
+				Expect(vhostRefs).To(ContainElement(translator.VirtualHostName(goodVs)))
 			})
 		})
 	})
@@ -154,6 +202,7 @@ var _ = Describe("ReconcileGatewayProxies", func() {
 				snap.Gateways[0].Metadata.Generation = 100
 				snap.Gateways[1].Metadata.Generation = 100
 				snap.Gateways[2].Metadata.Generation = 100
+				snap.Gateways[3].Metadata.Generation = 100
 				genProxy()
 
 				// simulate gloo accepting the proxy resource
@@ -186,6 +235,7 @@ var _ = Describe("ReconcileGatewayProxies", func() {
 				snap.Gateways[0].Metadata.Generation = 100
 				snap.Gateways[1].Metadata.Generation = 100
 				snap.Gateways[2].Metadata.Generation = 100
+				snap.Gateways[3].Metadata.Generation = 100
 				genProxy()
 				addErr(snap.Gateways[0])
 
@@ -193,11 +243,12 @@ var _ = Describe("ReconcileGatewayProxies", func() {
 
 				px := getProxy()
 
-				Expect(px.Listeners).To(HaveLen(3))
+				Expect(px.Listeners).To(HaveLen(4))
 				Expect(px.Listeners[0]).To(HaveGeneration(100))
 				Expect(px.Listeners[1].Name).To(Equal(translator.ListenerName(snap.Gateways[0]))) // maps to gateway[0]
 				Expect(px.Listeners[1]).To(HaveGeneration(0))                                     // maps to gateway[0]
 				Expect(px.Listeners[2]).To(HaveGeneration(100))
+				Expect(px.Listeners[3]).To(HaveGeneration(100))
 
 			})
 		})
@@ -219,7 +270,7 @@ var _ = Describe("ReconcileGatewayProxies", func() {
 		Context("a virtual service has a reported error", func() {
 
 			It("only updates the valid virtual hosts", func() {
-				samples.AddVsToSnap(snap, us, ns)
+				samples.AddVsToGwSnap(snap, us, ns)
 				genProxy()
 				reconcile()
 
@@ -239,7 +290,7 @@ var _ = Describe("ReconcileGatewayProxies", func() {
 			})
 
 			It("only updates the valid virtual hosts, without duplicating any", func() {
-				samples.AddVsToSnap(snap, us, ns)
+				samples.AddVsToGwSnap(snap, us, ns)
 				genProxy()
 				reconcile()
 
@@ -268,8 +319,9 @@ var _ = Describe("ReconcileGatewayProxies", func() {
 		})
 
 		Context("a virtual service has been removed", func() {
+
 			It("removes the virtual host", func() {
-				samples.AddVsToSnap(snap, us, ns)
+				samples.AddVsToGwSnap(snap, us, ns)
 				genProxy()
 				reconcile()
 
@@ -286,6 +338,26 @@ var _ = Describe("ReconcileGatewayProxies", func() {
 
 				Expect(vhosts).To(HaveLen(1))
 				Expect(vhosts).To(ContainName(translator.VirtualHostName(vs)))
+			})
+
+			It("removes the virtual host (using IsolateVirtualHosts Feature)", func() {
+				samples.AddVsToGwSnap(snap, us, ns)
+				genProxyWithIsolatedVirtualHosts()
+				reconcile()
+
+				vs := snap.VirtualServices[0]
+
+				snap.VirtualServices = v1.VirtualServiceList{vs}
+				genProxyWithIsolatedVirtualHosts()
+
+				reconcile()
+
+				px := getProxy()
+
+				vhostRefs := px.Listeners[1].GetAggregateListener().GetHttpFilterChains()[0].GetVirtualHostRefs()
+
+				Expect(vhostRefs).To(HaveLen(1))
+				Expect(vhostRefs).To(ContainElement(translator.VirtualHostName(vs)))
 			})
 		})
 	})

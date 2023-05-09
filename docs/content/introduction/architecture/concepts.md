@@ -110,7 +110,7 @@ spec:
             namespace: gloo-system
 ```
 
-Note that we could have omitted `domains`, which would default to '*'. This Virtual Service acts as the default Virtual Service, matching all domains. We could have also omitted `matchers` here, which would default to the `/` prefix matcher, which matches all requests.
+Note that we could have omitted `domains`, which would default to `*`. This Virtual Service acts as the default Virtual Service, matching all domains. We could have also omitted `matchers` here, which would default to the `/` prefix matcher, which matches all requests.
 
 ### Routes
 
@@ -131,7 +131,7 @@ Matchers currently support two types of requests:
 
 - **Request Matchers** match on properties of HTTP requests. This includes the request path (`:path` header in HTTP 2.0), method (`:method` in HTTP 2.0) headers (their keys and optionally their values), and query parameters.
 
-- **Event Matchers** match properties of HTTP events, as per the [CloudEvents specification](https://github.com/cloudevents/spec/blob/master/spec.md). The only property **Event Matcher** currently matches on is the *event-type* of an event (specified by the `x-event-type` request header).
+- **Event Matchers** match properties of HTTP events, as per the [CloudEvents specification](https://github.com/cloudevents/spec/blob/main/cloudevents/spec.md). The only property **Event Matcher** currently matches on is the *event-type* of an event (specified by the `x-event-type` request header).
 
 ### Destinations
 
@@ -139,7 +139,7 @@ Destinations specify where to route a request once a matching route is selected.
 
 A destination can be either an *upstream destination* or a *function destination*.
 
-**Upstream Destinations** are analogous to [Envoy clusters](https://www.envoyproxy.io/docs/envoy/v1.8.0/api-v1/cluster_manager/cluster). Requests routed to upstream destinations are routed to a server which handles the request once it has been admitted (and possibly transformed) by Gloo Edge.
+**Upstream Destinations** are analogous to [Envoy clusters](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/cluster/v3/cluster.proto). Requests routed to upstream destinations are routed to a server which handles the request once it has been admitted (and possibly transformed) by Gloo Edge.
 
 **Function Destinations** allow requests to be routed directly to *functions* that live on various Upstreams. A function can be a serverless function call (e.g., AWS Lambda, Google Cloud Function, Microsoft Azure Function) or an API call on a service (e.g., a REST API call, OpenAPI operation, gRPC operation). Function-level routing is enabled in Envoy by Gloo Edge's function-level filters. Gloo Edge supports the addition of new Upstream types and new function types through our plugin interface.
 

@@ -104,6 +104,20 @@ func (m *UpstreamSpec) Equal(that interface{}) bool {
 		}
 	}
 
+	if m.GetConsistencyMode() != target.GetConsistencyMode() {
+		return false
+	}
+
+	if h, ok := interface{}(m.GetQueryOptions()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetQueryOptions()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetQueryOptions(), target.GetQueryOptions()) {
+			return false
+		}
+	}
+
 	if m.GetConnectEnabled() != target.GetConnectEnabled() {
 		return false
 	}

@@ -5,25 +5,29 @@ description: How to install Gloo Edge to run in Gateway Mode on Kubernetes (Defa
 weight: 60
 ---
 
-## Installing the Gloo Edge on Kubernetes
+Review how to install Gloo Edge Enterprise.
+## Before you begin
 
-These directions assume you've prepared your Kubernetes cluster appropriately. Full details on setting up your Kubernetes cluster [here]({{% versioned_link_path fromRoot="/installation/platform_configuration/cluster_setup/" %}}).
-
-Note: For certain providers with more strict multi-tenant security, like OpenShift, be sure to follow the cluster set up accordingly. 
+1. Make sure that you prepared your Kubernetes cluster according to the [instructions for platform configuration]({{% versioned_link_path fromRoot="/installation/platform_configuration/cluster_setup/" %}}).
+   {{% notice note %}}
+   Pay attention to provider-specific information in the setup guide. For example, [OpenShift]({{< versioned_link_path fromRoot="/installation/platform_configuration/cluster_setup/#openshift" >}}) requires stricter multi-tenant support, so the setup guide includes an example Helm chart `values.yaml` file that you must supply while installing Gloo Edge Enterprise.
+   {{% /notice %}}
+2. Get your Gloo Edge Enterprise license key. If you don't have one already, you may request a trial license key [here](https://www.solo.io/products/gloo/#enterprise-trial).
+   {{% notice info %}}
+   You must provide the license key during the installation process. When you install Gloo Edge, a Kubernetes secret is created to store the license key. Note that each trial license key is typically valid for **30 days**. When the license key expires, you can request a new license key by contacting your Account Representative or filling out [this form](https://lp.solo.io/request-trial). For more information, see [Updating Enterprise Licenses]({{< versioned_link_path fromRoot="/operations/updating_license/" >}}).
+   {{% /notice %}}
+3. Check whether `glooctl`, the Gloo Edge command line tool (CLI), is installed.
+   ```bash
+   glooctl version
+   ```
+   * If `glooctl` is not installed, [install it](#install-glooctl).
+   * If `glooctl` is installed, [update it to the latest version](#update-glooctl).
 
 {{< readfile file="installation/glooctl_setup.md" markdown="true" >}}
 
-{{% notice note %}}
-To install Gloo Edge Enterprise, you need a license key. If you don't have one already, you may request a trial license key [here](https://www.solo.io/products/gloo/#enterprise-trial).
-{{% /notice %}}
+## Installing Gloo Edge Enterprise on Kubernetes {#install-steps}
 
-{{% notice info %}}
-Each trial license key is typically valid for **30 days**. You can request a new key if your current key has expired. When the license key expires, you can request a new license key by contacting your Account Representative or filling out [this form](https://lp.solo.io/request-trial). You must provide the license key during the installation process. When you install Gloo Edge, a Kubernetes secret is created to store the license key. When the key is about to expire, see [Updating Enterprise Licenses]({{< versioned_link_path fromRoot="/operations/updating_license/" >}}).
-{{% /notice %}}
-
-Before starting installation, please ensure that you've prepared your Kubernetes cluster per the community
-[Prep Kubernetes]({{< versioned_link_path fromRoot="/installation/platform_configuration/cluster_setup" >}}) instructions.
-
+Review the following steps to install Gloo Edge Enterprise with `glooctl` or with Helm.
 
 ### Installing on Kubernetes with `glooctl`
 
@@ -32,6 +36,10 @@ Once your Kubernetes cluster is up and running, run the following command to dep
 ```bash
 glooctl install gateway enterprise --license-key YOUR_LICENSE_KEY
 ```
+
+{{% notice note %}}
+For OpenShift clusters, make sure to include the `--values values.yaml` option to point to the [Helm chart custom values file]({{< versioned_link_path fromRoot="/installation/platform_configuration/cluster_setup/#openshift" >}}) that you created.
+{{% /notice %}}
 
 <details>
 <summary>Special Instructions to Install Gloo Edge Enterprise on Kind</summary>
@@ -80,11 +88,9 @@ the Kubernetes manifests (as `yaml`) that `glooctl` will
 apply to the cluster instead of installing them.
 {{% /notice %}}
 
-
 ### Installing on Kubernetes with Helm
 
-
-This is the recommended method for installing Gloo Edge to your production environment as it offers rich customization to
+This is the recommended method for installing Gloo Edge Enterprise to your production environment as it offers rich customization to
 the Gloo Edge control plane and the proxies Gloo Edge manages.
 
 As a first step, you have to add the Gloo Edge repository to the list of known chart repositories:
@@ -100,17 +106,67 @@ helm install gloo glooe/gloo-ee --namespace gloo-system \
   --create-namespace --set-string license_key=YOUR_LICENSE_KEY
 ```
 
+{{% notice note %}}
+For OpenShift clusters, make sure to include the `--values values.yaml` option to point to the [Helm chart custom values file]({{< versioned_link_path fromRoot="/installation/platform_configuration/cluster_setup/#openshift" >}}) that you created.
+{{% /notice %}}
+
 {{% notice warning %}}
-Using Helm 2 is not supported in Gloo Edge v1.8.0.
+Using Helm 2 is not supported in Gloo Edge.
 {{% /notice %}}
 
 Once you've installed Gloo Edge, please be sure [to verify your installation](#verify-your-installation).
 
-#### Customizing your installation with Helm
+### Airgap installation
 
-You can customize the Gloo Edge installation by providing your own value file.
+You can install Gloo Edge Enterprise in an air-gapped environment, such as an on-premises datacenter, clusters that run on an intranet or private network only, or other disconnected environments.
 
-For example, you can create a file named `value-overrides.yaml` with the following content:
+Before you begin, make sure that you have the following setup:
+* A connected device that can pull the required images from the internet.
+* An air-gapped or disconnected device that you want to install Gloo Edge Enterprise in.
+* A private image registry such as Sonatype Nexus Repository or JFrog Artifactory that both the connected and disconnected devices can connect to.
+
+To install Gloo Edge Enterprise in an air-gapped environment:
+
+1. Set the Gloo Edge Enterprise version that you want to use as an environment variable, such as the latest version in the following example.
+   ```shell
+   export GLOO_EE_VERSION={{< readfile file="static/content/version_gee_latest.md" markdown="true">}}
+   ```
+2. On the connected device, download the Gloo Edge Enterprise images.
+   ```shell
+   helm template glooe/gloo-ee --version $GLOO_EE_VERSION | yq e '. | .. | select(has("image"))' - | grep image: | sed 's/image: //'
+   ```
+   
+   The example output includes the list of images.
+   ```
+   quay.io/solo-io/gloo-fed-apiserver:{{< readfile file="static/content/version_gee_latest.md" markdown="true">}}
+   quay.io/solo-io/gloo-federation-console:{{< readfile file="static/content/version_gee_latest.md" markdown="true">}}
+   quay.io/solo-io/gloo-fed-apiserver-envoy:{{< readfile file="static/content/version_gee_latest.md" markdown="true">}}
+   quay.io/solo-io/gloo-fed:{{< readfile file="static/content/version_gee_latest.md" markdown="true">}}
+   quay.io/solo-io/gloo-ee:{{< readfile file="static/content/version_gee_latest.md" markdown="true">}}
+   quay.io/solo-io/discovery-ee:{{< readfile file="static/content/version_gee_latest.md" markdown="true">}}
+   quay.io/solo-io/gloo-ee-envoy-wrapper:{{< readfile file="static/content/version_gee_latest.md" markdown="true">}}
+   "grafana/grafana:8.2.1"
+   "quay.io/coreos/kube-state-metrics:v1.9.7"
+   "jimmidyson/configmap-reload:v0.5.0"
+   "quay.io/prometheus/prometheus:v2.24.0"
+   docker.io/busybox:1.28
+   docker.io/redis:6.2.4
+   quay.io/solo-io/rate-limit-ee:{{< readfile file="static/content/version_gee_latest.md" markdown="true">}}
+   quay.io/solo-io/extauth-ee:{{< readfile file="static/content/version_gee_latest.md" markdown="true">}}
+   quay.io/solo-io/observability-ee:{{< readfile file="static/content/version_gee_latest.md" markdown="true">}}
+   quay.io/solo-io/certgen:{{< readfile file="static/content/version_geoss_latest.md" markdown="true">}}
+   quay.io/solo-io/kubectl:1.22.9
+   ```
+
+3. Push the images from the connected device to a private registry that the disconnected device can pull from. For instructions and any credentials you must set up to complete this step, consult your registry provider, such as [Nexus Repository Manager](https://help.sonatype.com/repomanager3/formats/docker-registry/pushing-images) or [JFrog Artifactory](https://www.jfrog.com/confluence/display/JFROG/Getting+Started+with+Artifactory+as+a+Docker+Registry).
+4. Optional: You might want to set up your private registry so that you can also pull the Helm charts. For instructions, consult your registry provider, such as [Nexus Repository Manager](https://help.sonatype.com/repomanager3/formats/helm-repositories) or [JFrog Artifactory](https://www.jfrog.com/confluence/display/JFROG/Kubernetes+Helm+Chart+Repositories).
+5. When you [install Gloo Edge Enterprise with a custom Helm chart values file](#customizing-your-installation-with-helm), make sure to use the specific images that you downloaded and stored in your private registry in the previous steps.
+
+## Customizing your installation with Helm
+
+You can customize the Gloo Edge installation by providing your own Helm chart values file.
+
+For example, you can create a file named `value-overrides.yaml` with the following content.
 
 ```yaml
 global:
@@ -119,10 +175,10 @@ global:
     create: false
 settings:
   # configure gloo to write generated custom resources to a custom namespace
-  writeNamespace: my-custom-namespace
+  writeNamespace: my-custom-namespace 
 ```
 
-and use it to override default values in the Gloo Edge Helm chart with Helm 3:
+Then, refer to the file during installation to override default values in the Gloo Edge Helm chart.
 
 ```shell
 helm install gloo glooe/gloo-ee --namespace gloo-system \
@@ -130,33 +186,64 @@ helm install gloo glooe/gloo-ee --namespace gloo-system \
 ```
 
 {{% notice warning %}}
-Using Helm 2 is not supported in Gloo Edge v1.8.0.
+Using Helm 2 is not supported in Gloo Edge.
 {{% /notice %}}
 
-#### List of Gloo Edge Helm chart values
+### List of Gloo Edge Helm chart values
 
-The table below describes the most important enterprise-only values that you can override in your custom values file.
+The following table describes the most important enterprise-only values that you can override in your custom values file.
 
-The table for gloo open-source overrides (also available in enterprise) is [here]({{< versioned_link_path fromRoot="/reference/helm_chart_values/" >}}). To make customizations that are not part of the helm chart, please see our [advanced customization guide]({{% versioned_link_path fromRoot="/installation/gateway/kubernetes/helm_advanced/" %}})
+For more information, see the following resources:
+* [Gloo Edge Open Source overrides]({{< versioned_link_path fromRoot="/reference/helm_chart_values/" >}}) (also available in Enterprise). 
+* [Advanced customization guide]({{% versioned_link_path fromRoot="/installation/gateway/kubernetes/helm_advanced/" %}}).
+* [Enterprise Helm chart reference document]({{% versioned_link_path fromRoot="/reference/helm_chart_values/enterprise_helm_chart_values/" %}}).
 
 {{% notice note %}}
-Open source helm values in Gloo Edge enterprise must be prefixed with `gloo`, unless they are the Gloo Edge settings (i.e., `settings.<rest of helm value>`).
+Gloo Edge Open Source Helm values in Enterprise must be prefixed with `gloo`, unless they are the Gloo Edge settings, such as `settings.<rest of helm value>`.
 {{% /notice %}}
 
-| option                                                    | type     | description                                                                                                                                                                                                                                                    |
-| --------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| grafana.defaultInstallationEnabled                        | bool     | deploy grafana in your gloo system namespace. default is `true` |
-| prometheus.enabled                                        | bool     | deploy prometheus in your gloo system namespace. default is `true` |
-| rateLimit.enabled                                         | bool     | deploy rate-limiting in your gloo system namespace. default is `true` |
-| global.extensions.extAuth.enabled                         | bool     | deploy ext-auth in your gloo system namespace. default is `true` |
-| global.extensions.extAuth.envoySidecar                    | bool     | deploy ext-auth in the gateway-proxy pod, as a sidecar to envoy. communicates over unix domain socket instead of TCP. default is `false` |
-| observability.enabled                                     | bool     | deploy observability in your gloo system namespace. default is `true` |
-| observability.customGrafana.enabled                       | bool     | indicate you'll be using your own instance of grafana rather than the one shipped with Gloo Edge. default is `false`
-| observability.customGrafana.username                      | string   | set this and the `password` field to authenticate to the custom grafana instance using basic auth
-| observability.customGrafana.password                      | string   | set this and the `username` field to authenticate to the custom grafana instance using basic auth
-| observability.customGrafana.apiKey                        | string   | authenticate to the custom grafana instance using this api key
-| observability.customGrafana.url                           | string   | the URL for the custom grafana instance
+| Option | Type | Description |
+| --- | --- | --- |
+| global.extensions.caching.enabled                         | bool     | Deploy the caching server in the `gloo-system` namespace. Default is `false`. |
+| global.extensions.extAuth.enabled                         | bool     | Deploy the ext-auth server in the `gloo-system` namespace. Default is `true`. |
+| global.extensions.extAuth.envoySidecar                    | bool     | Deploy ext-auth in the `gateway-proxy` pod as a sidecar to Envoy. Communicates over a Unix domain socket instead of TCP. Default is `false`. |
+| gloo.gatewayProxies.NAME.tcpKeepaliveTimeSeconds | unit32 | The amount of time in seconds for connections to be idle before sending keep-alive probes. Defaults to 60s. You might use this to prevent sync issues due to network connectivity glitches. For more information, see [the Knowledge Base help article](https://support.solo.io/hc/en-us/articles/12066701909524).|
+| gloo.gloo.disableLeaderElection | bool | Leave this field set to the default value of `false` when you have multiple replicas of the `gloo` deployment. This way, Gloo Edge elects a leader from the replicas, with the other replicas ready to become leader if needed in case the elected leader pod fails or restarts. If you want to run only one replica of `gloo`, you can set this value to `true`.|
+| grafana.defaultInstallationEnabled                        | bool     | Deploy Grafana in the `gloo-system` namespace. Default is `true`. |
+| observability.enabled                                     | bool     | Deploy Grafana in the `gloo-system` namespace. Default is `true`. |
+| observability.customGrafana.enabled                       | bool     | Use your own Grafana instance instead of the default Gloo Edge Grafana instance. Default is `false`. |
+| observability.customGrafana.username                      | string   | Authenticate to your custom Grafana instance using this username for basic auth. |
+| observability.customGrafana.password                      | string   | Authenticate to your custom Grafana instance using this password basic auth. |
+| observability.customGrafana.apiKey                        | string   | Authenticate to your custom Grafana instance using this API key. |
+| observability.customGrafana.url                           | string   | The URL for your custom Grafana instance. |
+| prometheus.enabled                                        | bool     | Deploy Prometheus in the `gloo-system` namespace. Default is `true`. |
+| rateLimit.enabled                                         | bool     | Deploy the rate-limiting server in the `gloo-system` namespace. Default is `true`. |
 ---
+
+## Enterprise UI
+
+Gloo Edge Enterprise includes the user interface (UI) by default. Note that when you enable Gloo Federation, the UI does not show any data until you [register one or more clusters]({{< versioned_link_path fromRoot="/guides/gloo_federation/cluster_registration/" >}}). If you do not use Gloo Federation, the UI shows the installed Gloo Edge instance automatically without cluster registration.
+
+To disable Gloo Federation, you can set `gloo-fed.enabled=false` during installation as shown in the following examples.
+
+{{< tabs >}}
+{{% tab name="glooctl install" %}}
+```shell script
+echo "gloo-fed:
+  enabled: false" > values.yaml
+glooctl install gateway enterprise --values values.yaml --license-key=<LICENSE_KEY>
+```
+{{% /tab %}}
+{{% tab name="helm install" %}}
+```shell script
+helm install gloo glooe/gloo-ee --namespace gloo-system --set gloo-fed.enabled=false --set license_key=<LICENSE_KEY>
+```
+{{% /tab %}}
+{{< /tabs >}}
+
+
+
+
 ## Verify your Installation
 
 Check that the Gloo Edge pods and services have been created. Depending on your install option, you may see some differences
@@ -168,78 +255,58 @@ kubectl --namespace gloo-system get all
 ```
 
 ```noop
-NAME                                                       READY   STATUS    RESTARTS   AGE
-pod/api-server-56fcb78878-d9mxt                            2/2     Running   0          5m21s
-pod/discovery-759bd6cf85-sphjb                             1/1     Running   0          5m22s
-pod/extauth-679d587db8-l9k56                               1/1     Running   0          5m21s
-pod/gateway-568bfd477c-487zw                               1/1     Running   0          5m22s
-pod/gateway-proxy-c84cbd647-n9kz2                          1/1     Running   0          5m22s
-pod/gloo-6979c5bd8-2dfrj                                   1/1     Running   0          5m22s
-pod/glooe-grafana-86445b465b-mnn8t                         1/1     Running   0          5m22s
-pod/glooe-prometheus-kube-state-metrics-8587f58df6-954pw   1/1     Running   0          5m22s
-pod/glooe-prometheus-server-6bd6f4667d-zqffp               2/2     Running   0          5m21s
-pod/observability-6db6c659dd-v4bkp                         1/1     Running   0          5m21s
-pod/rate-limit-6b847b95c8-kwcbd                            1/1     Running   1          5m21s
-pod/redis-7f6954b84d-ff4ck                                 1/1     Running   0          5m21s
+NAME                                                          READY   STATUS    RESTARTS   AGE
+pod/discovery-6dbb5fd8bc-gk2th                                1/1     Running   0          2m5s
+pod/extauth-68bb4745fc-2rs7b                                  1/1     Running   0          2m5s
+pod/gateway-proxy-7c49898fdf-blxps                            1/1     Running   0          2m5s
+pod/gloo-7748b94989-dj85p                                     1/1     Running   0          2m5s
+pod/gloo-fed-76c85d689b-q62k4                                 1/1     Running   0          2m5s
+pod/gloo-fed-console-dd5f877bd-jgg8n                          3/3     Running   0          2m5s
+pod/glooe-grafana-6f95948945-pvbcg                            1/1     Running   0          2m4s
+pod/glooe-prometheus-kube-state-metrics-v2-6c79cc9554-hlhns   1/1     Running   0          2m5s
+pod/glooe-prometheus-server-757dc7d8f7-x489q                  2/2     Running   0          2m5s
+pod/observability-78cb7bddf7-kcrbm                            1/1     Running   0          2m5s
+pod/rate-limit-5ddd4b69d-84d6b                                1/1     Running   0          2m5s
+pod/redis-888f4d9b5-p76wk                                     1/1     Running   0          2m4s
 
-NAME                                          TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)                      AGE
-service/extauth                               ClusterIP      10.109.93.97     <none>        8080/TCP                     5m22s
-service/gateway-proxy                         LoadBalancer   10.106.26.131    <pending>     80:31627/TCP,443:30931/TCP   5m22s
-service/gloo                                  ClusterIP      10.103.56.88     <none>        9977/TCP                     5m22s
-service/glooe-grafana                         ClusterIP      10.103.252.250   <none>        80/TCP                       5m22s
-service/glooe-prometheus-kube-state-metrics   ClusterIP      None             <none>        80/TCP                       5m22s
-service/glooe-prometheus-server               ClusterIP      10.100.244.136   <none>        80/TCP                       5m22s
-service/rate-limit                            ClusterIP      10.100.54.112    <none>        18081/TCP                    5m22s
-service/redis                                 ClusterIP      10.97.72.199     <none>        6379/TCP                     5m22s
+NAME                                             TYPE           CLUSTER-IP      EXTERNAL-IP     PORT(S)                                                AGE
+service/extauth                                  ClusterIP      10.xxx.xx.xx    <none>          8083/TCP                                               2m6s
+service/gateway-proxy                            LoadBalancer   10.xxx.xx.xx    34.xx.xxx.xxx   80:30437/TCP,443:31651/TCP                             2m6s
+service/gloo                                     ClusterIP      10.xxx.xx.xx    <none>          9977/TCP,9976/TCP,9988/TCP,9966/TCP,9979/TCP,443/TCP   2m7s
+service/gloo-fed-console                         ClusterIP      10.xxx.xx.xx    <none>          10101/TCP,8090/TCP,8081/TCP                            2m6s
+service/glooe-grafana                            ClusterIP      10.xxx.xx.xxx   <none>          80/TCP                                                 2m6s
+service/glooe-prometheus-kube-state-metrics-v2   ClusterIP      10.xxx.xx.xxx   <none>          8080/TCP                                               2m6s
+service/glooe-prometheus-server                  ClusterIP      10.xxx.xx.xx    <none>          80/TCP                                                 2m7s
+service/rate-limit                               ClusterIP      10.xxx.xx.xxx   <none>          18081/TCP                                              2m7s
+service/redis                                    ClusterIP      10.xxx.xx.xx    <none>          6379/TCP                                               2m6s
 
-NAME                                                  READY   UP-TO-DATE   AVAILABLE   AGE
-deployment.apps/api-server                            1/1     1            1           5m21s
-deployment.apps/discovery                             1/1     1            1           5m22s
-deployment.apps/extauth                               1/1     1            1           5m21s
-deployment.apps/gateway                               1/1     1            1           5m22s
-deployment.apps/gateway-proxy                         1/1     1            1           5m22s
-deployment.apps/gloo                                  1/1     1            1           5m22s
-deployment.apps/glooe-grafana                         1/1     1            1           5m22s
-deployment.apps/glooe-prometheus-kube-state-metrics   1/1     1            1           5m22s
-deployment.apps/glooe-prometheus-server               1/1     1            1           5m22s
-deployment.apps/observability                         1/1     1            1           5m21s
-deployment.apps/rate-limit                            1/1     1            1           5m21s
-deployment.apps/redis                                 1/1     1            1           5m21s
+NAME                                                     READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/discovery                                1/1     1            1           2m7s
+deployment.apps/extauth                                  1/1     1            1           2m7s
+deployment.apps/gateway-proxy                            1/1     1            1           2m7s
+deployment.apps/gloo                                     1/1     1            1           2m7s
+deployment.apps/gloo-fed                                 1/1     1            1           2m7s
+deployment.apps/gloo-fed-console                         1/1     1            1           2m7s
+deployment.apps/glooe-grafana                            1/1     1            1           2m7s
+deployment.apps/glooe-prometheus-kube-state-metrics-v2   1/1     1            1           2m7s
+deployment.apps/glooe-prometheus-server                  1/1     1            1           2m7s
+deployment.apps/observability                            1/1     1            1           2m7s
+deployment.apps/rate-limit                               1/1     1            1           2m7s
+deployment.apps/redis                                    1/1     1            1           2m7s
 
-NAME                                                             DESIRED   CURRENT   READY   AGE
-replicaset.apps/api-server-56fcb78878                            1         1         1       5m21s
-replicaset.apps/discovery-759bd6cf85                             1         1         1       5m22s
-replicaset.apps/extauth-679d587db8                               1         1         1       5m21s
-replicaset.apps/gateway-568bfd477c                               1         1         1       5m22s
-replicaset.apps/gateway-proxy-c84cbd647                          1         1         1       5m22s
-replicaset.apps/gloo-6979c5bd8                                   1         1         1       5m22s
-replicaset.apps/glooe-grafana-86445b465b                         1         1         1       5m22s
-replicaset.apps/glooe-prometheus-kube-state-metrics-8587f58df6   1         1         1       5m22s
-replicaset.apps/glooe-prometheus-server-6bd6f4667d               1         1         1       5m21s
-replicaset.apps/observability-6db6c659dd                         1         1         1       5m21s
-replicaset.apps/rate-limit-6b847b95c8                            1         1         1       5m21s
-replicaset.apps/redis-7f6954b84d                                 1         1         1       5m21s
-```
-
-```shell script
-kubectl --namespace gloo-fed get all
-```
-
-```noop
-NAME                                    READY   STATUS    RESTARTS   AGE
-pod/gloo-fed-695d6dd44c-v2l64           1/1     Running   0          57m
-pod/gloo-fed-console-774f958867-j7bwc   3/3     Running   0          57m
-
-NAME                       TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)                       AGE
-service/gloo-fed-console   ClusterIP   10.96.107.54   <none>        10101/TCP,8090/TCP,8081/TCP   72m
-
-NAME                               READY   UP-TO-DATE   AVAILABLE   AGE
-deployment.apps/gloo-fed           1/1     1            1           72m
-deployment.apps/gloo-fed-console   1/1     1            1           72m
-
-NAME                                          DESIRED   CURRENT   READY   AGE
-replicaset.apps/gloo-fed-695d6dd44c           1         1         1       72m
-replicaset.apps/gloo-fed-console-774f958867   1         1         1       72m
+NAME                                                                DESIRED   CURRENT   READY   AGE
+replicaset.apps/discovery-6dbb5fd8bc                                1         1         1       2m6s
+replicaset.apps/extauth-68bb4745fc                                  1         1         1       2m7s
+replicaset.apps/gateway-proxy-7c49898fdf                            1         1         1       2m6s
+replicaset.apps/gloo-7748b94989                                     1         1         1       2m7s
+replicaset.apps/gloo-fed-76c85d689b                                 1         1         1       2m7s
+replicaset.apps/gloo-fed-console-dd5f877bd                          1         1         1       2m6s
+replicaset.apps/glooe-grafana-6f95948945                            1         1         1       2m6s
+replicaset.apps/glooe-prometheus-kube-state-metrics-v2-6c79cc9554   1         1         1       2m6s
+replicaset.apps/glooe-prometheus-server-757dc7d8f7                  1         1         1       2m6s
+replicaset.apps/observability-78cb7bddf7                            1         1         1       2m7s
+replicaset.apps/rate-limit-5ddd4b69d                                1         1         1       2m7s
+replicaset.apps/redis-888f4d9b5                                     1         1         1       2m6s
 ```
 
 #### Looking for opened ports?
@@ -251,18 +318,22 @@ NOT opening the listener ports when there are no listeners (routes) is by design
 
 ## Uninstall {#uninstall}
 
-To uninstall Gloo Edge and all related components, simply run the following.
-
-```shell
-glooctl uninstall
-```
-
-If you installed Gloo Edge to a different namespace, you will have to specify that namespace using the `-n` option:
+To uninstall Gloo Edge, you can use the `glooctl` CLI. If you installed Gloo Edge to a different namespace, include the `-n` option.
 
 ```shell
 glooctl uninstall -n my-namespace
 ```
 
+{{% notice warning %}}
+Make sure that your cluster has no other instances of Gloo Edge running, such as by running `kubectl get pods --all-namespaces`. If you remove the CRDs while Gloo Edge is still installed, you will experience errors.
+{{% /notice %}}
+
+```shell
+glooctl uninstall --all
+```
+
 ## Next Steps
 
-After you've installed Gloo Edge, please check out our [User Guides]({{< versioned_link_path fromRoot="/guides/" >}}).
+After you install Gloo Edge, check out the [User Guides]({{< versioned_link_path fromRoot="/guides/" >}}).
+
+{{< readfile file="static/content/upgrade-note.md" markdown="true">}}

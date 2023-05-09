@@ -10,8 +10,8 @@ import (
 	"hash"
 	"hash/fnv"
 
-	"github.com/mitchellh/hashstructure"
 	safe_hasher "github.com/solo-io/protoc-gen-ext/pkg/hasher"
+	"github.com/solo-io/protoc-gen-ext/pkg/hasher/hashstructure"
 )
 
 // ensure the imports are used
@@ -590,6 +590,14 @@ func (m *TransformationTemplate) Hash(hasher hash.Hash64) (uint64, error) {
 
 	}
 
+	for _, v := range m.GetHeadersToRemove() {
+
+		if _, err = hasher.Write([]byte(v)); err != nil {
+			return 0, err
+		}
+
+	}
+
 	err = binary.Write(hasher, binary.LittleEndian, m.GetParseBodyBehavior())
 	if err != nil {
 		return 0, err
@@ -759,6 +767,11 @@ func (m *HeaderBodyTransform) Hash(hasher hash.Hash64) (uint64, error) {
 	}
 	var err error
 	if _, err = hasher.Write([]byte("envoy.api.v2.filter.http.github.com/solo-io/gloo/projects/gloo/pkg/api/external/envoy/extensions/transformation.HeaderBodyTransform")); err != nil {
+		return 0, err
+	}
+
+	err = binary.Write(hasher, binary.LittleEndian, m.GetAddRequestMetadata())
+	if err != nil {
 		return 0, err
 	}
 

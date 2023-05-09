@@ -10,8 +10,8 @@ import (
 	"hash"
 	"hash/fnv"
 
-	"github.com/mitchellh/hashstructure"
 	safe_hasher "github.com/solo-io/protoc-gen-ext/pkg/hasher"
+	"github.com/solo-io/protoc-gen-ext/pkg/hasher/hashstructure"
 )
 
 // ensure the imports are used
@@ -40,15 +40,46 @@ func (m *ListenerTracingSettings) Hash(hasher hash.Hash64) (uint64, error) {
 
 	for _, v := range m.GetRequestHeadersForTags() {
 
-		if _, err = hasher.Write([]byte(v)); err != nil {
-			return 0, err
+		if h, ok := interface{}(v).(safe_hasher.SafeHasher); ok {
+			if _, err = hasher.Write([]byte("")); err != nil {
+				return 0, err
+			}
+			if _, err = h.Hash(hasher); err != nil {
+				return 0, err
+			}
+		} else {
+			if fieldValue, err := hashstructure.Hash(v, nil); err != nil {
+				return 0, err
+			} else {
+				if _, err = hasher.Write([]byte("")); err != nil {
+					return 0, err
+				}
+				if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+					return 0, err
+				}
+			}
 		}
 
 	}
 
-	err = binary.Write(hasher, binary.LittleEndian, m.GetVerbose())
-	if err != nil {
-		return 0, err
+	if h, ok := interface{}(m.GetVerbose()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("Verbose")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetVerbose(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("Verbose")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
 	}
 
 	if h, ok := interface{}(m.GetTracePercentages()).(safe_hasher.SafeHasher); ok {
@@ -157,6 +188,50 @@ func (m *ListenerTracingSettings) Hash(hasher hash.Hash64) (uint64, error) {
 				return 0, err
 			} else {
 				if _, err = hasher.Write([]byte("DatadogConfig")); err != nil {
+					return 0, err
+				}
+				if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+					return 0, err
+				}
+			}
+		}
+
+	case *ListenerTracingSettings_OpenTelemetryConfig:
+
+		if h, ok := interface{}(m.GetOpenTelemetryConfig()).(safe_hasher.SafeHasher); ok {
+			if _, err = hasher.Write([]byte("OpenTelemetryConfig")); err != nil {
+				return 0, err
+			}
+			if _, err = h.Hash(hasher); err != nil {
+				return 0, err
+			}
+		} else {
+			if fieldValue, err := hashstructure.Hash(m.GetOpenTelemetryConfig(), nil); err != nil {
+				return 0, err
+			} else {
+				if _, err = hasher.Write([]byte("OpenTelemetryConfig")); err != nil {
+					return 0, err
+				}
+				if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+					return 0, err
+				}
+			}
+		}
+
+	case *ListenerTracingSettings_OpenCensusConfig:
+
+		if h, ok := interface{}(m.GetOpenCensusConfig()).(safe_hasher.SafeHasher); ok {
+			if _, err = hasher.Write([]byte("OpenCensusConfig")); err != nil {
+				return 0, err
+			}
+			if _, err = h.Hash(hasher); err != nil {
+				return 0, err
+			}
+		} else {
+			if fieldValue, err := hashstructure.Hash(m.GetOpenCensusConfig(), nil); err != nil {
+				return 0, err
+			} else {
+				if _, err = hasher.Write([]byte("OpenCensusConfig")); err != nil {
 					return 0, err
 				}
 				if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
@@ -319,16 +394,64 @@ func (m *TracingTagEnvironmentVariable) Hash(hasher hash.Hash64) (uint64, error)
 		return 0, err
 	}
 
-	if _, err = hasher.Write([]byte(m.GetTag())); err != nil {
-		return 0, err
+	if h, ok := interface{}(m.GetTag()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("Tag")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetTag(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("Tag")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
 	}
 
-	if _, err = hasher.Write([]byte(m.GetName())); err != nil {
-		return 0, err
+	if h, ok := interface{}(m.GetName()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("Name")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetName(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("Name")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
 	}
 
-	if _, err = hasher.Write([]byte(m.GetDefaultValue())); err != nil {
-		return 0, err
+	if h, ok := interface{}(m.GetDefaultValue()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("DefaultValue")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetDefaultValue(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("DefaultValue")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
 	}
 
 	return hasher.Sum64(), nil
@@ -347,12 +470,44 @@ func (m *TracingTagLiteral) Hash(hasher hash.Hash64) (uint64, error) {
 		return 0, err
 	}
 
-	if _, err = hasher.Write([]byte(m.GetTag())); err != nil {
-		return 0, err
+	if h, ok := interface{}(m.GetTag()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("Tag")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetTag(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("Tag")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
 	}
 
-	if _, err = hasher.Write([]byte(m.GetValue())); err != nil {
-		return 0, err
+	if h, ok := interface{}(m.GetValue()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("Value")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetValue(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("Value")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
 	}
 
 	return hasher.Sum64(), nil

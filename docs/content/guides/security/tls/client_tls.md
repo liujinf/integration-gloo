@@ -6,6 +6,10 @@ description: Set up Gloo Edge to route to TLS-encrypted services
 
 You can configure Gloo Edge to use TLS or mTLS when connecting to upstream services.
 
+{{% notice note %}}
+For certificates that are issued by a trusted certificate authority (CA), the upstream automatically uses TLS when the port is set to 443, or the `useTls: true` setting is included in the static upstream spec. If the TLS certificate is not trusted or you want to verify the certificate, continue with the following sections.
+{{% /notice %}}
+
 ## Prepare sample environment
 
 Let's deploy a sample application and configure a route to it. We will expect the route to return errors because the sample application is serving HTTPS, not HTTP.
@@ -290,7 +294,7 @@ kubectl -n gloo-system logs -l gloo=gloo
 
 Example of an issue:
 ```json
-{"level":"warn","ts":1631524528.8111176,"logger":"gloo-ee.v1.event_loop.setup.v1.event_loop.envoyTranslatorSyncer","caller":"syncer/envoy_translator_syncer.go:140","msg":"proxy gloo-system.gateway-proxy was rejected due to invalid config: 2 errors occurred:\n\t* invalid resource gloo-system.default-server-mtls\n\t* SSL secret not found: list did not find secret default.client-mtls\n\n\nAttempting to update only EDS information","version":"1.8.7"}
+{"level":"warn","ts":1631524528.8111176,"logger":"gloo-ee.v1.event_loop.setup.v1.event_loop.envoyTranslatorSyncer","caller":"syncer/envoy_translator_syncer.go:140","msg":"proxy gloo-system.gateway-proxy was rejected due to invalid config: 2 errors occurred:\n\t* invalid resource gloo-system.default-server-mtls\n\t* SSL secret not found: list did not find secret default.client-mtls\n\n\nAttempting to update only EDS information","version":"{{< readfile file="static/content/version_gee_latest.md" markdown="true">}}"}
 ```
 
 To see which `sslConfig` is actually used by Envoy, run an [Envoy config dump]({{< versioned_link_path fromRoot="/operations/debugging_gloo/#dumping-envoy-configuration" >}}).

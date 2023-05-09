@@ -13,6 +13,7 @@ spec:
     plural: upstreamgroups
     shortNames:
     - ug
+    - gug
     singular: upstreamgroup
   scope: Namespaced
   versions:
@@ -52,6 +53,12 @@ spec:
                                 requestTransformation:
                                   type: boolean
                                 responseTransformation:
+                                  type: boolean
+                                unwrapAsAlb:
+                                  type: boolean
+                                unwrapAsApiGateway:
+                                  type: boolean
+                                wrapAsApiGateway:
                                   type: boolean
                               type: object
                             azure:
@@ -148,6 +155,10 @@ spec:
                                                 type: string
                                             type: object
                                         type: object
+                                      type: array
+                                    headersToRemove:
+                                      items:
+                                        type: string
                                       type: array
                                     ignoreErrorOnParse:
                                       type: boolean
@@ -352,6 +363,8 @@ spec:
                                           caseSensitive:
                                             nullable: true
                                             type: boolean
+                                          connectMatcher:
+                                            type: object
                                           exact:
                                             type: string
                                           headers:
@@ -390,6 +403,9 @@ spec:
                                       requestTransformation:
                                         properties:
                                           headerBodyTransform:
+                                            properties:
+                                              addRequestMetadata:
+                                                type: boolean
                                             type: object
                                           transformationTemplate:
                                             properties:
@@ -447,6 +463,10 @@ spec:
                                                           type: string
                                                       type: object
                                                   type: object
+                                                type: array
+                                              headersToRemove:
+                                                items:
+                                                  type: string
                                                 type: array
                                               ignoreErrorOnParse:
                                                 type: boolean
@@ -471,6 +491,9 @@ spec:
                                       responseTransformation:
                                         properties:
                                           headerBodyTransform:
+                                            properties:
+                                              addRequestMetadata:
+                                                type: boolean
                                             type: object
                                           transformationTemplate:
                                             properties:
@@ -528,6 +551,10 @@ spec:
                                                           type: string
                                                       type: object
                                                   type: object
+                                                type: array
+                                              headersToRemove:
+                                                items:
+                                                  type: string
                                                 type: array
                                               ignoreErrorOnParse:
                                                 type: boolean
@@ -572,6 +599,9 @@ spec:
                                       responseTransformation:
                                         properties:
                                           headerBodyTransform:
+                                            properties:
+                                              addRequestMetadata:
+                                                type: boolean
                                             type: object
                                           transformationTemplate:
                                             properties:
@@ -629,6 +659,10 @@ spec:
                                                           type: string
                                                       type: object
                                                   type: object
+                                                type: array
+                                              headersToRemove:
+                                                items:
+                                                  type: string
                                                 type: array
                                               ignoreErrorOnParse:
                                                 type: boolean
@@ -667,6 +701,8 @@ spec:
                                           caseSensitive:
                                             nullable: true
                                             type: boolean
+                                          connectMatcher:
+                                            type: object
                                           exact:
                                             type: string
                                           headers:
@@ -705,6 +741,9 @@ spec:
                                       requestTransformation:
                                         properties:
                                           headerBodyTransform:
+                                            properties:
+                                              addRequestMetadata:
+                                                type: boolean
                                             type: object
                                           transformationTemplate:
                                             properties:
@@ -762,6 +801,10 @@ spec:
                                                           type: string
                                                       type: object
                                                   type: object
+                                                type: array
+                                              headersToRemove:
+                                                items:
+                                                  type: string
                                                 type: array
                                               ignoreErrorOnParse:
                                                 type: boolean
@@ -786,6 +829,9 @@ spec:
                                       responseTransformation:
                                         properties:
                                           headerBodyTransform:
+                                            properties:
+                                              addRequestMetadata:
+                                                type: boolean
                                             type: object
                                           transformationTemplate:
                                             properties:
@@ -843,6 +889,10 @@ spec:
                                                           type: string
                                                       type: object
                                                   type: object
+                                                type: array
+                                              headersToRemove:
+                                                items:
+                                                  type: string
                                                 type: array
                                               ignoreErrorOnParse:
                                                 type: boolean
@@ -887,6 +937,9 @@ spec:
                                       responseTransformation:
                                         properties:
                                           headerBodyTransform:
+                                            properties:
+                                              addRequestMetadata:
+                                                type: boolean
                                             type: object
                                           transformationTemplate:
                                             properties:
@@ -945,6 +998,10 @@ spec:
                                                       type: object
                                                   type: object
                                                 type: array
+                                              headersToRemove:
+                                                items:
+                                                  type: string
+                                                type: array
                                               ignoreErrorOnParse:
                                                 type: boolean
                                               mergeExtractorsToBody:
@@ -976,6 +1033,9 @@ spec:
                             requestTransformation:
                               properties:
                                 headerBodyTransform:
+                                  properties:
+                                    addRequestMetadata:
+                                      type: boolean
                                   type: object
                                 transformationTemplate:
                                   properties:
@@ -1033,6 +1093,10 @@ spec:
                                                 type: string
                                             type: object
                                         type: object
+                                      type: array
+                                    headersToRemove:
+                                      items:
+                                        type: string
                                       type: array
                                     ignoreErrorOnParse:
                                       type: boolean
@@ -1057,6 +1121,9 @@ spec:
                             responseTransformation:
                               properties:
                                 headerBodyTransform:
+                                  properties:
+                                    addRequestMetadata:
+                                      type: boolean
                                   type: object
                                 transformationTemplate:
                                   properties:
@@ -1115,6 +1182,10 @@ spec:
                                             type: object
                                         type: object
                                       type: array
+                                    headersToRemove:
+                                      items:
+                                        type: string
+                                      type: array
                                     ignoreErrorOnParse:
                                       type: boolean
                                     mergeExtractorsToBody:
@@ -1138,7 +1209,9 @@ spec:
                           type: object
                       type: object
                     weight:
-                      format: int32
+                      maximum: 4294967295
+                      minimum: 0
+                      nullable: true
                       type: integer
                   type: object
                 type: array
@@ -1152,6 +1225,12 @@ spec:
                 type: object
             type: object
           status:
+            default: {}
+            properties:
+              statuses:
+                default: {}
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
             type: object
             x-kubernetes-preserve-unknown-fields: true
         type: object

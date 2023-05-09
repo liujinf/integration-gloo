@@ -6,10 +6,13 @@ import (
 	envoyauth "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/wrappers"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/ginkgo/extensions/table"
+
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/solo-io/gloo/projects/gloo/constants"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/ssl"
+	gloohelpers "github.com/solo-io/gloo/test/helpers"
 	. "github.com/solo-io/go-utils/testutils"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 	test_matchers "github.com/solo-io/solo-kit/test/matchers"
@@ -18,8 +21,8 @@ import (
 var _ = Describe("Ssl", func() {
 
 	var (
-		upstreamCfg            *v1.UpstreamSslConfig
-		downstreamCfg          *v1.SslConfig
+		upstreamCfg            *ssl.UpstreamSslConfig
+		downstreamCfg          *ssl.SslConfig
 		tlsSecret              *v1.TlsSecret
 		secret                 *v1.Secret
 		secrets                v1.SecretList
@@ -27,32 +30,33 @@ var _ = Describe("Ssl", func() {
 		resolveCommonSslConfig func(cs CertSource, secrets v1.SecretList) (*envoyauth.CommonTlsContext, error)
 	)
 
+	resolveCommonSslConfig = func(cs CertSource, secrets v1.SecretList) (*envoyauth.CommonTlsContext, error) {
+		return configTranslator.ResolveCommonSslConfig(cs, secrets, false)
+	}
+
 	Context("files", func() {
 		BeforeEach(func() {
-			upstreamCfg = &v1.UpstreamSslConfig{
+			upstreamCfg = &ssl.UpstreamSslConfig{
 				Sni: "test.com",
-				SslSecrets: &v1.UpstreamSslConfig_SslFiles{
-					SslFiles: &v1.SSLFiles{
-						RootCa:  "rootca",
-						TlsCert: "tlscert",
-						TlsKey:  "tlskey",
+				SslSecrets: &ssl.UpstreamSslConfig_SslFiles{
+					SslFiles: &ssl.SSLFiles{
+						TlsCert: gloohelpers.Certificate(),
+						TlsKey:  gloohelpers.PrivateKey(),
+						RootCa:  gloohelpers.Certificate(),
 					},
 				},
 			}
-			downstreamCfg = &v1.SslConfig{
+			downstreamCfg = &ssl.SslConfig{
 				SniDomains: []string{"test.com", "test1.com"},
-				SslSecrets: &v1.SslConfig_SslFiles{
-					SslFiles: &v1.SSLFiles{
-						RootCa:  "rootca",
-						TlsCert: "tlscert",
-						TlsKey:  "tlskey",
+				SslSecrets: &ssl.SslConfig_SslFiles{
+					SslFiles: &ssl.SSLFiles{
+						TlsCert: gloohelpers.Certificate(),
+						TlsKey:  gloohelpers.PrivateKey(),
+						RootCa:  gloohelpers.Certificate(),
 					},
 				},
 			}
 			configTranslator = NewSslConfigTranslator()
-			resolveCommonSslConfig = func(cs CertSource, secrets v1.SecretList) (*envoyauth.CommonTlsContext, error) {
-				return configTranslator.ResolveCommonSslConfig(cs, secrets, false)
-			}
 
 		})
 
@@ -66,7 +70,7 @@ var _ = Describe("Ssl", func() {
 
 		Context("san", func() {
 			It("should error with san and not rootca", func() {
-				upstreamCfg.SslSecrets.(*v1.UpstreamSslConfig_SslFiles).SslFiles.RootCa = ""
+				upstreamCfg.SslSecrets.(*ssl.UpstreamSslConfig_SslFiles).SslFiles.RootCa = ""
 				upstreamCfg.VerifySubjectAltName = []string{"test"}
 				_, err := resolveCommonSslConfig(upstreamCfg, nil)
 				Expect(err).To(Equal(RootCaMustBeProvidedError))
@@ -79,14 +83,22 @@ var _ = Describe("Ssl", func() {
 				vctx := c.ValidationContextType.(*envoyauth.CommonTlsContext_ValidationContext).ValidationContext
 				Expect(vctx.MatchSubjectAltNames).To(Equal(verifySanListToMatchSanList(upstreamCfg.VerifySubjectAltName)))
 			})
+
+			It("should _not_ error with only a rootca", func() {
+				// rootca, tlscert, and tlskey are set in a beforeEach.  Explicitly UNsetting cert+key:
+				upstreamCfg.SslSecrets.(*ssl.UpstreamSslConfig_SslFiles).SslFiles.TlsCert = ""
+				upstreamCfg.SslSecrets.(*ssl.UpstreamSslConfig_SslFiles).SslFiles.TlsKey = ""
+				_, err := resolveCommonSslConfig(upstreamCfg, nil)
+				Expect(err).NotTo(HaveOccurred())
+			})
 		})
 	})
 	Context("secret", func() {
 		BeforeEach(func() {
 			tlsSecret = &v1.TlsSecret{
-				CertChain:  "tlscert",
-				PrivateKey: "tlskey",
-				RootCa:     "rootca",
+				CertChain:  gloohelpers.Certificate(),
+				PrivateKey: gloohelpers.PrivateKey(),
+				RootCa:     gloohelpers.Certificate(),
 			}
 			secret = &v1.Secret{
 				Kind: &v1.Secret_Tls{
@@ -99,15 +111,15 @@ var _ = Describe("Ssl", func() {
 			}
 			ref := secret.Metadata.Ref()
 			secrets = v1.SecretList{secret}
-			upstreamCfg = &v1.UpstreamSslConfig{
+			upstreamCfg = &ssl.UpstreamSslConfig{
 				Sni: "test.com",
-				SslSecrets: &v1.UpstreamSslConfig_SecretRef{
+				SslSecrets: &ssl.UpstreamSslConfig_SecretRef{
 					SecretRef: ref,
 				},
 			}
-			downstreamCfg = &v1.SslConfig{
+			downstreamCfg = &ssl.SslConfig{
 				SniDomains: []string{"test.com", "test1.com"},
-				SslSecrets: &v1.SslConfig_SecretRef{
+				SslSecrets: &ssl.SslConfig_SecretRef{
 					SecretRef: ref,
 				},
 			}
@@ -154,6 +166,16 @@ var _ = Describe("Ssl", func() {
 			Entry("upstreamCfg", func() CertSource { return upstreamCfg }),
 			Entry("downstreamCfg", func() CertSource { return downstreamCfg }),
 		)
+		DescribeTable("should fail if invalid private key is provided",
+			func(c func() CertSource) {
+				tlsSecret.PrivateKey = "bad_private_key"
+				_, err := resolveCommonSslConfig(c(), secrets)
+				Expect(err).To(HaveOccurred())
+
+			},
+			Entry("upstreamCfg", func() CertSource { return upstreamCfg }),
+			Entry("downstreamCfg", func() CertSource { return downstreamCfg }),
+		)
 		DescribeTable("should not have validation context if no rootca",
 			func(c func() CertSource) {
 				tlsSecret.RootCa = ""
@@ -191,7 +213,12 @@ var _ = Describe("Ssl", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cfg.CommonTlsContext.AlpnProtocols).To(Equal([]string{"h2", "http/1.1"}))
 		})
-
+		It("should set alpn empty for downstream config", func() {
+			downstreamCfg.AlpnProtocols = []string{constants.AllowEmpty}
+			cfg, err := configTranslator.ResolveDownstreamSslConfig(secrets, downstreamCfg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cfg.CommonTlsContext.AlpnProtocols).To(Equal([]string{}))
+		})
 		It("should set alpn for downstream config", func() {
 			downstreamCfg.AlpnProtocols = []string{"test"}
 			cfg, err := configTranslator.ResolveDownstreamSslConfig(secrets, downstreamCfg)
@@ -239,6 +266,57 @@ var _ = Describe("Ssl", func() {
 			Expect(cfg.Sni).To(Equal("test.com"))
 		})
 
+		It("should not set allow negotiation by default for upstream config", func() {
+			cfg, err := configTranslator.ResolveUpstreamSslConfig(secrets, upstreamCfg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cfg.AllowRenegotiation).To(BeFalse())
+		})
+
+		It("should set allow negotiation if configured for upstream config", func() {
+			upstreamCfg.AllowRenegotiation = &wrappers.BoolValue{Value: true}
+			cfg, err := configTranslator.ResolveUpstreamSslConfig(secrets, upstreamCfg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cfg.AllowRenegotiation).To(BeTrue())
+		})
+
+		Context("ocsp", func() {
+			Context("staple policy", func() {
+				It("should default to LENIENT_STAPLING for ocsp staple policy", func() {
+					cfg, err := configTranslator.ResolveDownstreamSslConfig(secrets, downstreamCfg)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(cfg.OcspStaplePolicy).To(Equal(envoyauth.DownstreamTlsContext_LENIENT_STAPLING))
+				})
+
+				It("should default to LENIENT_STAPLING if staple policy does not exist", func() {
+					downstreamCfg.OcspStaplePolicy = ssl.SslConfig_OcspStaplePolicy(ssl.SslConfig_OcspStaplePolicy_value["INVALID"])
+					cfg, err := configTranslator.ResolveDownstreamSslConfig(secrets, downstreamCfg)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(cfg.OcspStaplePolicy).To(Equal(envoyauth.DownstreamTlsContext_LENIENT_STAPLING))
+				})
+
+				DescribeTable("set ocsp staple policy when provided", func(policy ssl.SslConfig_OcspStaplePolicy, expected envoyauth.DownstreamTlsContext_OcspStaplePolicy) {
+					downstreamCfg.OcspStaplePolicy = policy
+					cfg, err := configTranslator.ResolveDownstreamSslConfig(secrets, downstreamCfg)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(cfg.OcspStaplePolicy).To(Equal(expected))
+				},
+					Entry("MUST_STAPLE", ssl.SslConfig_MUST_STAPLE, envoyauth.DownstreamTlsContext_MUST_STAPLE),
+					Entry("LENIENT_STAPLING", ssl.SslConfig_LENIENT_STAPLING, envoyauth.DownstreamTlsContext_LENIENT_STAPLING),
+					Entry("STRICT_STAPLING", ssl.SslConfig_STRICT_STAPLING, envoyauth.DownstreamTlsContext_STRICT_STAPLING),
+				)
+			})
+
+			// Not testing that the staple is set, as it is a generated `der` file from an OCSP server, which should be tested in an E2E test.
+			Context("staple response", func() {
+				It("should not set ocsp staple if none is provided", func() {
+					cfg, err := configTranslator.ResolveCommonSslConfig(downstreamCfg, secrets, true)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(len(cfg.TlsCertificates)).To(Equal(1))
+					Expect(cfg.TlsCertificates[0].OcspStaple).To(BeNil())
+				})
+			})
+		})
+
 		Context("san", func() {
 			It("should error with san and not rootca", func() {
 				tlsSecret.RootCa = ""
@@ -267,9 +345,9 @@ var _ = Describe("Ssl", func() {
 		Context("tls params", func() {
 
 			It("should add TLS Params when provided", func() {
-				upstreamCfg.Parameters = &v1.SslParameters{
-					MinimumProtocolVersion: v1.SslParameters_TLSv1_1,
-					MaximumProtocolVersion: v1.SslParameters_TLSv1_2,
+				upstreamCfg.Parameters = &ssl.SslParameters{
+					MinimumProtocolVersion: ssl.SslParameters_TLSv1_1,
+					MaximumProtocolVersion: ssl.SslParameters_TLSv1_2,
 					CipherSuites:           []string{"cipher-test"},
 					EcdhCurves:             []string{"ec-dh-test"},
 				}
@@ -289,17 +367,16 @@ var _ = Describe("Ssl", func() {
 
 	Context("sds", func() {
 		var (
-			sdsConfig *v1.SDSConfig
+			sdsConfig *ssl.SDSConfig
 		)
 		BeforeEach(func() {
-			sdsConfig = &v1.SDSConfig{
-				TargetUri:              "TargetUri",
+			sdsConfig = &ssl.SDSConfig{
 				CertificatesSecretName: "CertificatesSecretName",
 				ValidationContextName:  "ValidationContextName",
 			}
-			upstreamCfg = &v1.UpstreamSslConfig{
+			upstreamCfg = &ssl.UpstreamSslConfig{
 				Sni: "test.com",
-				SslSecrets: &v1.UpstreamSslConfig_Sds{
+				SslSecrets: &ssl.UpstreamSslConfig_Sds{
 					Sds: sdsConfig,
 				},
 			}
@@ -316,7 +393,7 @@ var _ = Describe("Ssl", func() {
 			cert := c.TlsCertificateSdsSecretConfigs[0]
 			Expect(vctx.Name).To(Equal("ValidationContextName"))
 			Expect(cert.Name).To(Equal("CertificatesSecretName"))
-			// If they are no equivalent, it means that any serialization is different.
+			// If they are not equivalent, it means that any serialization is different.
 			// see here: https://github.com/envoyproxy/go-control-plane/pull/158
 			// and here: https://github.com/envoyproxy/envoy/pull/6241
 			// this may lead to envoy updates being too frequent
@@ -328,14 +405,13 @@ var _ = Describe("Ssl", func() {
 		})
 
 		It("should have a sds setup with a custom cluster name", func() {
-			cfgCustomCluster := &v1.UpstreamSslConfig{
+			cfgCustomCluster := &ssl.UpstreamSslConfig{
 				Sni: "test.com",
-				SslSecrets: &v1.UpstreamSslConfig_Sds{
-					Sds: &v1.SDSConfig{
-						TargetUri:              "TargetUri",
+				SslSecrets: &ssl.UpstreamSslConfig_Sds{
+					Sds: &ssl.SDSConfig{
 						CertificatesSecretName: "CertificatesSecretName",
 						ValidationContextName:  "ValidationContextName",
-						SdsBuilder: &v1.SDSConfig_ClusterName{
+						SdsBuilder: &ssl.SDSConfig_ClusterName{
 							ClusterName: "custom-cluster",
 						},
 					},
@@ -350,7 +426,7 @@ var _ = Describe("Ssl", func() {
 			cert := c.TlsCertificateSdsSecretConfigs[0]
 			Expect(vctx.Name).To(Equal("ValidationContextName"))
 			Expect(cert.Name).To(Equal("CertificatesSecretName"))
-			// If they are no equivalent, it means that any serialization is different.
+			// If they are not equivalent, it means that any serialization is different.
 			// see here: https://github.com/envoyproxy/go-control-plane/pull/158
 			// and here: https://github.com/envoyproxy/envoy/pull/6241
 			// this may lead to envoy updates being too frequent
@@ -359,6 +435,69 @@ var _ = Describe("Ssl", func() {
 			envoyGrpc := vctx.SdsConfig.ConfigSourceSpecifier.(*envoycore.ConfigSource_ApiConfigSource).ApiConfigSource.GrpcServices[0].TargetSpecifier.(*envoycore.GrpcService_EnvoyGrpc_).EnvoyGrpc
 			Expect(envoyGrpc.ClusterName).To(Equal("custom-cluster"))
 
+		})
+
+		Context("TargetUri is specified", func() {
+			BeforeEach(func() {
+				sdsConfig.TargetUri = "targetUri"
+			})
+
+			When("only TargetUri is specified", func() {
+
+				It("should have a sds setup with a GoogleGrpc TargetSpecifier with the expected TargetUri", func() {
+					c, err := resolveCommonSslConfig(upstreamCfg, nil)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(c.TlsCertificateSdsSecretConfigs).To(HaveLen(1))
+					Expect(c.ValidationContextType).ToNot(BeNil())
+
+					vctx := c.ValidationContextType.(*envoyauth.CommonTlsContext_ValidationContextSdsSecretConfig).ValidationContextSdsSecretConfig
+					cert := c.TlsCertificateSdsSecretConfigs[0]
+					Expect(vctx.Name).To(Equal("ValidationContextName"))
+					Expect(cert.Name).To(Equal("CertificatesSecretName"))
+
+					vctxGoogleGrpc := vctx.SdsConfig.ConfigSourceSpecifier.(*envoycore.ConfigSource_ApiConfigSource).ApiConfigSource.GrpcServices[0].TargetSpecifier.(*envoycore.GrpcService_GoogleGrpc_).GoogleGrpc
+					Expect(vctxGoogleGrpc.TargetUri).To(Equal("targetUri"))
+					Expect(vctxGoogleGrpc.StatPrefix).To(Equal("ValidationContextName"))
+
+					// vctx and cert are expected to have different StatPrefixes on their GoogleGrpc TargetSpecifiers
+					// Modify vctxGoogleGrpc.StatPrefix, which has already been verified, to match that which we expect
+					// for cert
+					vctxGoogleGrpc.StatPrefix = "CertificatesSecretName"
+					// If they are not equivalent, it means that any serialization is different.
+					// see here: https://github.com/envoyproxy/go-control-plane/pull/158
+					// and here: https://github.com/envoyproxy/envoy/pull/6241
+					// this may lead to envoy updates being too frequent
+					Expect(vctx.SdsConfig).To(BeEquivalentTo(cert.SdsConfig))
+				})
+			})
+
+			When("TargetUri and ClusterName are specified", func() {
+				BeforeEach(func() {
+					sdsConfig.SdsBuilder = &ssl.SDSConfig_ClusterName{
+						ClusterName: "custom-cluster",
+					}
+				})
+
+				It("should have a sds setup with a default cluster name", func() {
+					c, err := resolveCommonSslConfig(upstreamCfg, nil)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(c.TlsCertificateSdsSecretConfigs).To(HaveLen(1))
+					Expect(c.ValidationContextType).ToNot(BeNil())
+
+					vctx := c.ValidationContextType.(*envoyauth.CommonTlsContext_ValidationContextSdsSecretConfig).ValidationContextSdsSecretConfig
+					cert := c.TlsCertificateSdsSecretConfigs[0]
+					Expect(vctx.Name).To(Equal("ValidationContextName"))
+					Expect(cert.Name).To(Equal("CertificatesSecretName"))
+					// If they are not equivalent, it means that any serialization is different.
+					// see here: https://github.com/envoyproxy/go-control-plane/pull/158
+					// and here: https://github.com/envoyproxy/envoy/pull/6241
+					// this may lead to envoy updates being too frequent
+					Expect(vctx.SdsConfig).To(BeEquivalentTo(cert.SdsConfig))
+
+					envoyGrpc := vctx.SdsConfig.ConfigSourceSpecifier.(*envoycore.ConfigSource_ApiConfigSource).ApiConfigSource.GrpcServices[0].TargetSpecifier.(*envoycore.GrpcService_EnvoyGrpc_).EnvoyGrpc
+					Expect(envoyGrpc.ClusterName).To(Equal("custom-cluster"))
+				})
+			})
 		})
 
 		Context("san", func() {
@@ -381,25 +520,24 @@ var _ = Describe("Ssl", func() {
 
 	Context("sds with tokenFile", func() {
 		var (
-			sdsConfig *v1.SDSConfig
+			sdsConfig *ssl.SDSConfig
 		)
 		BeforeEach(func() {
-			sdsConfig = &v1.SDSConfig{
-				TargetUri:              "TargetUri",
+			sdsConfig = &ssl.SDSConfig{
 				CertificatesSecretName: "CertificatesSecretName",
 				ValidationContextName:  "ValidationContextName",
-				SdsBuilder: &v1.SDSConfig_CallCredentials{
-					CallCredentials: &v1.CallCredentials{
-						FileCredentialSource: &v1.CallCredentials_FileCredentialSource{
+				SdsBuilder: &ssl.SDSConfig_CallCredentials{
+					CallCredentials: &ssl.CallCredentials{
+						FileCredentialSource: &ssl.CallCredentials_FileCredentialSource{
 							TokenFileName: "TokenFileName",
 							Header:        "Header",
 						},
 					},
 				},
 			}
-			upstreamCfg = &v1.UpstreamSslConfig{
+			upstreamCfg = &ssl.UpstreamSslConfig{
 				Sni: "test.com",
-				SslSecrets: &v1.UpstreamSslConfig_Sds{
+				SslSecrets: &ssl.UpstreamSslConfig_Sds{
 					Sds: sdsConfig,
 				},
 			}
@@ -416,7 +554,7 @@ var _ = Describe("Ssl", func() {
 			cert := c.TlsCertificateSdsSecretConfigs[0]
 			Expect(vctx.Name).To(Equal("ValidationContextName"))
 			Expect(cert.Name).To(Equal("CertificatesSecretName"))
-			// If they are no equivalent, it means that any serialization is different.
+			// If they are not equivalent, it means that any serialization is different.
 			// see here: https://github.com/envoyproxy/go-control-plane/pull/158
 			// and here: https://github.com/envoyproxy/envoy/pull/6241
 			// this may lead to envoy updates being too frequent
@@ -474,7 +612,7 @@ var _ = Describe("Ssl", func() {
 		})
 
 		It("should return nil for nil SslParameters", func() {
-			var sslParameters *v1.SslParameters
+			var sslParameters *ssl.SslParameters
 			tlsParams, err := configTranslator.ResolveSslParamsConfig(sslParameters)
 
 			Expect(err).To(BeNil())
@@ -482,9 +620,9 @@ var _ = Describe("Ssl", func() {
 		})
 
 		It("should return TlsParameters for valid SslParameters", func() {
-			sslParameters := &v1.SslParameters{
-				MinimumProtocolVersion: v1.SslParameters_TLSv1_1,
-				MaximumProtocolVersion: v1.SslParameters_TLSv1_2,
+			sslParameters := &ssl.SslParameters{
+				MinimumProtocolVersion: ssl.SslParameters_TLSv1_1,
+				MaximumProtocolVersion: ssl.SslParameters_TLSv1_2,
 				CipherSuites:           []string{"cipher-test"},
 				EcdhCurves:             []string{"ec-dh-test"},
 			}
@@ -498,11 +636,11 @@ var _ = Describe("Ssl", func() {
 		})
 
 		It("should error for invalid SslParameters", func() {
-			var invalidProtocolVersion v1.SslParameters_ProtocolVersion = 5 // INVALID
+			var invalidProtocolVersion ssl.SslParameters_ProtocolVersion = 5 // INVALID
 
-			sslParameters := &v1.SslParameters{
+			sslParameters := &ssl.SslParameters{
 				MinimumProtocolVersion: invalidProtocolVersion,
-				MaximumProtocolVersion: v1.SslParameters_TLSv1_2,
+				MaximumProtocolVersion: ssl.SslParameters_TLSv1_2,
 				CipherSuites:           []string{"cipher-test"},
 				EcdhCurves:             []string{"ec-dh-test"},
 			}
@@ -521,10 +659,10 @@ func ValidateCommonContextFiles(tlsCfg *envoyauth.CommonTlsContext, err error) {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	validationCtx := tlsCfg.GetValidationContext()
 	ExpectWithOffset(1, validationCtx).ToNot(BeNil())
-	ExpectWithOffset(1, validationCtx.TrustedCa.GetFilename()).To(Equal("rootca"))
+	ExpectWithOffset(1, validationCtx.TrustedCa.GetFilename()).To(Equal(gloohelpers.Certificate()))
 
-	ExpectWithOffset(1, tlsCfg.GetTlsCertificates()[0].GetCertificateChain().GetFilename()).To(Equal("tlscert"))
-	ExpectWithOffset(1, tlsCfg.GetTlsCertificates()[0].GetPrivateKey().GetFilename()).To(Equal("tlskey"))
+	ExpectWithOffset(1, tlsCfg.GetTlsCertificates()[0].GetCertificateChain().GetFilename()).To(Equal(gloohelpers.Certificate()))
+	ExpectWithOffset(1, tlsCfg.GetTlsCertificates()[0].GetPrivateKey().GetFilename()).To(Equal(gloohelpers.PrivateKey()))
 
 }
 
@@ -533,9 +671,9 @@ func ValidateCommonContextInline(tlsCfg *envoyauth.CommonTlsContext, err error) 
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	validationCtx := tlsCfg.GetValidationContext()
 	ExpectWithOffset(1, validationCtx).ToNot(BeNil())
-	ExpectWithOffset(1, validationCtx.TrustedCa.GetInlineString()).To(Equal("rootca"))
+	ExpectWithOffset(1, validationCtx.TrustedCa.GetInlineString()).To(Equal(gloohelpers.Certificate()))
 
-	ExpectWithOffset(1, tlsCfg.GetTlsCertificates()[0].GetCertificateChain().GetInlineString()).To(Equal("tlscert"))
-	ExpectWithOffset(1, tlsCfg.GetTlsCertificates()[0].GetPrivateKey().GetInlineString()).To(Equal("tlskey"))
+	ExpectWithOffset(1, tlsCfg.GetTlsCertificates()[0].GetCertificateChain().GetInlineString()).To(Equal(gloohelpers.Certificate()))
+	ExpectWithOffset(1, tlsCfg.GetTlsCertificates()[0].GetPrivateKey().GetInlineString()).To(Equal(gloohelpers.PrivateKey()))
 
 }

@@ -51,14 +51,26 @@ func (m *ListenerTracingSettings) Equal(that interface{}) bool {
 	}
 	for idx, v := range m.GetRequestHeadersForTags() {
 
-		if strings.Compare(v, target.GetRequestHeadersForTags()[idx]) != 0 {
-			return false
+		if h, ok := interface{}(v).(equality.Equalizer); ok {
+			if !h.Equal(target.GetRequestHeadersForTags()[idx]) {
+				return false
+			}
+		} else {
+			if !proto.Equal(v, target.GetRequestHeadersForTags()[idx]) {
+				return false
+			}
 		}
 
 	}
 
-	if m.GetVerbose() != target.GetVerbose() {
-		return false
+	if h, ok := interface{}(m.GetVerbose()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetVerbose()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetVerbose(), target.GetVerbose()) {
+			return false
+		}
 	}
 
 	if h, ok := interface{}(m.GetTracePercentages()).(equality.Equalizer); ok {
@@ -133,6 +145,36 @@ func (m *ListenerTracingSettings) Equal(that interface{}) bool {
 			}
 		} else {
 			if !proto.Equal(m.GetDatadogConfig(), target.GetDatadogConfig()) {
+				return false
+			}
+		}
+
+	case *ListenerTracingSettings_OpenTelemetryConfig:
+		if _, ok := target.ProviderConfig.(*ListenerTracingSettings_OpenTelemetryConfig); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetOpenTelemetryConfig()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetOpenTelemetryConfig()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetOpenTelemetryConfig(), target.GetOpenTelemetryConfig()) {
+				return false
+			}
+		}
+
+	case *ListenerTracingSettings_OpenCensusConfig:
+		if _, ok := target.ProviderConfig.(*ListenerTracingSettings_OpenCensusConfig); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetOpenCensusConfig()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetOpenCensusConfig()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetOpenCensusConfig(), target.GetOpenCensusConfig()) {
 				return false
 			}
 		}
@@ -270,16 +312,34 @@ func (m *TracingTagEnvironmentVariable) Equal(that interface{}) bool {
 		return false
 	}
 
-	if strings.Compare(m.GetTag(), target.GetTag()) != 0 {
-		return false
+	if h, ok := interface{}(m.GetTag()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetTag()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetTag(), target.GetTag()) {
+			return false
+		}
 	}
 
-	if strings.Compare(m.GetName(), target.GetName()) != 0 {
-		return false
+	if h, ok := interface{}(m.GetName()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetName()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetName(), target.GetName()) {
+			return false
+		}
 	}
 
-	if strings.Compare(m.GetDefaultValue(), target.GetDefaultValue()) != 0 {
-		return false
+	if h, ok := interface{}(m.GetDefaultValue()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetDefaultValue()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetDefaultValue(), target.GetDefaultValue()) {
+			return false
+		}
 	}
 
 	return true
@@ -306,12 +366,24 @@ func (m *TracingTagLiteral) Equal(that interface{}) bool {
 		return false
 	}
 
-	if strings.Compare(m.GetTag(), target.GetTag()) != 0 {
-		return false
+	if h, ok := interface{}(m.GetTag()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetTag()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetTag(), target.GetTag()) {
+			return false
+		}
 	}
 
-	if strings.Compare(m.GetValue(), target.GetValue()) != 0 {
-		return false
+	if h, ok := interface{}(m.GetValue()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetValue()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetValue(), target.GetValue()) {
+			return false
+		}
 	}
 
 	return true

@@ -13,6 +13,7 @@ spec:
     plural: upstreams
     shortNames:
     - us
+    - gus
     singular: upstream
   scope: Namespaced
   versions:
@@ -24,6 +25,28 @@ spec:
             properties:
               aws:
                 properties:
+                  awsAccountId:
+                    type: string
+                  destinationOverrides:
+                    properties:
+                      invocationStyle:
+                        type: string
+                        x-kubernetes-int-or-string: true
+                      logicalName:
+                        type: string
+                      requestTransformation:
+                        type: boolean
+                      responseTransformation:
+                        type: boolean
+                      unwrapAsAlb:
+                        type: boolean
+                      unwrapAsApiGateway:
+                        type: boolean
+                      wrapAsApiGateway:
+                        type: boolean
+                    type: object
+                  disableRoleChaining:
+                    type: boolean
                   lambdaFunctions:
                     items:
                       properties:
@@ -142,6 +165,18 @@ spec:
                     type: object
                   connectTimeout:
                     type: string
+                  http1ProtocolOptions:
+                    properties:
+                      enableTrailers:
+                        type: boolean
+                      overrideStreamErrorOnInvalidHttpMessage:
+                        nullable: true
+                        type: boolean
+                      preserveCaseHeaderKeyFormat:
+                        type: boolean
+                      properCaseHeaderKeyFormat:
+                        type: boolean
+                    type: object
                   maxRequestsPerConnection:
                     format: int32
                     type: integer
@@ -165,6 +200,9 @@ spec:
                 properties:
                   connectEnabled:
                     type: boolean
+                  consistencyMode:
+                    type: string
+                    x-kubernetes-int-or-string: true
                   dataCenters:
                     items:
                       type: string
@@ -177,10 +215,24 @@ spec:
                     items:
                       type: string
                     type: array
+                  queryOptions:
+                    properties:
+                      useCache:
+                        nullable: true
+                        type: boolean
+                    type: object
                   serviceName:
                     type: string
                   serviceSpec:
                     properties:
+                      graphql:
+                        properties:
+                          endpoint:
+                            properties:
+                              url:
+                                type: string
+                            type: object
+                        type: object
                       grpc:
                         properties:
                           descriptors:
@@ -198,6 +250,53 @@ spec:
                                 serviceName:
                                   type: string
                               type: object
+                            type: array
+                        type: object
+                      grpcJsonTranscoder:
+                        properties:
+                          autoMapping:
+                            type: boolean
+                          convertGrpcStatus:
+                            type: boolean
+                          ignoreUnknownQueryParameters:
+                            type: boolean
+                          ignoredQueryParameters:
+                            items:
+                              type: string
+                            type: array
+                          matchIncomingRequestRoute:
+                            type: boolean
+                          printOptions:
+                            properties:
+                              addWhitespace:
+                                type: boolean
+                              alwaysPrintEnumsAsInts:
+                                type: boolean
+                              alwaysPrintPrimitiveFields:
+                                type: boolean
+                              preserveProtoFieldNames:
+                                type: boolean
+                            type: object
+                          protoDescriptor:
+                            type: string
+                          protoDescriptorBin:
+                            format: byte
+                            type: string
+                          protoDescriptorConfigMap:
+                            properties:
+                              configMapRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                type: object
+                              key:
+                                type: string
+                            type: object
+                          services:
+                            items:
+                              type: string
                             type: array
                         type: object
                       rest:
@@ -267,6 +366,10 @@ spec:
                                         type: object
                                     type: object
                                   type: array
+                                headersToRemove:
+                                  items:
+                                    type: string
+                                  type: array
                                 ignoreErrorOnParse:
                                   type: boolean
                                 mergeExtractorsToBody:
@@ -296,8 +399,18 @@ spec:
                       type: string
                     type: object
                 type: object
+              dnsRefreshRate:
+                type: string
               failover:
                 properties:
+                  policy:
+                    properties:
+                      overprovisioningFactor:
+                        maximum: 4294967295
+                        minimum: 0
+                        nullable: true
+                        type: integer
+                    type: object
                   prioritizedLocalities:
                     items:
                       properties:
@@ -331,6 +444,9 @@ spec:
                                       type: integer
                                     upstreamSslConfig:
                                       properties:
+                                        allowRenegotiation:
+                                          nullable: true
+                                          type: boolean
                                         alpnProtocols:
                                           items:
                                             type: string
@@ -384,6 +500,8 @@ spec:
                                           type: string
                                         sslFiles:
                                           properties:
+                                            ocspStaple:
+                                              type: string
                                             rootCa:
                                               type: string
                                             tlsCert:
@@ -466,6 +584,9 @@ spec:
                           type: array
                         host:
                           type: string
+                        method:
+                          type: string
+                          x-kubernetes-int-or-string: true
                         path:
                           type: string
                         requestHeadersToAdd:
@@ -577,6 +698,87 @@ spec:
                       type: integer
                   type: object
                 type: array
+              httpConnectHeaders:
+                items:
+                  properties:
+                    key:
+                      type: string
+                    value:
+                      type: string
+                  type: object
+                type: array
+              httpConnectSslConfig:
+                properties:
+                  allowRenegotiation:
+                    nullable: true
+                    type: boolean
+                  alpnProtocols:
+                    items:
+                      type: string
+                    type: array
+                  parameters:
+                    properties:
+                      cipherSuites:
+                        items:
+                          type: string
+                        type: array
+                      ecdhCurves:
+                        items:
+                          type: string
+                        type: array
+                      maximumProtocolVersion:
+                        type: string
+                        x-kubernetes-int-or-string: true
+                      minimumProtocolVersion:
+                        type: string
+                        x-kubernetes-int-or-string: true
+                    type: object
+                  sds:
+                    properties:
+                      callCredentials:
+                        properties:
+                          fileCredentialSource:
+                            properties:
+                              header:
+                                type: string
+                              tokenFileName:
+                                type: string
+                            type: object
+                        type: object
+                      certificatesSecretName:
+                        type: string
+                      clusterName:
+                        type: string
+                      targetUri:
+                        type: string
+                      validationContextName:
+                        type: string
+                    type: object
+                  secretRef:
+                    properties:
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    type: object
+                  sni:
+                    type: string
+                  sslFiles:
+                    properties:
+                      ocspStaple:
+                        type: string
+                      rootCa:
+                        type: string
+                      tlsCert:
+                        type: string
+                      tlsKey:
+                        type: string
+                    type: object
+                  verifySubjectAltName:
+                    items:
+                      type: string
+                    type: array
+                type: object
               httpProxyHostname:
                 nullable: true
                 type: string
@@ -608,6 +810,14 @@ spec:
                     type: integer
                   serviceSpec:
                     properties:
+                      graphql:
+                        properties:
+                          endpoint:
+                            properties:
+                              url:
+                                type: string
+                            type: object
+                        type: object
                       grpc:
                         properties:
                           descriptors:
@@ -625,6 +835,53 @@ spec:
                                 serviceName:
                                   type: string
                               type: object
+                            type: array
+                        type: object
+                      grpcJsonTranscoder:
+                        properties:
+                          autoMapping:
+                            type: boolean
+                          convertGrpcStatus:
+                            type: boolean
+                          ignoreUnknownQueryParameters:
+                            type: boolean
+                          ignoredQueryParameters:
+                            items:
+                              type: string
+                            type: array
+                          matchIncomingRequestRoute:
+                            type: boolean
+                          printOptions:
+                            properties:
+                              addWhitespace:
+                                type: boolean
+                              alwaysPrintEnumsAsInts:
+                                type: boolean
+                              alwaysPrintPrimitiveFields:
+                                type: boolean
+                              preserveProtoFieldNames:
+                                type: boolean
+                            type: object
+                          protoDescriptor:
+                            type: string
+                          protoDescriptorBin:
+                            format: byte
+                            type: string
+                          protoDescriptorConfigMap:
+                            properties:
+                              configMapRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                type: object
+                              key:
+                                type: string
+                            type: object
+                          services:
+                            items:
+                              type: string
                             type: array
                         type: object
                       rest:
@@ -694,6 +951,10 @@ spec:
                                         type: object
                                     type: object
                                   type: array
+                                headersToRemove:
+                                  items:
+                                    type: string
+                                  type: array
                                 ignoreErrorOnParse:
                                   type: boolean
                                 mergeExtractorsToBody:
@@ -742,6 +1003,17 @@ spec:
                       choiceCount:
                         format: int32
                         type: integer
+                      slowStartConfig:
+                        properties:
+                          aggression:
+                            nullable: true
+                            type: number
+                          minWeightPercent:
+                            nullable: true
+                            type: number
+                          slowStartWindow:
+                            type: string
+                        type: object
                     type: object
                   localityWeightedLbConfig:
                     maxProperties: 0
@@ -765,10 +1037,27 @@ spec:
                         type: object
                     type: object
                   roundRobin:
+                    properties:
+                      slowStartConfig:
+                        properties:
+                          aggression:
+                            nullable: true
+                            type: number
+                          minWeightPercent:
+                            nullable: true
+                            type: number
+                          slowStartWindow:
+                            type: string
+                        type: object
                     type: object
                   updateMergeWindow:
                     type: string
                 type: object
+              maxConcurrentStreams:
+                maximum: 4294967295
+                minimum: 0
+                nullable: true
+                type: integer
               namespacedStatuses:
                 properties:
                   statuses:
@@ -846,12 +1135,23 @@ spec:
                     nullable: true
                     type: integer
                 type: object
+              overrideStreamErrorOnInvalidHttpMessage:
+                nullable: true
+                type: boolean
               pipe:
                 properties:
                   path:
                     type: string
                   serviceSpec:
                     properties:
+                      graphql:
+                        properties:
+                          endpoint:
+                            properties:
+                              url:
+                                type: string
+                            type: object
+                        type: object
                       grpc:
                         properties:
                           descriptors:
@@ -869,6 +1169,53 @@ spec:
                                 serviceName:
                                   type: string
                               type: object
+                            type: array
+                        type: object
+                      grpcJsonTranscoder:
+                        properties:
+                          autoMapping:
+                            type: boolean
+                          convertGrpcStatus:
+                            type: boolean
+                          ignoreUnknownQueryParameters:
+                            type: boolean
+                          ignoredQueryParameters:
+                            items:
+                              type: string
+                            type: array
+                          matchIncomingRequestRoute:
+                            type: boolean
+                          printOptions:
+                            properties:
+                              addWhitespace:
+                                type: boolean
+                              alwaysPrintEnumsAsInts:
+                                type: boolean
+                              alwaysPrintPrimitiveFields:
+                                type: boolean
+                              preserveProtoFieldNames:
+                                type: boolean
+                            type: object
+                          protoDescriptor:
+                            type: string
+                          protoDescriptorBin:
+                            format: byte
+                            type: string
+                          protoDescriptorConfigMap:
+                            properties:
+                              configMapRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                type: object
+                              key:
+                                type: string
+                            type: object
+                          services:
+                            items:
+                              type: string
                             type: array
                         type: object
                       rest:
@@ -938,6 +1285,10 @@ spec:
                                         type: object
                                     type: object
                                   type: array
+                                headersToRemove:
+                                  items:
+                                    type: string
+                                  type: array
                                 ignoreErrorOnParse:
                                   type: boolean
                                 mergeExtractorsToBody:
@@ -952,8 +1303,17 @@ spec:
                         type: object
                     type: object
                 type: object
+              protocolSelection:
+                type: string
+                x-kubernetes-int-or-string: true
+              respectDnsTtl:
+                nullable: true
+                type: boolean
               sslConfig:
                 properties:
+                  allowRenegotiation:
+                    nullable: true
+                    type: boolean
                   alpnProtocols:
                     items:
                       type: string
@@ -1007,6 +1367,8 @@ spec:
                     type: string
                   sslFiles:
                     properties:
+                      ocspStaple:
+                        type: string
                       rootCa:
                         type: string
                       tlsCert:
@@ -1050,6 +1412,14 @@ spec:
                     type: array
                   serviceSpec:
                     properties:
+                      graphql:
+                        properties:
+                          endpoint:
+                            properties:
+                              url:
+                                type: string
+                            type: object
+                        type: object
                       grpc:
                         properties:
                           descriptors:
@@ -1067,6 +1437,53 @@ spec:
                                 serviceName:
                                   type: string
                               type: object
+                            type: array
+                        type: object
+                      grpcJsonTranscoder:
+                        properties:
+                          autoMapping:
+                            type: boolean
+                          convertGrpcStatus:
+                            type: boolean
+                          ignoreUnknownQueryParameters:
+                            type: boolean
+                          ignoredQueryParameters:
+                            items:
+                              type: string
+                            type: array
+                          matchIncomingRequestRoute:
+                            type: boolean
+                          printOptions:
+                            properties:
+                              addWhitespace:
+                                type: boolean
+                              alwaysPrintEnumsAsInts:
+                                type: boolean
+                              alwaysPrintPrimitiveFields:
+                                type: boolean
+                              preserveProtoFieldNames:
+                                type: boolean
+                            type: object
+                          protoDescriptor:
+                            type: string
+                          protoDescriptorBin:
+                            format: byte
+                            type: string
+                          protoDescriptorConfigMap:
+                            properties:
+                              configMapRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                type: object
+                              key:
+                                type: string
+                            type: object
+                          services:
+                            items:
+                              type: string
                             type: array
                         type: object
                       rest:
@@ -1136,6 +1553,10 @@ spec:
                                         type: object
                                     type: object
                                   type: array
+                                headersToRemove:
+                                  items:
+                                    type: string
+                                  type: array
                                 ignoreErrorOnParse:
                                   type: boolean
                                 mergeExtractorsToBody:
@@ -1157,6 +1578,12 @@ spec:
                 type: boolean
             type: object
           status:
+            default: {}
+            properties:
+              statuses:
+                default: {}
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
             type: object
             x-kubernetes-preserve-unknown-fields: true
         type: object

@@ -1,60 +1,49 @@
 package secret_test
 
 import (
+	"context"
+	"fmt"
 	"log"
-	"os"
 
-	"github.com/hashicorp/vault/api"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/solo-io/gloo/projects/gloo/cli/pkg/helpers"
 	"github.com/solo-io/gloo/projects/gloo/cli/pkg/testutils"
-	"github.com/solo-io/gloo/test/services"
+	glootestutils "github.com/solo-io/gloo/test/testutils"
 )
 
 var _ = Describe("Create", func() {
-	if os.Getenv("RUN_VAULT_TESTS") != "1" {
+
+	if !glootestutils.IsEnvTruthy(glootestutils.RunVaultTests) {
 		log.Print("This test downloads and runs vault and is disabled by default. To enable, set RUN_VAULT_TESTS=1 in your env.")
 		return
 	}
 
 	var (
-		vaultFactory  *services.VaultFactory
-		vaultInstance *services.VaultInstance
-		client        *api.Client
+		ctx    context.Context
+		cancel context.CancelFunc
 	)
 
-	BeforeSuite(func() {
-		var err error
-		vaultFactory, err = services.NewVaultFactory()
-		Expect(err).NotTo(HaveOccurred())
-		client, err = api.NewClient(api.DefaultConfig())
-		Expect(err).NotTo(HaveOccurred())
-		client.SetToken("root")
-		_ = client.SetAddress("http://localhost:8200")
-
-	})
-
-	AfterSuite(func() {
-		_ = vaultFactory.Clean()
-	})
-
 	BeforeEach(func() {
+		ctx, cancel = context.WithCancel(context.Background())
+
 		helpers.UseDefaultClients()
 		var err error
 		// Start Vault
 		vaultInstance, err = vaultFactory.NewVaultInstance()
 		Expect(err).NotTo(HaveOccurred())
-		err = vaultInstance.Run()
+		err = vaultInstance.Run(ctx)
 		Expect(err).NotTo(HaveOccurred())
+
+		// Connect the client to the vaultInstance
+		client.SetToken(vaultInstance.Token())
+		_ = client.SetAddress(vaultInstance.Address())
 	})
 
 	AfterEach(func() {
-		if vaultInstance != nil {
-			err := vaultInstance.Clean()
-			Expect(err).NotTo(HaveOccurred())
-		}
 		helpers.UseDefaultClients()
+
+		cancel()
 	})
 
 	Context("vault storage backend", func() {
@@ -62,6 +51,18 @@ var _ = Describe("Create", func() {
 			err := testutils.Glooctl("create secret aws --name test --access-key foo --secret-key bar --use-vault --vault-address=http://localhost:8200 --vault-token=root")
 			Expect(err).NotTo(HaveOccurred())
 			secret, err := client.Logical().Read("secret/data/gloo/gloo.solo.io/v1/Secret/gloo-system/test")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(secret).NotTo(BeNil())
+		})
+
+		It("works with custom secrets engine path secrets", func() {
+			customSecretEngine := "customSecretEngine"
+			err := vaultInstance.EnableSecretEngine(customSecretEngine)
+			Expect(err).NotTo(HaveOccurred())
+
+			err = testutils.Glooctl(fmt.Sprintf("create secret aws --name test --access-key foo --secret-key bar --use-vault --vault-address=http://localhost:8200 --vault-token=root --vault-path-prefix=%s", customSecretEngine))
+			Expect(err).NotTo(HaveOccurred())
+			secret, err := client.Logical().Read(fmt.Sprintf("%s/data/gloo/gloo.solo.io/v1/Secret/gloo-system/test", customSecretEngine))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(secret).NotTo(BeNil())
 		})

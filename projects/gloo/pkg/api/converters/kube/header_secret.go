@@ -27,10 +27,13 @@ func (t *HeaderSecretConverter) FromKubeSecret(ctx context.Context, _ *kubesecre
 		return nil, nil
 	}
 
-	if secret.Type == HeaderSecretType {
+	if secret.Type == HeaderSecretType || secret.Type == kubev1.SecretTypeOpaque {
 		if len(secret.Data) == 0 {
-			contextutils.LoggerFrom(ctx).Warnw("skipping header secret with no headers",
-				zap.String("name", secret.Name), zap.String("namespace", secret.Namespace))
+			if secret.Type == HeaderSecretType {
+				// only log this warning for header secrets (we don't want it to show for all opaque secrets)
+				contextutils.LoggerFrom(ctx).Warnw("skipping header secret with no headers",
+					zap.String("name", secret.Name), zap.String("namespace", secret.Namespace))
+			}
 			return nil, nil
 		}
 
@@ -43,7 +46,6 @@ func (t *HeaderSecretConverter) FromKubeSecret(ctx context.Context, _ *kubesecre
 			Metadata: &skcore.Metadata{
 				Name:        secret.Name,
 				Namespace:   secret.Namespace,
-				Cluster:     secret.ClusterName,
 				Labels:      secret.Labels,
 				Annotations: secret.Annotations,
 			},

@@ -106,16 +106,6 @@ func (m *Upstream) Equal(that interface{}) bool {
 		}
 	}
 
-	if h, ok := interface{}(m.GetConnectionConfig()).(equality.Equalizer); ok {
-		if !h.Equal(target.GetConnectionConfig()) {
-			return false
-		}
-	} else {
-		if !proto.Equal(m.GetConnectionConfig(), target.GetConnectionConfig()) {
-			return false
-		}
-	}
-
 	if len(m.GetHealthChecks()) != len(target.GetHealthChecks()) {
 		return false
 	}
@@ -143,22 +133,36 @@ func (m *Upstream) Equal(that interface{}) bool {
 		}
 	}
 
-	if h, ok := interface{}(m.GetUseHttp2()).(equality.Equalizer); ok {
-		if !h.Equal(target.GetUseHttp2()) {
-			return false
-		}
-	} else {
-		if !proto.Equal(m.GetUseHttp2(), target.GetUseHttp2()) {
-			return false
-		}
-	}
-
 	if h, ok := interface{}(m.GetFailover()).(equality.Equalizer); ok {
 		if !h.Equal(target.GetFailover()) {
 			return false
 		}
 	} else {
 		if !proto.Equal(m.GetFailover(), target.GetFailover()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetConnectionConfig()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetConnectionConfig()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetConnectionConfig(), target.GetConnectionConfig()) {
+			return false
+		}
+	}
+
+	if m.GetProtocolSelection() != target.GetProtocolSelection() {
+		return false
+	}
+
+	if h, ok := interface{}(m.GetUseHttp2()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetUseHttp2()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetUseHttp2(), target.GetUseHttp2()) {
 			return false
 		}
 	}
@@ -183,6 +187,26 @@ func (m *Upstream) Equal(that interface{}) bool {
 		}
 	}
 
+	if h, ok := interface{}(m.GetMaxConcurrentStreams()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetMaxConcurrentStreams()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetMaxConcurrentStreams(), target.GetMaxConcurrentStreams()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetOverrideStreamErrorOnInvalidHttpMessage()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetOverrideStreamErrorOnInvalidHttpMessage()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetOverrideStreamErrorOnInvalidHttpMessage(), target.GetOverrideStreamErrorOnInvalidHttpMessage()) {
+			return false
+		}
+	}
+
 	if h, ok := interface{}(m.GetHttpProxyHostname()).(equality.Equalizer); ok {
 		if !h.Equal(target.GetHttpProxyHostname()) {
 			return false
@@ -193,12 +217,59 @@ func (m *Upstream) Equal(that interface{}) bool {
 		}
 	}
 
+	if h, ok := interface{}(m.GetHttpConnectSslConfig()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetHttpConnectSslConfig()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetHttpConnectSslConfig(), target.GetHttpConnectSslConfig()) {
+			return false
+		}
+	}
+
+	if len(m.GetHttpConnectHeaders()) != len(target.GetHttpConnectHeaders()) {
+		return false
+	}
+	for idx, v := range m.GetHttpConnectHeaders() {
+
+		if h, ok := interface{}(v).(equality.Equalizer); ok {
+			if !h.Equal(target.GetHttpConnectHeaders()[idx]) {
+				return false
+			}
+		} else {
+			if !proto.Equal(v, target.GetHttpConnectHeaders()[idx]) {
+				return false
+			}
+		}
+
+	}
+
 	if h, ok := interface{}(m.GetIgnoreHealthOnHostRemoval()).(equality.Equalizer); ok {
 		if !h.Equal(target.GetIgnoreHealthOnHostRemoval()) {
 			return false
 		}
 	} else {
 		if !proto.Equal(m.GetIgnoreHealthOnHostRemoval(), target.GetIgnoreHealthOnHostRemoval()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetRespectDnsTtl()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetRespectDnsTtl()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetRespectDnsTtl(), target.GetRespectDnsTtl()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetDnsRefreshRate()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetDnsRefreshRate()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetDnsRefreshRate(), target.GetDnsRefreshRate()) {
 			return false
 		}
 	}
@@ -350,6 +421,38 @@ func (m *DiscoveryMetadata) Equal(that interface{}) bool {
 			return false
 		}
 
+	}
+
+	return true
+}
+
+// Equal function
+func (m *HeaderValue) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*HeaderValue)
+	if !ok {
+		that2, ok := that.(HeaderValue)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if strings.Compare(m.GetKey(), target.GetKey()) != 0 {
+		return false
+	}
+
+	if strings.Compare(m.GetValue(), target.GetValue()) != 0 {
+		return false
 	}
 
 	return true

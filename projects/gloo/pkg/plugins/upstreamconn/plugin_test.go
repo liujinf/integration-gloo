@@ -9,9 +9,10 @@ import (
 	"github.com/solo-io/solo-kit/pkg/utils/prototime"
 
 	"github.com/golang/protobuf/ptypes/wrappers"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/protocol"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
 	. "github.com/solo-io/gloo/projects/gloo/pkg/plugins/upstreamconn"
 )
@@ -20,7 +21,7 @@ var _ = Describe("Plugin", func() {
 
 	var (
 		params   plugins.Params
-		plugin   *Plugin
+		plugin   plugins.UpstreamPlugin
 		upstream *v1.Upstream
 		out      *envoy_config_cluster_v3.Cluster
 	)
@@ -97,7 +98,7 @@ var _ = Describe("Plugin", func() {
 	It("should set CommonHttpProtocolOptions", func() {
 		hour := prototime.DurationToProto(time.Hour)
 		upstream.ConnectionConfig = &v1.ConnectionConfig{
-			CommonHttpProtocolOptions: &v1.ConnectionConfig_HttpProtocolOptions{
+			CommonHttpProtocolOptions: &protocol.HttpProtocolOptions{
 				MaxHeadersCount:              3,
 				MaxStreamDuration:            hour,
 				HeadersWithUnderscoresAction: 1,
@@ -116,9 +117,60 @@ var _ = Describe("Plugin", func() {
 		Expect(*outChpo).To(Equal(expectedValue))
 	})
 
+	It("Should set Http1ProtocolOptions", func() {
+		upstream.ConnectionConfig = &v1.ConnectionConfig{
+			Http1ProtocolOptions: &protocol.Http1ProtocolOptions{
+				EnableTrailers:                          true,
+				OverrideStreamErrorOnInvalidHttpMessage: &wrappers.BoolValue{Value: true},
+			},
+		}
+
+		err := plugin.ProcessUpstream(params, upstream, out)
+		Expect(err).NotTo(HaveOccurred())
+		outHpo := out.GetHttpProtocolOptions()
+		expectedValue := envoy_config_core_v3.Http1ProtocolOptions{
+			EnableTrailers:                          true,
+			OverrideStreamErrorOnInvalidHttpMessage: &wrappers.BoolValue{Value: true},
+		}
+
+		Expect(*outHpo).To(Equal(expectedValue))
+	})
+
+	It("Should set preserve_case_header_key_format", func() {
+		upstream.ConnectionConfig = &v1.ConnectionConfig{
+			Http1ProtocolOptions: &protocol.Http1ProtocolOptions{
+				HeaderFormat: &protocol.Http1ProtocolOptions_PreserveCaseHeaderKeyFormat{
+					PreserveCaseHeaderKeyFormat: true,
+				},
+			},
+		}
+
+		err := plugin.ProcessUpstream(params, upstream, out)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(out.GetHttpProtocolOptions().GetHeaderKeyFormat().GetStatefulFormatter()).ToNot(BeNil()) // expect preserve_case_words to be set
+		Expect(out.GetHttpProtocolOptions().GetHeaderKeyFormat().GetProperCaseWords()).To(BeNil())      // ...which makes proper_case_words nil
+	})
+
+	It("Should set proper_case_header_key_format", func() {
+		upstream.ConnectionConfig = &v1.ConnectionConfig{
+			Http1ProtocolOptions: &protocol.Http1ProtocolOptions{
+				HeaderFormat: &protocol.Http1ProtocolOptions_ProperCaseHeaderKeyFormat{
+					ProperCaseHeaderKeyFormat: true,
+				},
+			},
+		}
+
+		err := plugin.ProcessUpstream(params, upstream, out)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(out.GetHttpProtocolOptions().GetHeaderKeyFormat().GetProperCaseWords()).ToNot(BeNil()) // expect proper_case_words to be set
+		Expect(out.GetHttpProtocolOptions().GetHeaderKeyFormat().GetStatefulFormatter()).To(BeNil())  // ...which makes preserve_case_words nil
+	})
+
 	It("should error setting CommonHttpProtocolOptions when an invalid enum value is used", func() {
 		upstream.ConnectionConfig = &v1.ConnectionConfig{
-			CommonHttpProtocolOptions: &v1.ConnectionConfig_HttpProtocolOptions{
+			CommonHttpProtocolOptions: &protocol.HttpProtocolOptions{
 				HeadersWithUnderscoresAction: 4,
 			},
 		}

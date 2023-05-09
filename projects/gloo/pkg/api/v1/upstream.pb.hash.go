@@ -10,8 +10,8 @@ import (
 	"hash"
 	"hash/fnv"
 
-	"github.com/mitchellh/hashstructure"
 	safe_hasher "github.com/solo-io/protoc-gen-ext/pkg/hasher"
+	"github.com/solo-io/protoc-gen-ext/pkg/hasher/hashstructure"
 )
 
 // ensure the imports are used
@@ -138,26 +138,6 @@ func (m *Upstream) Hash(hasher hash.Hash64) (uint64, error) {
 		}
 	}
 
-	if h, ok := interface{}(m.GetConnectionConfig()).(safe_hasher.SafeHasher); ok {
-		if _, err = hasher.Write([]byte("ConnectionConfig")); err != nil {
-			return 0, err
-		}
-		if _, err = h.Hash(hasher); err != nil {
-			return 0, err
-		}
-	} else {
-		if fieldValue, err := hashstructure.Hash(m.GetConnectionConfig(), nil); err != nil {
-			return 0, err
-		} else {
-			if _, err = hasher.Write([]byte("ConnectionConfig")); err != nil {
-				return 0, err
-			}
-			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
-				return 0, err
-			}
-		}
-	}
-
 	for _, v := range m.GetHealthChecks() {
 
 		if h, ok := interface{}(v).(safe_hasher.SafeHasher); ok {
@@ -202,26 +182,6 @@ func (m *Upstream) Hash(hasher hash.Hash64) (uint64, error) {
 		}
 	}
 
-	if h, ok := interface{}(m.GetUseHttp2()).(safe_hasher.SafeHasher); ok {
-		if _, err = hasher.Write([]byte("UseHttp2")); err != nil {
-			return 0, err
-		}
-		if _, err = h.Hash(hasher); err != nil {
-			return 0, err
-		}
-	} else {
-		if fieldValue, err := hashstructure.Hash(m.GetUseHttp2(), nil); err != nil {
-			return 0, err
-		} else {
-			if _, err = hasher.Write([]byte("UseHttp2")); err != nil {
-				return 0, err
-			}
-			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
-				return 0, err
-			}
-		}
-	}
-
 	if h, ok := interface{}(m.GetFailover()).(safe_hasher.SafeHasher); ok {
 		if _, err = hasher.Write([]byte("Failover")); err != nil {
 			return 0, err
@@ -234,6 +194,51 @@ func (m *Upstream) Hash(hasher hash.Hash64) (uint64, error) {
 			return 0, err
 		} else {
 			if _, err = hasher.Write([]byte("Failover")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	if h, ok := interface{}(m.GetConnectionConfig()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("ConnectionConfig")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetConnectionConfig(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("ConnectionConfig")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	err = binary.Write(hasher, binary.LittleEndian, m.GetProtocolSelection())
+	if err != nil {
+		return 0, err
+	}
+
+	if h, ok := interface{}(m.GetUseHttp2()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("UseHttp2")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetUseHttp2(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("UseHttp2")); err != nil {
 				return 0, err
 			}
 			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
@@ -282,6 +287,46 @@ func (m *Upstream) Hash(hasher hash.Hash64) (uint64, error) {
 		}
 	}
 
+	if h, ok := interface{}(m.GetMaxConcurrentStreams()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("MaxConcurrentStreams")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetMaxConcurrentStreams(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("MaxConcurrentStreams")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	if h, ok := interface{}(m.GetOverrideStreamErrorOnInvalidHttpMessage()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("OverrideStreamErrorOnInvalidHttpMessage")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetOverrideStreamErrorOnInvalidHttpMessage(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("OverrideStreamErrorOnInvalidHttpMessage")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
 	if h, ok := interface{}(m.GetHttpProxyHostname()).(safe_hasher.SafeHasher); ok {
 		if _, err = hasher.Write([]byte("HttpProxyHostname")); err != nil {
 			return 0, err
@@ -302,6 +347,50 @@ func (m *Upstream) Hash(hasher hash.Hash64) (uint64, error) {
 		}
 	}
 
+	if h, ok := interface{}(m.GetHttpConnectSslConfig()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("HttpConnectSslConfig")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetHttpConnectSslConfig(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("HttpConnectSslConfig")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	for _, v := range m.GetHttpConnectHeaders() {
+
+		if h, ok := interface{}(v).(safe_hasher.SafeHasher); ok {
+			if _, err = hasher.Write([]byte("")); err != nil {
+				return 0, err
+			}
+			if _, err = h.Hash(hasher); err != nil {
+				return 0, err
+			}
+		} else {
+			if fieldValue, err := hashstructure.Hash(v, nil); err != nil {
+				return 0, err
+			} else {
+				if _, err = hasher.Write([]byte("")); err != nil {
+					return 0, err
+				}
+				if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+					return 0, err
+				}
+			}
+		}
+
+	}
+
 	if h, ok := interface{}(m.GetIgnoreHealthOnHostRemoval()).(safe_hasher.SafeHasher); ok {
 		if _, err = hasher.Write([]byte("IgnoreHealthOnHostRemoval")); err != nil {
 			return 0, err
@@ -314,6 +403,46 @@ func (m *Upstream) Hash(hasher hash.Hash64) (uint64, error) {
 			return 0, err
 		} else {
 			if _, err = hasher.Write([]byte("IgnoreHealthOnHostRemoval")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	if h, ok := interface{}(m.GetRespectDnsTtl()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("RespectDnsTtl")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetRespectDnsTtl(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("RespectDnsTtl")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	if h, ok := interface{}(m.GetDnsRefreshRate()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("DnsRefreshRate")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetDnsRefreshRate(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("DnsRefreshRate")); err != nil {
 				return 0, err
 			}
 			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
@@ -517,6 +646,30 @@ func (m *DiscoveryMetadata) Hash(hasher hash.Hash64) (uint64, error) {
 			return 0, err
 		}
 
+	}
+
+	return hasher.Sum64(), nil
+}
+
+// Hash function
+func (m *HeaderValue) Hash(hasher hash.Hash64) (uint64, error) {
+	if m == nil {
+		return 0, nil
+	}
+	if hasher == nil {
+		hasher = fnv.New64()
+	}
+	var err error
+	if _, err = hasher.Write([]byte("gloo.solo.io.github.com/solo-io/gloo/projects/gloo/pkg/api/v1.HeaderValue")); err != nil {
+		return 0, err
+	}
+
+	if _, err = hasher.Write([]byte(m.GetKey())); err != nil {
+		return 0, err
+	}
+
+	if _, err = hasher.Write([]byte(m.GetValue())); err != nil {
+		return 0, err
 	}
 
 	return hasher.Sum64(), nil

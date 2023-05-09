@@ -12,11 +12,14 @@ weight: 5
 
 
 - [ListenerOptions](#listeneroptions)
+- [ConnectionBalanceConfig](#connectionbalanceconfig)
+- [ExactBalance](#exactbalance)
 - [RouteConfigurationOptions](#routeconfigurationoptions)
 - [HttpListenerOptions](#httplisteneroptions)
 - [TcpListenerOptions](#tcplisteneroptions)
 - [VirtualHostOptions](#virtualhostoptions)
 - [RouteOptions](#routeoptions)
+- [MaxStreamDuration](#maxstreamduration)
 - [DestinationSpec](#destinationspec)
 - [WeightedDestinationOptions](#weighteddestinationoptions)
   
@@ -43,6 +46,8 @@ to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 "extensions": .gloo.solo.io.Extensions
 "perConnectionBufferLimitBytes": .google.protobuf.UInt32Value
 "socketOptions": []solo.io.envoy.api.v2.core.SocketOption
+"proxyProtocol": .proxy_protocol.options.gloo.solo.io.ProxyProtocol
+"connectionBalanceConfig": .gloo.solo.io.ConnectionBalanceConfig
 
 ```
 
@@ -52,6 +57,47 @@ to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 | `extensions` | [.gloo.solo.io.Extensions](../extensions.proto.sk/#extensions) | Extensions will be passed along from Listeners, Gateways, VirtualServices, Routes, and Route tables to the underlying Proxy, making them useful for controllers, validation tools, etc. which interact with kubernetes yaml. Some sample use cases: * controllers, deployment pipelines, helm charts, etc. which wish to use extensions as a kind of opaque metadata. * In the future, Gloo may support gRPC-based plugins which communicate with the Gloo translator out-of-process. Opaque Extensions enables development of out-of-process plugins without requiring recompiling & redeploying Gloo's API. |
 | `perConnectionBufferLimitBytes` | [.google.protobuf.UInt32Value](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/u-int-32-value) | Soft limit on size of the listener's new connection read and write buffers. If unspecified, defaults to 1MiB For more info, check out the [Envoy docs](https://www.envoyproxy.io/docs/envoy/v1.14.1/api-v2/api/v2/listener.proto). |
 | `socketOptions` | [[]solo.io.envoy.api.v2.core.SocketOption](../../../../../../solo-kit/api/external/envoy/api/v2/core/socket_option.proto.sk/#socketoption) | Additional socket options that may not be present in Envoy source code or precompiled binaries. |
+| `proxyProtocol` | [.proxy_protocol.options.gloo.solo.io.ProxyProtocol](../options/proxy_protocol/proxy_protocol.proto.sk/#proxyprotocol) | Enable ProxyProtocol support for this listener. |
+| `connectionBalanceConfig` | [.gloo.solo.io.ConnectionBalanceConfig](../options.proto.sk/#connectionbalanceconfig) | Configuration for listener connection balancing. |
+
+
+
+
+---
+### ConnectionBalanceConfig
+
+ 
+Configuration for listener connection balancing.
+
+```yaml
+"exactBalance": .gloo.solo.io.ConnectionBalanceConfig.ExactBalance
+
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
+| `exactBalance` | [.gloo.solo.io.ConnectionBalanceConfig.ExactBalance](../options.proto.sk/#exactbalance) |  |
+
+
+
+
+---
+### ExactBalance
+
+ 
+A connection balancer implementation that does exact balancing. This means that a lock is
+held during balancing so that connection counts are nearly exactly balanced between worker
+threads. This is "nearly" exact in the sense that a connection might close in parallel thus
+making the counts incorrect, but this should be rectified on the next accept. This balancer
+sacrifices accept throughput for accuracy and should be used when there are a small number of
+connections that rarely cycle (e.g., service mesh gRPC egress).
+
+```yaml
+
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
 
 
 
@@ -89,6 +135,7 @@ Optional, feature-specific configuration that lives on http listeners
 "wasm": .wasm.options.gloo.solo.io.PluginSource
 "extauth": .enterprise.gloo.solo.io.Settings
 "ratelimitServer": .ratelimit.options.gloo.solo.io.Settings
+"caching": .caching.options.gloo.solo.io.Settings
 "gzip": .solo.io.envoy.config.filter.http.gzip.v2.Gzip
 "proxyLatency": .envoy.config.filter.http.proxylatency.v2.ProxyLatency
 "buffer": .solo.io.envoy.extensions.filters.http.buffer.v3.Buffer
@@ -96,6 +143,8 @@ Optional, feature-specific configuration that lives on http listeners
 "grpcJsonTranscoder": .grpc_json.options.gloo.solo.io.GrpcJsonTranscoder
 "sanitizeClusterHeader": .google.protobuf.BoolValue
 "leftmostXffAddress": .google.protobuf.BoolValue
+"dynamicForwardProxy": .dfp.options.gloo.solo.io.FilterConfig
+"router": .gloo.solo.io.Router
 
 ```
 
@@ -110,6 +159,7 @@ Optional, feature-specific configuration that lives on http listeners
 | `wasm` | [.wasm.options.gloo.solo.io.PluginSource](../options/wasm/wasm.proto.sk/#pluginsource) | Enterprise-only: WASM related configuration [experimental!]. |
 | `extauth` | [.enterprise.gloo.solo.io.Settings](../enterprise/options/extauth/v1/extauth.proto.sk/#settings) | Enterprise-only: External auth related settings. |
 | `ratelimitServer` | [.ratelimit.options.gloo.solo.io.Settings](../enterprise/options/ratelimit/ratelimit.proto.sk/#settings) | Enterprise-only: Settings for the rate limiting server itself. |
+| `caching` | [.caching.options.gloo.solo.io.Settings](../enterprise/options/caching/caching.proto.sk/#settings) | Enterprise-only: Settings for the cache server itself. |
 | `gzip` | [.solo.io.envoy.config.filter.http.gzip.v2.Gzip](../../external/envoy/config/filter/http/gzip/v2/gzip.proto.sk/#gzip) | Gzip is an HTTP option which enables Gloo to compress data returned from an upstream service upon client request. Compression is useful in situations where large payloads need to be transmitted without compromising the response time. Example: ``` gzip: contentType: - "application/json" compressionLevel: BEST ```. |
 | `proxyLatency` | [.envoy.config.filter.http.proxylatency.v2.ProxyLatency](../../external/envoy/extensions/proxylatency/proxylatency.proto.sk/#proxylatency) | Enterprise-only: Proxy latency. |
 | `buffer` | [.solo.io.envoy.extensions.filters.http.buffer.v3.Buffer](../../external/envoy/extensions/filters/http/buffer/v3/buffer.proto.sk/#buffer) | Buffer can be used to set the maximum request size that the filter will buffer before the connection manager will stop buffering and return a 413 response. |
@@ -117,6 +167,8 @@ Optional, feature-specific configuration that lives on http listeners
 | `grpcJsonTranscoder` | [.grpc_json.options.gloo.solo.io.GrpcJsonTranscoder](../options/grpc_json/grpc_json.proto.sk/#grpcjsontranscoder) | Exposed envoy config for the gRPC to JSON transcoding filter, envoy.filters.http.grpc_json_transcoder. For more, see https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/http/grpc_json_transcoder/v3/transcoder.proto. |
 | `sanitizeClusterHeader` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | Enterprise-only: If using the HTTP header specified by cluster_header to direct traffic to a cluster, this option will sanitize that header from downstream traffic. Defaults to false. |
 | `leftmostXffAddress` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | Enterprise-only: Setting this value to true will grab the leftmost IP address from the x-forwarded-for header and set it as the downstream address. It is worth noting that the x-forwarded-for header can be tampered with by clients and should therefore be sanitized by any preceding proxies / load balancers if this option is to be used. |
+| `dynamicForwardProxy` | [.dfp.options.gloo.solo.io.FilterConfig](../options/dynamic_forward_proxy/dynamic_forward_proxy.proto.sk/#filterconfig) |  |
+| `router` | [.gloo.solo.io.Router](../options/router/router.proto.sk/#router) | Router is an extension of the envoy http filters Maps to https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/http/router/v3/router.proto. |
 
 
 
@@ -156,8 +208,12 @@ to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 "cors": .cors.options.gloo.solo.io.CorsPolicy
 "transformations": .transformation.options.gloo.solo.io.Transformations
 "ratelimitBasic": .ratelimit.options.gloo.solo.io.IngressRateLimit
+"ratelimitEarly": .ratelimit.options.gloo.solo.io.RateLimitVhostExtension
+"rateLimitEarlyConfigs": .ratelimit.options.gloo.solo.io.RateLimitConfigRefs
 "ratelimit": .ratelimit.options.gloo.solo.io.RateLimitVhostExtension
 "rateLimitConfigs": .ratelimit.options.gloo.solo.io.RateLimitConfigRefs
+"ratelimitRegular": .ratelimit.options.gloo.solo.io.RateLimitVhostExtension
+"rateLimitRegularConfigs": .ratelimit.options.gloo.solo.io.RateLimitConfigRefs
 "waf": .waf.options.gloo.solo.io.Settings
 "jwt": .jwt.options.gloo.solo.io.VhostExtension
 "jwtStaged": .jwt.options.gloo.solo.io.JwtStagedVhostExtension
@@ -181,8 +237,12 @@ to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 | `cors` | [.cors.options.gloo.solo.io.CorsPolicy](../options/cors/cors.proto.sk/#corspolicy) | Defines a CORS policy for the virtual host If a CORS policy is also defined on the route matched by the request, the policies are merged. |
 | `transformations` | [.transformation.options.gloo.solo.io.Transformations](../options/transformation/transformation.proto.sk/#transformations) | Transformations to apply. Note: this field is superseded by `staged_transformations`. If `staged_transformations.regular` is set, this field will be ignored. |
 | `ratelimitBasic` | [.ratelimit.options.gloo.solo.io.IngressRateLimit](../enterprise/options/ratelimit/ratelimit.proto.sk/#ingressratelimit) | Enterprise-only: Config for GlooE rate-limiting using simplified (gloo-specific) API. |
+| `ratelimitEarly` | [.ratelimit.options.gloo.solo.io.RateLimitVhostExtension](../enterprise/options/ratelimit/ratelimit.proto.sk/#ratelimitvhostextension) | Enterprise-only: Partial config for GlooE rate-limiting based on Envoy's rate-limit service; supports Envoy's rate-limit service API. (reference here: https://github.com/lyft/ratelimit#configuration) Configure rate-limit *actions* here, which define how request characteristics get translated into descriptors used by the rate-limit service for rate-limiting. Configure rate-limit *descriptors* and their associated limits on the Gloo settings. Only one of `ratelimit_early` or `rate_limit_early_configs` can be set. Only one of `ratelimitEarly` or `rateLimitEarlyConfigs` can be set. |
+| `rateLimitEarlyConfigs` | [.ratelimit.options.gloo.solo.io.RateLimitConfigRefs](../enterprise/options/ratelimit/ratelimit.proto.sk/#ratelimitconfigrefs) | References to RateLimitConfig resources. This is used to configure the GlooE rate limit server. Only one of `ratelimit_early` or `rate_limit_early_configs` can be set. Only one of `rateLimitEarlyConfigs` or `ratelimitEarly` can be set. |
 | `ratelimit` | [.ratelimit.options.gloo.solo.io.RateLimitVhostExtension](../enterprise/options/ratelimit/ratelimit.proto.sk/#ratelimitvhostextension) | Enterprise-only: Partial config for GlooE rate-limiting based on Envoy's rate-limit service; supports Envoy's rate-limit service API. (reference here: https://github.com/lyft/ratelimit#configuration) Configure rate-limit *actions* here, which define how request characteristics get translated into descriptors used by the rate-limit service for rate-limiting. Configure rate-limit *descriptors* and their associated limits on the Gloo settings. Only one of `ratelimit` or `rate_limit_configs` can be set. Only one of `ratelimit` or `rateLimitConfigs` can be set. |
 | `rateLimitConfigs` | [.ratelimit.options.gloo.solo.io.RateLimitConfigRefs](../enterprise/options/ratelimit/ratelimit.proto.sk/#ratelimitconfigrefs) | References to RateLimitConfig resources. This is used to configure the GlooE rate limit server. Only one of `ratelimit` or `rate_limit_configs` can be set. Only one of `rateLimitConfigs` or `ratelimit` can be set. |
+| `ratelimitRegular` | [.ratelimit.options.gloo.solo.io.RateLimitVhostExtension](../enterprise/options/ratelimit/ratelimit.proto.sk/#ratelimitvhostextension) | Enterprise-only: Partial config for GlooE rate-limiting based on Envoy's rate-limit service; supports Envoy's rate-limit service API. (reference here: https://github.com/lyft/ratelimit#configuration) Configure rate-limit *actions* here, which define how request characteristics get translated into descriptors used by the rate-limit service for rate-limiting. Configure rate-limit *descriptors* and their associated limits on the Gloo settings. Only one of `ratelimit_regular` or `rate_limit_regular_configs` can be set. Only one of `ratelimitRegular` or `rateLimitRegularConfigs` can be set. |
+| `rateLimitRegularConfigs` | [.ratelimit.options.gloo.solo.io.RateLimitConfigRefs](../enterprise/options/ratelimit/ratelimit.proto.sk/#ratelimitconfigrefs) | References to RateLimitConfig resources. This is used to configure the GlooE rate limit server. Only one of `ratelimit_regular` or `rate_limit_regular_configs` can be set. Only one of `rateLimitRegularConfigs` or `ratelimitRegular` can be set. |
 | `waf` | [.waf.options.gloo.solo.io.Settings](../enterprise/options/waf/waf.proto.sk/#settings) | Enterprise-only: Config for Web Application Firewall (WAF), supporting the popular ModSecurity 3.0 ruleset. |
 | `jwt` | [.jwt.options.gloo.solo.io.VhostExtension](../enterprise/options/jwt/jwt.proto.sk/#vhostextension) | Enterprise-only: Config for reading and verifying JWTs. Copy verifiable information from JWTs into other headers to make routing decisions or combine with RBAC for fine-grained access control. This has been deprecated in favor of staged jwt. The same configuration can be achieved through staged jwt using AfterExtAuth. Only one of `jwt` or `jwtStaged` can be set. |
 | `jwtStaged` | [.jwt.options.gloo.solo.io.JwtStagedVhostExtension](../enterprise/options/jwt/jwt.proto.sk/#jwtstagedvhostextension) | Enterprise-only: Config for reading and verifying JWTs. Copy verifiable information from JWTs into other headers to make routing decisions or combine with RBAC for fine-grained access control. JWT configuration has stages "BeforeExtAuth" and "AfterExtAuth". BeforeExtAuth JWT validation runs before the external authentication service. This is useful when JWT is used in conjunction with other auth mechanisms specified in the [boolean expression Extauth API](https://docs.solo.io/gloo-edge/latest/reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/extauth/v1/extauth.proto.sk/#authconfig). AfterExtAuth validation runs after external authentication service, which is useful for verifying JWTs obtained during extauth (e.g. oauth/oidc). Only one of `jwtStaged` or `jwt` can be set. |
@@ -219,12 +279,17 @@ to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 "headerManipulation": .headers.options.gloo.solo.io.HeaderManipulation
 "hostRewrite": string
 "autoHostRewrite": .google.protobuf.BoolValue
+"hostRewritePathRegex": .solo.io.envoy.type.matcher.v3.RegexMatchAndSubstitute
 "cors": .cors.options.gloo.solo.io.CorsPolicy
 "lbHash": .lbhash.options.gloo.solo.io.RouteActionHashConfig
 "upgrades": []protocol_upgrade.options.gloo.solo.io.ProtocolUpgradeConfig
 "ratelimitBasic": .ratelimit.options.gloo.solo.io.IngressRateLimit
+"ratelimitEarly": .ratelimit.options.gloo.solo.io.RateLimitRouteExtension
+"rateLimitEarlyConfigs": .ratelimit.options.gloo.solo.io.RateLimitConfigRefs
 "ratelimit": .ratelimit.options.gloo.solo.io.RateLimitRouteExtension
 "rateLimitConfigs": .ratelimit.options.gloo.solo.io.RateLimitConfigRefs
+"ratelimitRegular": .ratelimit.options.gloo.solo.io.RateLimitRouteExtension
+"rateLimitRegularConfigs": .ratelimit.options.gloo.solo.io.RateLimitConfigRefs
 "waf": .waf.options.gloo.solo.io.Settings
 "jwt": .jwt.options.gloo.solo.io.RouteExtension
 "jwtStaged": .jwt.options.gloo.solo.io.JwtStagedRouteExtension
@@ -236,6 +301,8 @@ to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 "stagedTransformations": .transformation.options.gloo.solo.io.TransformationStages
 "envoyMetadata": map<string, .google.protobuf.Struct>
 "regexRewrite": .solo.io.envoy.type.matcher.v3.RegexMatchAndSubstitute
+"maxStreamDuration": .gloo.solo.io.RouteOptions.MaxStreamDuration
+"idleTimeout": .google.protobuf.Duration
 
 ```
 
@@ -248,16 +315,21 @@ to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 | `retries` | [.retries.options.gloo.solo.io.RetryPolicy](../options/retries/retries.proto.sk/#retrypolicy) |  |
 | `extensions` | [.gloo.solo.io.Extensions](../extensions.proto.sk/#extensions) | Extensions will be passed along from Listeners, Gateways, VirtualServices, Routes, and Route tables to the underlying Proxy, making them useful for controllers, validation tools, etc. which interact with kubernetes yaml. Some sample use cases: * controllers, deployment pipelines, helm charts, etc. which wish to use extensions as a kind of opaque metadata. * In the future, Gloo may support gRPC-based plugins which communicate with the Gloo translator out-of-process. Opaque Extensions enables development of out-of-process plugins without requiring recompiling & redeploying Gloo's API. |
 | `tracing` | [.tracing.options.gloo.solo.io.RouteTracingSettings](../options/tracing/tracing.proto.sk/#routetracingsettings) | Defines route-specific tracing configuration. See here for additional information on Envoy's tracing capabilities: https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/observability/tracing.html See [here](https://docs.solo.io/gloo-edge/latest/guides/observability/tracing/) for additional information about configuring tracing with Gloo Edge. |
-| `shadowing` | [.shadowing.options.gloo.solo.io.RouteShadowing](../options/shadowing/shadowing.proto.sk/#routeshadowing) | Specifies traffic shadowing configuration for the route. See here for additional information on Envoy's shadowing capabilities: https://www.envoyproxy.io/docs/envoy/latest/api-v2/api/v2/route/route.proto#envoy-api-msg-route-routeaction-requestmirrorpolicy. |
+| `shadowing` | [.shadowing.options.gloo.solo.io.RouteShadowing](../options/shadowing/shadowing.proto.sk/#routeshadowing) | Specifies traffic shadowing configuration for the route. See here for additional information on Envoy's shadowing capabilities: https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/route/v3/route.proto#envoy-api-msg-route-routeaction-requestmirrorpolicy. |
 | `headerManipulation` | [.headers.options.gloo.solo.io.HeaderManipulation](../options/headers/headers.proto.sk/#headermanipulation) | Append/Remove headers on Requests or Responses on this Route. |
-| `hostRewrite` | `string` | Indicates that during forwarding, the host header will be swapped with this value. Only one of `hostRewrite` or `autoHostRewrite` can be set. |
-| `autoHostRewrite` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | Enable/Disable auto host re-write. Indicates that the host header will be swapped with the hostname of the upstream host. This setting is only honored for upstreams that use DNS resolution (i.e., their generated Envoy cluster is of type STRICT_DNS or LOGICAL_DNS -- think aws, azure, or static upstreams with hostnames). Only one of `autoHostRewrite` or `hostRewrite` can be set. |
+| `hostRewrite` | `string` | Indicates that during forwarding, the host header will be swapped with this value. Only one of `hostRewrite`, `autoHostRewrite`, or `hostRewritePathRegex` can be set. |
+| `autoHostRewrite` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | Enable/Disable auto host re-write. Indicates that the host header will be swapped with the hostname of the upstream host. This setting is only honored for upstreams that use DNS resolution (i.e., their generated Envoy cluster is of type STRICT_DNS or LOGICAL_DNS -- think aws, azure, or static upstreams with hostnames). Only one of `autoHostRewrite`, `hostRewrite`, or `hostRewritePathRegex` can be set. |
+| `hostRewritePathRegex` | [.solo.io.envoy.type.matcher.v3.RegexMatchAndSubstitute](../../external/envoy/type/matcher/v3/regex.proto.sk/#regexmatchandsubstitute) | Indicates that during forwarding, the host header will be swapped with the result of the regex substitution executed on path value with query and fragment removed. Only one of `hostRewritePathRegex`, `hostRewrite`, or `autoHostRewrite` can be set. |
 | `cors` | [.cors.options.gloo.solo.io.CorsPolicy](../options/cors/cors.proto.sk/#corspolicy) | Defines a CORS policy for the route If a CORS policy is also defined on the route's virtual host, the policies are merged. |
 | `lbHash` | [.lbhash.options.gloo.solo.io.RouteActionHashConfig](../options/lbhash/lbhash.proto.sk/#routeactionhashconfig) | For routes served by a hashing load balancer, this defines the input to the hash key Gloo configures Envoy with the first available RouteActionHashConfig among the following ordered list of providers: - route, upstream, virtual service. |
 | `upgrades` | [[]protocol_upgrade.options.gloo.solo.io.ProtocolUpgradeConfig](../options/protocol_upgrade/protocol_upgrade.proto.sk/#protocolupgradeconfig) | Route configuration for protocol upgrade requests. |
 | `ratelimitBasic` | [.ratelimit.options.gloo.solo.io.IngressRateLimit](../enterprise/options/ratelimit/ratelimit.proto.sk/#ingressratelimit) | Enterprise-only: Config for GlooE rate-limiting using simplified (gloo-specific) API. |
+| `ratelimitEarly` | [.ratelimit.options.gloo.solo.io.RateLimitRouteExtension](../enterprise/options/ratelimit/ratelimit.proto.sk/#ratelimitrouteextension) | Enterprise-only: Partial config for GlooE rate-limiting based on Envoy's rate-limit service; supports Envoy's rate-limit service API. (reference here: https://github.com/lyft/ratelimit#configuration) Configure rate-limit *actions* here, which define how request characteristics get translated into descriptors used by the rate-limit service for rate-limiting. Configure rate-limit *descriptors* and their associated limits on the Gloo settings. Only one of `ratelimit_early` or `rate_limit_early_configs` can be set. Only one of `ratelimitEarly` or `rateLimitEarlyConfigs` can be set. |
+| `rateLimitEarlyConfigs` | [.ratelimit.options.gloo.solo.io.RateLimitConfigRefs](../enterprise/options/ratelimit/ratelimit.proto.sk/#ratelimitconfigrefs) | References to RateLimitConfig resources. This is used to configure the GlooE rate limit server. Only one of `ratelimit_early` or `rate_limit_early_configs` can be set. Only one of `rateLimitEarlyConfigs` or `ratelimitEarly` can be set. |
 | `ratelimit` | [.ratelimit.options.gloo.solo.io.RateLimitRouteExtension](../enterprise/options/ratelimit/ratelimit.proto.sk/#ratelimitrouteextension) | Enterprise-only: Partial config for GlooE rate-limiting based on Envoy's rate-limit service; supports Envoy's rate-limit service API. (reference here: https://github.com/lyft/ratelimit#configuration) Configure rate-limit *actions* here, which define how request characteristics get translated into descriptors used by the rate-limit service for rate-limiting. Configure rate-limit *descriptors* and their associated limits on the Gloo settings. Only one of `ratelimit` or `rate_limit_configs` can be set. Only one of `ratelimit` or `rateLimitConfigs` can be set. |
 | `rateLimitConfigs` | [.ratelimit.options.gloo.solo.io.RateLimitConfigRefs](../enterprise/options/ratelimit/ratelimit.proto.sk/#ratelimitconfigrefs) | References to RateLimitConfig resources. This is used to configure the GlooE rate limit server. Only one of `ratelimit` or `rate_limit_configs` can be set. Only one of `rateLimitConfigs` or `ratelimit` can be set. |
+| `ratelimitRegular` | [.ratelimit.options.gloo.solo.io.RateLimitRouteExtension](../enterprise/options/ratelimit/ratelimit.proto.sk/#ratelimitrouteextension) | Enterprise-only: Partial config for GlooE rate-limiting based on Envoy's rate-limit service; supports Envoy's rate-limit service API. (reference here: https://github.com/lyft/ratelimit#configuration) Configure rate-limit *actions* here, which define how request characteristics get translated into descriptors used by the rate-limit service for rate-limiting. Configure rate-limit *descriptors* and their associated limits on the Gloo settings. Only one of `ratelimit_early` or `rate_limit_early_configs` can be set. Only one of `ratelimitRegular` or `rateLimitRegularConfigs` can be set. |
+| `rateLimitRegularConfigs` | [.ratelimit.options.gloo.solo.io.RateLimitConfigRefs](../enterprise/options/ratelimit/ratelimit.proto.sk/#ratelimitconfigrefs) | References to RateLimitConfig resources. This is used to configure the GlooE rate limit server. Only one of `ratelimit_early` or `rate_limit_early_configs` can be set. Only one of `rateLimitRegularConfigs` or `ratelimitRegular` can be set. |
 | `waf` | [.waf.options.gloo.solo.io.Settings](../enterprise/options/waf/waf.proto.sk/#settings) | Enterprise-only: Config for Web Application Firewall (WAF), supporting the popular ModSecurity 3.0 ruleset. |
 | `jwt` | [.jwt.options.gloo.solo.io.RouteExtension](../enterprise/options/jwt/jwt.proto.sk/#routeextension) | Enterprise-only: Config for reading and verifying JWTs. Copy verifiable information from JWTs into other headers to make routing decisions or combine with RBAC for fine-grained access control. This has been deprecated in favor of staged jwt. The same configuration can be achieved through staged jwt using AfterExtAuth. Only one of `jwt` or `jwtStaged` can be set. |
 | `jwtStaged` | [.jwt.options.gloo.solo.io.JwtStagedRouteExtension](../enterprise/options/jwt/jwt.proto.sk/#jwtstagedrouteextension) | Enterprise-only: Config for reading and verifying JWTs. Copy verifiable information from JWTs into other headers to make routing decisions or combine with RBAC for fine-grained access control. JWT configuration has stages "BeforeExtAuth" and "AfterExtAuth". BeforeExtAuth JWT validation runs before the external authentication service. This is useful when JWT is used in conjunction with other auth mechanisms specified in the [boolean expression Extauth API](https://docs.solo.io/gloo-edge/latest/reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/extauth/v1/extauth.proto.sk/#authconfig). AfterExtAuth validation runs after external authentication service, which is useful for verifying JWTs obtained during extauth (e.g. oauth/oidc). Only one of `jwtStaged` or `jwt` can be set. |
@@ -269,6 +341,30 @@ to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 | `stagedTransformations` | [.transformation.options.gloo.solo.io.TransformationStages](../options/transformation/transformation.proto.sk/#transformationstages) | Early transformations stage. These transformations run before most other options are processed. If the `regular` field is set in here, the `transformations` field is ignored. |
 | `envoyMetadata` | `map<string, .google.protobuf.Struct>` | This field can be used to provide additional information about the route. This metadata can be consumed by the Envoy filters that process requests that match the route. For more info about metadata, see [here](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/advanced/data_sharing_between_filters#metadata). The value of this field will be propagated to the `metadata` attribute of the corresponding Envoy route. Please refer to the [Envoy documentation](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/route/v3/route_components.proto#config-route-v3-route) for more details about the `metadata` attribute. |
 | `regexRewrite` | [.solo.io.envoy.type.matcher.v3.RegexMatchAndSubstitute](../../external/envoy/type/matcher/v3/regex.proto.sk/#regexmatchandsubstitute) | For requests matched on this route, rewrite the HTTP request path according to the provided regex pattern before forwarding upstream Please refer to the [Envoy documentation](https://www.envoyproxy.io/docs/envoy/v1.14.1/api-v3/config/route/v3/route_components.proto#envoy-v3-api-field-config-route-v3-routeaction-regex-rewrite) for more details about the `regex_rewrite` attribute. |
+| `maxStreamDuration` | [.gloo.solo.io.RouteOptions.MaxStreamDuration](../options.proto.sk/#maxstreamduration) | Settings for maximum durations and timeouts for streams on the route. Please refer to the [Envoy documentation](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/route/v3/route_components.proto#envoy-v3-api-msg-config-route-v3-routeaction-maxstreamduration). |
+| `idleTimeout` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) | Specifies the idle timeout for the route. If not specified, there is no per-route idle timeout, although the Gateway's [httpConnectionManagerSettings](https://docs.solo.io/gloo-edge/latest/reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/options/hcm/hcm.proto.sk/#httpconnectionmanagersettings) wide stream_idle_timeout will still apply. A value of 0 will completely disable the route’s idle timeout, even if a connection manager stream idle timeout is configured. Please refer to the [Envoy documentation](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/route/v3/route_components.proto#envoy-v3-api-field-config-route-v3-routeaction-idle-timeout). |
+
+
+
+
+---
+### MaxStreamDuration
+
+ 
+This is a 1:1 translation to the [Envoy API described here](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/route/v3/route_components.proto#envoy-v3-api-msg-config-route-v3-routeaction-maxstreamduration)
+
+```yaml
+"maxStreamDuration": .google.protobuf.Duration
+"grpcTimeoutHeaderMax": .google.protobuf.Duration
+"grpcTimeoutHeaderOffset": .google.protobuf.Duration
+
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
+| `maxStreamDuration` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) | Specifies the maximum duration allowed for streams on the route. If not specified, the value from the [max_stream_duration](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/protocol.proto#envoy-v3-api-field-config-core-v3-httpprotocoloptions-max-stream-duration) field in [HttpConnectionManager.common_http_protocol_options](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/network/http_connection_manager/v3/http_connection_manager.proto#envoy-v3-api-field-extensions-filters-network-http-connection-manager-v3-httpconnectionmanager-common-http-protocol-options) is used. If this field is set explicitly to zero, any HttpConnectionManager max_stream_duration timeout will be disabled for this route. |
+| `grpcTimeoutHeaderMax` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) | If present, and the request contains a [grpc-timeout header](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md), use that value as the `max_stream_duration`, but limit the applied timeout to the maximum value specified here. If set to 0, the `grpc-timeout` header is used without modification. |
+| `grpcTimeoutHeaderOffset` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) | If present, Envoy will adjust the timeout provided by the `grpc-timeout` header by subtracting the provided duration from the header. This is useful for allowing Envoy to set its global timeout to be less than that of the deadline imposed by the calling client, which makes it more likely that Envoy will handle the timeout instead of having the call canceled by the client. If, after applying the offset, the resulting timeout is zero or negative, the stream will timeout immediately. |
 
 
 

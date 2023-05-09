@@ -17,7 +17,7 @@ node:
   id: "{{.PodName}}.{{.PodNamespace}}"
   metadata:
     # role's value is the key for the in-memory xds cache (projects/gloo/pkg/xds/envoy.go)
-    role: "{{.PodNamespace}}~gateway-proxy"
+    role: "gloo-system~gateway-proxy"
 static_resources:
   listeners: # if or $statsConfig.enabled (or $spec.readConfig $spec.extraListenersHelper) # $spec.extraListenersHelper
   - name: prometheus_listener
@@ -56,6 +56,8 @@ static_resources:
                   cluster: admin_port_cluster
           http_filters:
           - name: envoy.filters.http.router # if $spec.tracing # if $statsConfig.enabled # if $spec.readConfig
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
   clusters:
   - name: gloo.gloo-system.svc.cluster.local:9977
     alt_stat_name: xds_cluster
@@ -71,7 +73,8 @@ static_resources:
                 port_value: 9977
     http2_protocol_options: {}
     upstream_connection_options:
-      tcp_keepalive: {}
+      tcp_keepalive:
+        keepalive_time: 60
     type: STRICT_DNS
     respect_dns_ttl: true
   - name: rest_xds_cluster
@@ -87,7 +90,8 @@ static_resources:
                 address: gloo.gloo-system.svc.cluster.local
                 port_value: 9976
     upstream_connection_options:
-      tcp_keepalive: {}
+      tcp_keepalive:
+        keepalive_time: 60
     type: STRICT_DNS
     respect_dns_ttl: true
   - name: wasm-cache
@@ -102,7 +106,8 @@ static_resources:
                 address: gloo.gloo-system.svc.cluster.local
                 port_value: 9979
     upstream_connection_options:
-      tcp_keepalive: {}
+      tcp_keepalive:
+        keepalive_time: 60
     type: STRICT_DNS
     respect_dns_ttl: true
   - name: aws_sts_cluster
@@ -193,7 +198,7 @@ node:
   cluster: gateway
   id: '{{.PodName}}.{{.PodNamespace}}'
   metadata:
-    role: '{{.PodNamespace}}~gateway-proxy'
+    role: 'gloo-system~gateway-proxy'
 static_resources:
   clusters:
   - alt_stat_name: xds_cluster
@@ -212,7 +217,8 @@ static_resources:
     respect_dns_ttl: true
     type: STRICT_DNS
     upstream_connection_options:
-      tcp_keepalive: {}
+      tcp_keepalive:
+        keepalive_time: 60
   - alt_stat_name: rest_xds_cluster
     connect_timeout: 5.000s
     load_assignment:
@@ -228,7 +234,8 @@ static_resources:
     respect_dns_ttl: true
     type: STRICT_DNS
     upstream_connection_options:
-      tcp_keepalive: {}
+      tcp_keepalive:
+        keepalive_time: 60
   - connect_timeout: 5.000s
     load_assignment:
       cluster_name: wasm-cache
@@ -243,7 +250,8 @@ static_resources:
     respect_dns_ttl: true
     type: STRICT_DNS
     upstream_connection_options:
-      tcp_keepalive: {}
+      tcp_keepalive:
+        keepalive_time: 60
   - connect_timeout: 5.000s
     lb_policy: ROUND_ROBIN
     load_assignment:
@@ -269,6 +277,8 @@ static_resources:
           codec_type: AUTO
           http_filters:
           - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
           route_config:
             name: prometheus_route
             virtual_hosts:
@@ -331,7 +341,7 @@ node:
   cluster: gateway
   id: '{{.PodName}}.{{.PodNamespace}}'
   metadata:
-    role: '{{.PodNamespace}}~gateway-proxy'
+    role: 'gloo-system~gateway-proxy'
 static_resources:
   clusters:
   - alt_stat_name: xds_cluster
@@ -350,7 +360,8 @@ static_resources:
     respect_dns_ttl: true
     type: STRICT_DNS
     upstream_connection_options:
-      tcp_keepalive: {}
+      tcp_keepalive:
+        keepalive_time: 60
   - alt_stat_name: rest_xds_cluster
     connect_timeout: 5.000s
     load_assignment:
@@ -366,7 +377,8 @@ static_resources:
     respect_dns_ttl: true
     type: STRICT_DNS
     upstream_connection_options:
-      tcp_keepalive: {}
+      tcp_keepalive:
+        keepalive_time: 60
   - connect_timeout: 5.000s
     load_assignment:
       cluster_name: wasm-cache
@@ -381,9 +393,10 @@ static_resources:
     respect_dns_ttl: true
     type: STRICT_DNS
     upstream_connection_options:
-      tcp_keepalive: {}
+      tcp_keepalive:
+        keepalive_time: 60
   - connect_timeout: 1s
-    lb_policy: round_robin
+    lb_policy: ROUND_ROBIN
     load_assignment:
       cluster_name: zipkin
       endpoints:
@@ -421,6 +434,8 @@ static_resources:
           codec_type: AUTO
           http_filters:
           - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
           route_config:
             name: prometheus_route
             virtual_hosts:
@@ -483,7 +498,7 @@ node:
   cluster: gateway
   id: '{{.PodName}}.{{.PodNamespace}}'
   metadata:
-    role: '{{.PodNamespace}}~gateway-proxy'
+    role: 'gloo-system~gateway-proxy'
 static_resources:
   clusters:
   - alt_stat_name: xds_cluster
@@ -502,7 +517,8 @@ static_resources:
     respect_dns_ttl: true
     type: STRICT_DNS
     upstream_connection_options:
-      tcp_keepalive: {}
+      tcp_keepalive:
+        keepalive_time: 60
   - alt_stat_name: rest_xds_cluster
     connect_timeout: 5.000s
     load_assignment:
@@ -518,7 +534,8 @@ static_resources:
     respect_dns_ttl: true
     type: STRICT_DNS
     upstream_connection_options:
-      tcp_keepalive: {}
+      tcp_keepalive:
+        keepalive_time: 60
   - connect_timeout: 5.000s
     load_assignment:
       cluster_name: wasm-cache
@@ -533,7 +550,8 @@ static_resources:
     respect_dns_ttl: true
     type: STRICT_DNS
     upstream_connection_options:
-      tcp_keepalive: {}
+      tcp_keepalive:
+        keepalive_time: 60
   - connect_timeout: 5.000s
     lb_policy: ROUND_ROBIN
     load_assignment:
@@ -559,6 +577,8 @@ static_resources:
           codec_type: AUTO
           http_filters:
           - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
           route_config:
             name: prometheus_route
             virtual_hosts:
@@ -595,6 +615,8 @@ static_resources:
           codec_type: AUTO
           http_filters:
           - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
           route_config:
             name: read_config_route
             virtual_hosts:
@@ -621,6 +643,13 @@ static_resources:
                   - exact_match: GET
                     name: :method
                   prefix: /config_dump
+                route:
+                  cluster: admin_port_cluster
+              - match:
+                  headers:
+                  - exact_match: GET
+                    name: :method
+                  prefix: /clusters
                 route:
                   cluster: admin_port_cluster
           stat_prefix: read_config
@@ -663,7 +692,7 @@ node:
   cluster: gateway
   id: '{{.PodName}}.{{.PodNamespace}}'
   metadata:
-    role: '{{.PodNamespace}}~gateway-proxy'
+    role: 'gloo-system~gateway-proxy'
 static_resources:
   clusters:
   - alt_stat_name: xds_cluster
@@ -682,7 +711,8 @@ static_resources:
     respect_dns_ttl: true
     type: STRICT_DNS
     upstream_connection_options:
-      tcp_keepalive: {}
+      tcp_keepalive:
+        keepalive_time: 60
   - alt_stat_name: rest_xds_cluster
     connect_timeout: 5.000s
     load_assignment:
@@ -698,7 +728,8 @@ static_resources:
     respect_dns_ttl: true
     type: STRICT_DNS
     upstream_connection_options:
-      tcp_keepalive: {}
+      tcp_keepalive:
+        keepalive_time: 60
   - connect_timeout: 5.000s
     load_assignment:
       cluster_name: wasm-cache
@@ -713,7 +744,8 @@ static_resources:
     respect_dns_ttl: true
     type: STRICT_DNS
     upstream_connection_options:
-      tcp_keepalive: {}
+      tcp_keepalive:
+        keepalive_time: 60
   - connect_timeout: 5.000s
     http2_protocol_options: {}
     load_assignment:
@@ -752,6 +784,8 @@ static_resources:
           codec_type: AUTO
           http_filters:
           - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
           route_config:
             name: prometheus_route
             virtual_hosts:

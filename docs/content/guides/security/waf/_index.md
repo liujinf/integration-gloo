@@ -4,41 +4,41 @@ weight: 60
 description: Filter, monitor, and block potentially harmful HTTP traffic.
 ---
 
+Filter, monitor, and block potentially harmful HTTP traffic with a Web Application Firewall (WAF) policy.
+
 {{% notice note %}}
 The WAF feature was introduced with **Gloo Edge Enterprise**, release 0.18.23. If you are using an earlier version, this tutorial will not work.
 {{% /notice %}}
 
-## **What is a Web Application Firewall (WAF)**
-A web application firewall (WAF) protects web applications by monitoring, filtering and blocking potentially harmful 
-traffic and attacks that can overtake or exploit them. WAFs do this by intercepting and inspecting the network packets 
-and uses a set of rules to determine access to the web application. In enterprise security infrastructure, WAFs can be 
-deployed to an application or group of applications to provide a layer of protection between the applications and the 
-end users.
+## About web application firewalls
 
-Gloo Edge now supports the popular Web Application Firewall framework/ruleset [ModSecurity](https://www.modsecurity.org/) 3.0.3.
+WAFs protect your web apps by monitoring, filtering, and blocking potentially harmful HTTP traffic. You write a WAF policy by following a framework and ruleset. Then, you apply the WAF policy to the route for the apps that you want to protect. When Gloo Edge receives an incoming request for that route (ingress traffic), the WAF intercepts and inspects the network packets and uses the rules that you set in the policy to determine access to the web app. The WAF policy also applies to any outgoing responses (egress traffic) along the route. This setup provides an additional layer of protection between your apps and end users.
 
-## **WAF in Gloo Edge**
-Gloo Edge Enterprise now includes the ability to enable the ModSecurity Web Application Firewall for any incoming and outgoing HTTP connections. There is support for configuring rule sets based on the OWASP Core Rule Set as well as custom rule sets. More information on available rule sets, and the rules language generally, can be found [here](https://www.modsecurity.org/rules.html).
+In this section, you can learn about the following WAF topics:
+* [ModSecurity rule sets](#about-rule-sets)
+* [The WAF API](#about-api)
+* [An example WAF configuration](#about-example)
 
-## **Why Mod Security**
-API Gateways act as a control point for the outside world to access the various application services running in your environment. A Web Application Firewall offers a standard way to to inspect and handle all incoming traffic. Mod Security is one such firewall. ModSecurity uses a simple rules language to interpret and process incoming http traffic. There are many rule sets publically available, such as the [OWASP Core Rule Set](https://github.com/coreruleset/coreruleset).
+### ModSecurity rule sets {#about-rule-sets}
 
-### Configuring WAF in Gloo Edge
-ModSecurity rule sets are defined in gloo in one of 3 places:
+Gloo supports the popular Web Application Firewall framework and ruleset [ModSecurity](https://www.github.com/SpiderLabs/ModSecurity) **version 3.0.4**. ModSecurity uses a simple rules language to interpret and process incoming HTTP traffic. Because it is open source, ModSecurity is a flexible, cross-platform solution that incorporates transparent security practices to protect apps against a range web attacks. 
 
-  * `HttpGateway`
-  * `VirtualService`
-  * `Route`
+You have several options for using ModSecurity to write WAF policies:
+* Use publicly available rule sets that provide a generic set of detection rules to protect against the most common security threats. For example, the [OWASP Core Rule Set](https://github.com/coreruleset/coreruleset) is an open source project that protects apps against a wide range of attacks, including the "OWASP Top Ten."
+  {{% notice tip %}}
+  For your convenience, Gloo applies the OWASP Core Rule Set to your routes by default, but you can disable this feature by using the `disableCoreRuleSet` in your WAF policy.
+  {{% /notice %}}
+* Write your own custom rules by following the [ModSecurity rules language](https://github.com/SpiderLabs/ModSecurity/wiki/Reference-Manual-(v3.x)). For examples, see [Configure WAF policies](#configure-waf-policies).
 
-The precedence is as such: `Route` > `VirtualService` > `HttpGateway`. 
+For more information, see the [Gloo API docs]({{% versioned_link_path fromRoot="/reference/api/github.com/solo-io/gloo/projects/gloo/api/external/envoy/extensions/waf/waf.proto.sk/" %}}).
 
-The configuration of the three of them is nearly identical at the moment, and follows the same pattern as other enterprise features in Gloo Edge. 
-The configuration is included in the `options` object of the `httpGateway`. This process will be enumerated 
-below, but first we will go over the general flow of configuring WAF in Gloo Edge.
+### Understand the WAF API {#about-api}
 
-The WAF filter at its core supports a list of `RuleSet` objects which are then loaded into the ModSecurity library. 
-The Gloo Edge API has a few conveniences built on top of that to allow easier access to the OWASP Core Rule Set (via the [coreRuleSet](#core-rule-set) field). 
-The  `RuleSet` Api looks as follows:
+The WAF filter supports a list of `RuleSet` objects which are loaded into the ModSecurity library.  The Gloo Edge API has a few conveniences built on top of that to allow easier access to the OWASP Core Rule Set (via the [`coreRuleSet`](#core-rule-set) field). 
+
+You can disable each rule set on a route independently of other rule sets. Rule sets are applied on top of each other in order. This order means that later rule sets overwrite any conflicting rules in previous rule sets. For more fine-grained control, you can add a custom `rule_str`, which is applied after any files of rule sets.
+
+Review the following `RuleSet` API example and explanation. For more information, see the [Gloo API docs]({{% versioned_link_path fromRoot="/reference/api/github.com/solo-io/gloo/projects/gloo/api/external/envoy/extensions/waf/waf.proto.sk/" %}}).
 
 ```proto
 message ModSecurity {
@@ -58,9 +58,14 @@ message RuleSet {
 }
 ```
 
-Each instance can be disabled, as well as include a list of `RuleSets`. These `RuleSets` are applied on top of each other in order. With the latter members overwriting the former. In addition, the `rule_str` is applied after the contents of the files in order to allow for fine-grained overrides.
+### Example WAF configuration {#about-example}
 
-A very simple example of a config is as follows:
+This tutorial does not provide guidance on rule sets, but instead how to apply rule sets within Gloo Edge configuration. For more information about making rule sets, see the [ModSecurity docs](https://github.com/SpiderLabs/ModSecurity/wiki/Reference-Manual-(v3.x)).
+
+The following example is for a rule set that is written directly into the configuration as a string. It does two things:
+1. This rule enables the rules engine (`On`), which is `Off` by default. You must explicitly turn the engine on. To run the rules engine to detect and log requests, but not to intervene such as by denying the request, you can set this value to `DetectionOnly`.
+2. This rule inspects the request header `"user-agent"`. If the value of that header equals `"scammer"`, then the gateway denies the request and returns a 403 status. The WAF logs the rule message `blocked scammer`, which you might use as input in other custom rules.
+
 ```yaml
   ruleSets:
     - ruleStr: |
@@ -69,111 +74,235 @@ A very simple example of a config is as follows:
         # Deny requests which are container the header value user-agent:scammer
         SecRule REQUEST_HEADERS:User-Agent "scammer" "deny,status:403,id:107,phase:1,msg:'blocked scammer'"
 ```
-This tutorial will not do a deep dive on the rules as there is already plenty of information available, further documentation on the rules can be found [here](https://github.com/SpiderLabs/ModSecurity/wiki/Reference-Manual-(v2.x)). The purpose instead will be to understand how to apply the rules into new and existing Gloo Edge configs.
 
-As stated earlier, the above rule is very simple. It does only two things:
+## Before you begin
 
-1. It enables the rules engine. This step is important, by default the rules engine is off, so it must be explicitally turned on. It can also be set to `DetectionOnly`, which runs the rules but does not perform any obtrusive actions.
-2. It creates a rule which inspects the request header `"user-agent"`. If that specific header equals the value `"scammer"` then the request will be denied and return a `403` status.
+1. [Install Gloo Edge Enterprise]({{% versioned_link_path fromRoot="/installation/enterprise/" %}}) in a Kubernetes cluster.
+2. Deploy the [petstore example app]({{% versioned_link_path fromRoot="/guides/traffic_management/hello_world/" %}}).
+3. Optional: If you have not already, review the [conceptual information about the WAF filter](#about-web-application-firewalls), including ModSecurity rule sets, the WAF API, and the example WAF configuration.
 
-This is a very basic example of the capabilities of the ModSecurity rules engine but useful in how it demonstrates its implementation in Enterprise Gloo Edge.
+## Configure WAF policies
+You can configure ModSecurity rule sets in the following resources:
 
-The following sections will explain how to enable this rule on the gateway level as well as on the virtual service level.
+* [`HttpGateway`](#http-gateway)
+* [`VirtualService`](#virtual-service)
+* `Route`
 
-The following tutorials assume basic knowledge of Gloo Edge and its routing capabilities, as well a kubernetes cluster running Gloo Edge Enterprise edition and the [petstore example]({{% versioned_link_path fromRoot="/guides/traffic_management/hello_world/" %}}).
+The precedence for rules is the route, then the virtual service, and then the HTTP gateway.
 
-#### Http Gateway
+The configuration of the WAF filter in the three resources is very similar and follows the same pattern as other enterprise features in Gloo Edge.
 
-The first option for configuring WAF is on the Http Gateway level on the Gateway. This can be useful if the goal is to apply the rules to all incoming requests to a given address, and not specific subsets.
+### HTTP gateway
 
-Run the following command to edit the gateway object with the waf config:
-```bash
-kubectl edit gateway -n gloo-system gateway-proxy
-```
+The first option for configuring WAF is on the HTTP gateway level on the `Gateway` resource. You might configure the WAF rule sets on the HTTP gateway level so that the rules apply to all incoming requests to a given address, and not specific subsets.
 
-{{< highlight yaml "hl_lines=11-19" >}}
-apiVersion: gateway.solo.io/v1
-kind: Gateway
-metadata:
-  name: gateway-proxy
-  namespace: gloo-system
-spec:
-  bindAddress: '::'
-  bindPort: 8080
-  proxyNames:
-  - gateway-proxy
-  httpGateway:
-    options:
-      waf:
-        customInterventionMessage: 'ModSecurity intervention! Custom message details here..'
-        ruleSets:
-        - ruleStr: |
-            # Turn rule engine on
-            SecRuleEngine On
-            SecRule REQUEST_HEADERS:User-Agent "scammer" "deny,status:403,id:107,phase:1,msg:'blocked scammer'"
-  useProxyProto: false
-{{< / highlight >}}
+1. Edit the gateway object.
+   ```bash
+   kubectl edit gateway -n gloo-system gateway-proxy
+   ```
+2. Add the following `waf` section to the `httpGateway.options` section.
+   {{< highlight yaml "hl_lines=11-19" >}}
+   apiVersion: gateway.solo.io/v1
+   kind: Gateway
+   metadata:
+     name: gateway-proxy
+     namespace: gloo-system
+   spec:
+     bindAddress: '::'
+     bindPort: 8080
+     proxyNames:
+     - gateway-proxy
+     httpGateway:
+       options:
+         waf:
+           customInterventionMessage: 'ModSecurity intervention! Custom message details here..'
+           ruleSets:
+           - ruleStr: |
+               # Turn rule engine on
+               SecRuleEngine On
+               SecRule REQUEST_HEADERS:User-Agent "scammer" "deny,status:403,id:107,phase:1,msg:'blocked scammer'"
+     useProxyProto: false
+   {{< / highlight >}}
+3. Verify that the WAF filter is enabled by curling the route with the `User-Agent:scammer` header.
+   ```bash
+   curl -v -H User-Agent:scammer $(glooctl proxy url)/sample-route-1
+   ```
+   In the output, note that the request is blocked with a 403 response and the custom intervention message that you configured.
+   ```
+   *   Trying 192.168.99.144...
+   * TCP_NODELAY set
+   * Connected to 192.168.99.144 (192.168.99.144) port 32683 (#0)
+   > GET /sample-route-1 HTTP/1.1
+   > Host: 192.168.99.144:32683
+   > Accept: */*
+   > user-agent:scammer
+   >
+   < HTTP/1.1 403 Forbidden
+   < content-length: 55
+   < content-type: text/plain
+   < date: Tue, 29 Oct 2019 19:53:38 GMT
+   < server: envoy
+   <
+   * Connection #0 to host 192.168.99.144 left intact
+   ModSecurity intervention! Custom message details here..
+   ```
 
-Once this config has been accepted run the following to test that the rule has been applied
-```bash
-curl -v -H user-agent:scammer $(glooctl proxy url)/sample-route-1
-```
-should respond with
-```
-*   Trying 192.168.99.144...
-* TCP_NODELAY set
-* Connected to 192.168.99.144 (192.168.99.144) port 32683 (#0)
-> GET /sample-route-1 HTTP/1.1
-> Host: 192.168.99.144:32683
-> Accept: */*
-> user-agent:scammer
->
-< HTTP/1.1 403 Forbidden
-< content-length: 55
-< content-type: text/plain
-< date: Tue, 29 Oct 2019 19:53:38 GMT
-< server: envoy
-<
-* Connection #0 to host 192.168.99.144 left intact
-ModSecurity intervention! Custom message details here..
-```
+### Virtual service
 
-As can be seen above from the curl output, the request was rejected by the waf filter, and the status 403 was returned.
+If you want to set up rules only for a particular app, you can configure the WAF rule sets in that app's virtual destination.
 
-#### Virtual Service
+1. Edit the gateway object to remove the `waf` section that you added in the [HTTP gateway instructions](#http-gateway).
+   ```bash
+   kubectl edit gateway -n gloo-system gateway-proxy
+   ```
+2. Edit the virtual service.
+   ```bash
+   kubectl edit virtualservices.gateway.solo.io -n gloo-system default
+   ```
+3. Add the following `waf` section to the `spec.virtualHost.options` section.
+   {{< highlight yaml "hl_lines=6-13" >}}
+   ...
+   spec:
+     virtualHost:
+       domains:
+       - '*'
+       options:
+         waf:
+           customInterventionMessage: 'ModSecurity intervention! Custom message details here..'
+           ruleSets:
+           - ruleStr: |
+               # Turn rule engine on
+               SecRuleEngine On
+               SecRule REQUEST_HEADERS:User-Agent "scammer" "deny,status:403,id:107,phase:1,msg:'blocked scammer'"
+   ...
+   {{< / highlight >}}
+3. Verify that the WAF filter is enabled by curling the route with the `User-Agent:scammer` header.
+   ```bash
+   curl -v -H User-Agent:scammer $(glooctl proxy url)/sample-route-1
+   ```
+   In the output, note that the request is blocked with a 403 response and the custom intervention message that you configured.
 
-Firstly, remove the extension config from the gateway which was added in the section above. Once the config has been removed from the gateway, add it to the default virtual service like so:
-```bash
-kubectl edit virtualservices.gateway.solo.io -n gloo-system default
-```
-{{< highlight yaml "hl_lines=6-13" >}}
-...
-spec:
-  virtualHost:
-    domains:
-    - '*'
-    options:
-      waf:
-        customInterventionMessage: 'ModSecurity intervention! Custom message details here..'
-        ruleSets:
-        - ruleStr: |
-            # Turn rule engine on
-            SecRuleEngine On
-            SecRule REQUEST_HEADERS:User-Agent "scammer" "deny,status:403,id:107,phase:1,msg:'blocked scammer'"
-...
-{{< / highlight >}}
+### What's next?
 
-After this config has been successfully applied, run the curl command from above and the output should be the same.
+Now that you are familiar with how to apply WAF rule sets in Gloo Edge, try out the following more advanced use cases.
+* Dynamically apply updates to rule sets by using [Kubernetes configmaps](#dynamic-configmaps).
+* Apply the [OWASP core rule set](#core-rule-set).
+* Restrict access to a specific [IP address or subnet range](#ip-allowlist).
+* For [gRPC calls](#grpc), configure headers to avoid timeouts.
+* Enable [audit logging](#audit-logging).
 
-The two methods outlined above represent the two main ways to apply basic rule string WAF configs to Gloo Edge routes.
+## Dynamically load rule sets with Kubernetes configmaps {#dynamic-configmaps}
 
-#### Core Rule Set
+In the previous examples, you wrote the rule set directly into the WAF filter configuration. For a more scalable approach, you might prefer to write the rule sets outside of the configuration in a separate file. To dynamically load files so that updates are picked up by the WAF filter configuration, use Kubernetes configmaps.
+
+1. Create your rule sets as a single or separate files.{{% notice tip %}}Tip: Separate files can complicate how rule sets are applied. If possible, include the rules in a single file. This example uses separate files so that you learn how to set up orders later in the configmap and data map keys.{{% /notice %}}
+   ```bash
+   cat <<EOF > wafruleset.conf
+   SecRuleEngine On
+   SecRule REQUEST_HEADERS:User-Agent "scammer" "deny,status:403,id:107,phase:1,msg:'blocked scammer'"
+   EOF
+   
+   cat <<EOF > wafruleset2.conf
+   SecRule REQUEST_HEADERS:User-Agent "scammer2" "deny,status:403,id:108,phase:1,msg:'blocked scammer2'"
+   EOF
+   ```
+2. Create a Kubernetes configmap from your rule set files.
+   ```bash
+   kubectl --namespace=gloo-system create configmap wafrulesets --from-file=wafruleset2.conf --from-file=wafruleset.conf 
+   ```
+3. Verify that the configmap contains all of your rules. Each filename becomes a separate entry in the `data` section.
+And view this configmap
+
+   ```bash
+   kubectl --namespace=gloo-system get configmap wafruleset -oyaml
+   ```
+
+   Example output:
+   
+   ```yaml
+   apiVersion: v1
+   kind: ConfigMap
+   data:
+     wafruleset.conf: |
+       SecRuleEngine On
+       SecRule REQUEST_HEADERS:User-Agent "scammer" "deny,status:403,id:107,phase:1,msg:'blocked scammer'"
+     wafruleset2.conf: |
+       SecRule REQUEST_HEADERS:User-Agent "scammer2" "deny,status:403,id:108,phase:1,msg:'blocked scammer2'"
+   ```
+
+4. Update the `Gateway` or `VirtualService` resource to refer to the ConfigMap for your WAF filter configuration. The following example does not set the `dataMapKey` field for the ConfigMap rule set. Therefore, all key-value pairs in the ConfigMap `data` section are sorted by key and applied in sorted key order. In this case the rule for `wafruleset.conf` is applied first, followed by the rule for `wafruleset2.conf`. 
+
+   ```bash
+   kubectl edit gateway -n gloo-system gateway-proxy
+   ```
+   {{< highlight yaml "hl_lines=15-18" >}}
+   apiVersion: gateway.solo.io/v1
+   kind: Gateway
+   metadata:
+     name: gateway-proxy
+     namespace: gloo-system
+   spec:
+     bindAddress: '::'
+     bindPort: 8080
+     proxyNames:
+     - gateway-proxy
+     httpGateway:
+       options:
+         waf:
+           customInterventionMessage: 'ModSecurity intervention! Custom message details here..'
+           configMapRuleSets:
+           - configMapRef:
+               name: wafruleset
+               namespace: gloo-system
+     useProxyProto: false
+   {{< / highlight >}}
+5. Verify that the WAF filter is enabled by curling the route with the `User-Agent:scammer` header. In the output, note that the request is blocked with a 403 response and the custom intervention message that you configured.
+   ```bash
+   curl -v -H User-Agent:scammer $(glooctl proxy url)/sample-route-1
+   ```
+6. Verify that the rule in `wafruleset2.conf` is also applied by curling the route with the `User-Agent:scammer2` header.
+   ```bash
+   curl -v -H User-Agent:scammer2 $(glooctl proxy url)/sample-route-1
+   ```
+7. Optional: To apply a certain rule or a certain order for the rules, add the `dataMapKeys` section. If you only want rules from one key in the data in your ConfigMap, or you want to specify a certain order you can use the keys from the data map. The following examples configures only the rule in the `wafruleset.conf` key in the data section of your ConfigMap. If multiple `dataMapKeys` are specified, the rules are applied in the order that the keys are listed. Any rules not included are ignored.
+   ```bash
+   kubectl edit gateway -n gloo-system gateway-proxy
+   ```
+   {{< highlight yaml "hl_lines=19-20" >}}
+   apiVersion: gateway.solo.io/v1
+   kind: Gateway
+   metadata:
+     name: gateway-proxy
+     namespace: gloo-system
+   spec:
+     bindAddress: '::'
+     bindPort: 8080
+     proxyNames:
+     - gateway-proxy
+     httpGateway:
+       options:
+         waf:
+           customInterventionMessage: 'ModSecurity intervention! Custom message details here..'
+           configMapRuleSets:
+           - configMapRef:
+               name: wafruleset
+               namespace: gloo-system
+             dataMapKeys:
+             - wafruleset.conf
+     useProxyProto: false
+   {{< / highlight >}}
+8. Verify that the rule in `wafruleset2.conf` is now ignored. The request succeeds, because only the rule in `wafruleset.conf` is applied for the `User-Agent:scammer` header, not the `User-Agent:scammer2` header.
+   ```bash
+   curl -v -H User-Agent:scammer2 $(glooctl proxy url)/sample-route-1
+   ```
+
+## Apply the OWASP core rule set {#core-rule-set}
 
 {{% notice warning %}}
 Using the `rbl` modsecurity rule in Gloo Edge will cause envoy performance issues and should be avoided. If `rbl` blacklisting is a requirement, an [extauth plugin]({{< versioned_link_path fromRoot="/guides/security/auth/extauth/plugin_auth">}}) can be used to query the rbl list and forbid spam IPs.
 {{% /notice %}}
 
-As mentioned earlier, the main free Mod Security rule set available is the OWASP Core Rule Set. As with all other rule sets, the Core Rule Set can be applied manually via the rule set configs, Gloo Edge offers an easy way to apply the entire Core Rule Set, and configure it.
+As mentioned earlier, the main free ModSecurity rule set available is the OWASP Core Rule Set. As with all other rule sets, the Core Rule Set can be applied manually via the rule set configs, Gloo Edge offers an easy way to apply the entire Core Rule Set, and configure it.
 
 In order to apply the Core Rule Set add the following to the default virtual service. Without the coreRuleSet field, the OWASP Core Rule Set files will not be included.
 
@@ -284,17 +413,17 @@ waf:
 
 ## Audit Logging
 
-Audit Logging is supported starting Gloo Edge Enterprise v1.4.0-beta6, but it works differently than in other ModSecurity integrations.
+Audit Logging is supported starting Gloo Edge Enterprise v1.4.0, but it works differently than in other ModSecurity integrations.
 ModSecurity native audit logging is not a good fit for Envoy/Kubernetes cloud native environments.
 ModSecurity has 3 logging engines. They are not a good fit for the following reasons:
 1. Serial - all logs written to one file, which globally locks on each write. This will be horrendous
-   for performance, as all envoy worker threads will be blocked when trying to log, while one of them writes to the file.
-1. Parallel - each log entry is written to its unique file. This will impact performance as this file IO is 
-   outside the envoy worker thread event loop, thus blocking it and increasing latency. In addition
-   now we will have many logs files to collect from the pod. this means we'll a need writeable volume
-   and attach another sidecar container to collect them which increases complexity.
-1. Http - perform an http callout to an external logging server - like the other methods, this http call
-   is done outside of the envoy event loop, blocking it until it is completed, which will increase latency.
+   for performance, as all envoy worker threads will be blocked when trying to log while one-by-one they write to the file.
+2. Parallel - each log entry is written to its unique file. This will impact performance as this file IO is 
+   outside the envoy worker thread event loop, thus blocking it and increasing latency. In addition,
+   now we will have many logs files to collect from the pod. This means we'll a need writeable volume attached via sidecar 
+   container to collect them which increases complexity.
+3. Http - perform an http callout to an external logging server - like the other methods, this http call
+   is done outside the envoy event loop, blocking it until it is completed, which will increase latency.
 
 With this integration, we take a more cloud native approach. We expose the audit logs as part
 of envoy's access logging. This means that directives that configure the audit engine itself 
@@ -315,6 +444,10 @@ as the audit log will be computed even if envoy doesn't end-up logging it. To us
 - FilterState - this will only generate an AuditLog lazily - only if the envoy access log is about to log it. This will use
 less CPU if the message is not logged, but may use more memory, as the ModSecurity transaction 
 will linger in memory longer. To use, place `%FILTER_STATE(io.solo.modsecurity.audit_log)%` in the access log.
+
+{{% notice warning %}}
+[Data Loss Prevention (DLP)]({{% versioned_link_path fromRoot="/guides/security/data_loss_prevention/" %}}) is **not supported** with FilterState access logging.
+{{% /notice %}}
 
 We recommend testing both in an environment similar to your prod environment, to understand which approach
 is better for your specific use-case.
@@ -398,3 +531,33 @@ The arguments should look like so:
         - "100"
 ```
 {{% /notice %}}
+
+### Audit Log Formatting
+
+Alternatively, specify a `jsonFormat` format string to dump ModSecurity logs as part of a larger JSON object:
+
+{{< highlight yaml "hl_lines=13-21" >}}
+apiVersion: gateway.solo.io/v1
+kind: Gateway
+metadata:
+  name: gateway-proxy
+  namespace: gloo-system
+spec:
+  bindAddress: '::'
+  bindPort: 8080
+  proxyNames: 
+    - gateway-proxy
+  httpGateway: {}
+  useProxyProto: false
+  options:
+    accessLoggingService:
+      accessLog:
+      - fileSink:
+          path: /dev/stderr
+          jsonFormat:
+            method: '%REQ(:METHOD)%'
+            response_code: '%RESPONSE_CODE%'
+            waf: "%FILTER_STATE(io.solo.modsecurity.audit_log)%"
+{{< / highlight >}}
+
+The above configuration will log a JSON object containing the request method, response code, and any logs obtained from ModSecurity when a request is processed.

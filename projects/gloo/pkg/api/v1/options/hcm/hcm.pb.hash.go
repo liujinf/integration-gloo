@@ -10,8 +10,8 @@ import (
 	"hash"
 	"hash/fnv"
 
-	"github.com/mitchellh/hashstructure"
 	safe_hasher "github.com/solo-io/protoc-gen-ext/pkg/hasher"
+	"github.com/solo-io/protoc-gen-ext/pkg/hasher/hashstructure"
 )
 
 // ensure the imports are used
@@ -38,18 +38,64 @@ func (m *HttpConnectionManagerSettings) Hash(hasher hash.Hash64) (uint64, error)
 		return 0, err
 	}
 
-	err = binary.Write(hasher, binary.LittleEndian, m.GetSkipXffAppend())
-	if err != nil {
-		return 0, err
+	if h, ok := interface{}(m.GetSkipXffAppend()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("SkipXffAppend")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetSkipXffAppend(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("SkipXffAppend")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
 	}
 
-	if _, err = hasher.Write([]byte(m.GetVia())); err != nil {
-		return 0, err
+	if h, ok := interface{}(m.GetVia()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("Via")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetVia(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("Via")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
 	}
 
-	err = binary.Write(hasher, binary.LittleEndian, m.GetXffNumTrustedHops())
-	if err != nil {
-		return 0, err
+	if h, ok := interface{}(m.GetXffNumTrustedHops()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("XffNumTrustedHops")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetXffNumTrustedHops(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("XffNumTrustedHops")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
 	}
 
 	if h, ok := interface{}(m.GetUseRemoteAddress()).(safe_hasher.SafeHasher); ok {
@@ -92,9 +138,24 @@ func (m *HttpConnectionManagerSettings) Hash(hasher hash.Hash64) (uint64, error)
 		}
 	}
 
-	err = binary.Write(hasher, binary.LittleEndian, m.GetProxy_100Continue())
-	if err != nil {
-		return 0, err
+	if h, ok := interface{}(m.GetProxy_100Continue()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("Proxy_100Continue")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetProxy_100Continue(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("Proxy_100Continue")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
 	}
 
 	if h, ok := interface{}(m.GetStreamIdleTimeout()).(safe_hasher.SafeHasher); ok {
@@ -177,6 +238,26 @@ func (m *HttpConnectionManagerSettings) Hash(hasher hash.Hash64) (uint64, error)
 		}
 	}
 
+	if h, ok := interface{}(m.GetRequestHeadersTimeout()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("RequestHeadersTimeout")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetRequestHeadersTimeout(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("RequestHeadersTimeout")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
 	if h, ok := interface{}(m.GetDrainTimeout()).(safe_hasher.SafeHasher); ok {
 		if _, err = hasher.Write([]byte("DrainTimeout")); err != nil {
 			return 0, err
@@ -217,22 +298,124 @@ func (m *HttpConnectionManagerSettings) Hash(hasher hash.Hash64) (uint64, error)
 		}
 	}
 
-	if _, err = hasher.Write([]byte(m.GetServerName())); err != nil {
-		return 0, err
+	if h, ok := interface{}(m.GetServerName()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("ServerName")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetServerName(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("ServerName")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
 	}
 
-	err = binary.Write(hasher, binary.LittleEndian, m.GetAcceptHttp_10())
-	if err != nil {
-		return 0, err
+	if h, ok := interface{}(m.GetStripAnyHostPort()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("StripAnyHostPort")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetStripAnyHostPort(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("StripAnyHostPort")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
 	}
 
-	if _, err = hasher.Write([]byte(m.GetDefaultHostForHttp_10())); err != nil {
-		return 0, err
+	if h, ok := interface{}(m.GetAcceptHttp_10()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("AcceptHttp_10")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetAcceptHttp_10(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("AcceptHttp_10")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
 	}
 
-	err = binary.Write(hasher, binary.LittleEndian, m.GetProperCaseHeaderKeyFormat())
-	if err != nil {
-		return 0, err
+	if h, ok := interface{}(m.GetDefaultHostForHttp_10()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("DefaultHostForHttp_10")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetDefaultHostForHttp_10(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("DefaultHostForHttp_10")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	if h, ok := interface{}(m.GetAllowChunkedLength()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("AllowChunkedLength")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetAllowChunkedLength(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("AllowChunkedLength")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	if h, ok := interface{}(m.GetEnableTrailers()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("EnableTrailers")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetEnableTrailers(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("EnableTrailers")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
 	}
 
 	if h, ok := interface{}(m.GetTracing()).(safe_hasher.SafeHasher); ok {
@@ -280,9 +463,24 @@ func (m *HttpConnectionManagerSettings) Hash(hasher hash.Hash64) (uint64, error)
 		}
 	}
 
-	err = binary.Write(hasher, binary.LittleEndian, m.GetPreserveExternalRequestId())
-	if err != nil {
-		return 0, err
+	if h, ok := interface{}(m.GetPreserveExternalRequestId()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("PreserveExternalRequestId")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetPreserveExternalRequestId(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("PreserveExternalRequestId")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
 	}
 
 	for _, v := range m.GetUpgrades() {
@@ -349,6 +547,51 @@ func (m *HttpConnectionManagerSettings) Hash(hasher hash.Hash64) (uint64, error)
 		}
 	}
 
+	if h, ok := interface{}(m.GetMaxHeadersCount()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("MaxHeadersCount")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetMaxHeadersCount(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("MaxHeadersCount")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	err = binary.Write(hasher, binary.LittleEndian, m.GetHeadersWithUnderscoresAction())
+	if err != nil {
+		return 0, err
+	}
+
+	if h, ok := interface{}(m.GetMaxRequestsPerConnection()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("MaxRequestsPerConnection")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetMaxRequestsPerConnection(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("MaxRequestsPerConnection")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
 	err = binary.Write(hasher, binary.LittleEndian, m.GetServerHeaderTransformation())
 	if err != nil {
 		return 0, err
@@ -357,6 +600,159 @@ func (m *HttpConnectionManagerSettings) Hash(hasher hash.Hash64) (uint64, error)
 	err = binary.Write(hasher, binary.LittleEndian, m.GetPathWithEscapedSlashesAction())
 	if err != nil {
 		return 0, err
+	}
+
+	err = binary.Write(hasher, binary.LittleEndian, m.GetCodecType())
+	if err != nil {
+		return 0, err
+	}
+
+	if h, ok := interface{}(m.GetMergeSlashes()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("MergeSlashes")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetMergeSlashes(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("MergeSlashes")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	if h, ok := interface{}(m.GetNormalizePath()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("NormalizePath")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetNormalizePath(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("NormalizePath")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	if h, ok := interface{}(m.GetUuidRequestIdConfig()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("UuidRequestIdConfig")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetUuidRequestIdConfig(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("UuidRequestIdConfig")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	if h, ok := interface{}(m.GetHttp2ProtocolOptions()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("Http2ProtocolOptions")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetHttp2ProtocolOptions(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("Http2ProtocolOptions")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	if h, ok := interface{}(m.GetInternalAddressConfig()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("InternalAddressConfig")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetInternalAddressConfig(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("InternalAddressConfig")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	switch m.HeaderFormat.(type) {
+
+	case *HttpConnectionManagerSettings_ProperCaseHeaderKeyFormat:
+
+		if h, ok := interface{}(m.GetProperCaseHeaderKeyFormat()).(safe_hasher.SafeHasher); ok {
+			if _, err = hasher.Write([]byte("ProperCaseHeaderKeyFormat")); err != nil {
+				return 0, err
+			}
+			if _, err = h.Hash(hasher); err != nil {
+				return 0, err
+			}
+		} else {
+			if fieldValue, err := hashstructure.Hash(m.GetProperCaseHeaderKeyFormat(), nil); err != nil {
+				return 0, err
+			} else {
+				if _, err = hasher.Write([]byte("ProperCaseHeaderKeyFormat")); err != nil {
+					return 0, err
+				}
+				if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+					return 0, err
+				}
+			}
+		}
+
+	case *HttpConnectionManagerSettings_PreserveCaseHeaderKeyFormat:
+
+		if h, ok := interface{}(m.GetPreserveCaseHeaderKeyFormat()).(safe_hasher.SafeHasher); ok {
+			if _, err = hasher.Write([]byte("PreserveCaseHeaderKeyFormat")); err != nil {
+				return 0, err
+			}
+			if _, err = h.Hash(hasher); err != nil {
+				return 0, err
+			}
+		} else {
+			if fieldValue, err := hashstructure.Hash(m.GetPreserveCaseHeaderKeyFormat(), nil); err != nil {
+				return 0, err
+			} else {
+				if _, err = hasher.Write([]byte("PreserveCaseHeaderKeyFormat")); err != nil {
+					return 0, err
+				}
+				if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+					return 0, err
+				}
+			}
+		}
+
 	}
 
 	return hasher.Sum64(), nil
@@ -395,24 +791,240 @@ func (m *HttpConnectionManagerSettings_SetCurrentClientCertDetails) Hash(hasher 
 		}
 	}
 
-	err = binary.Write(hasher, binary.LittleEndian, m.GetCert())
-	if err != nil {
+	if h, ok := interface{}(m.GetCert()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("Cert")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetCert(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("Cert")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	if h, ok := interface{}(m.GetChain()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("Chain")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetChain(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("Chain")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	if h, ok := interface{}(m.GetDns()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("Dns")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetDns(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("Dns")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	if h, ok := interface{}(m.GetUri()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("Uri")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetUri(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("Uri")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	return hasher.Sum64(), nil
+}
+
+// Hash function
+func (m *HttpConnectionManagerSettings_UuidRequestIdConfigSettings) Hash(hasher hash.Hash64) (uint64, error) {
+	if m == nil {
+		return 0, nil
+	}
+	if hasher == nil {
+		hasher = fnv.New64()
+	}
+	var err error
+	if _, err = hasher.Write([]byte("hcm.options.gloo.solo.io.github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/hcm.HttpConnectionManagerSettings_UuidRequestIdConfigSettings")); err != nil {
 		return 0, err
 	}
 
-	err = binary.Write(hasher, binary.LittleEndian, m.GetChain())
-	if err != nil {
+	if h, ok := interface{}(m.GetPackTraceReason()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("PackTraceReason")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetPackTraceReason(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("PackTraceReason")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	if h, ok := interface{}(m.GetUseRequestIdForTraceSampling()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("UseRequestIdForTraceSampling")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetUseRequestIdForTraceSampling(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("UseRequestIdForTraceSampling")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	return hasher.Sum64(), nil
+}
+
+// Hash function
+func (m *HttpConnectionManagerSettings_CidrRange) Hash(hasher hash.Hash64) (uint64, error) {
+	if m == nil {
+		return 0, nil
+	}
+	if hasher == nil {
+		hasher = fnv.New64()
+	}
+	var err error
+	if _, err = hasher.Write([]byte("hcm.options.gloo.solo.io.github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/hcm.HttpConnectionManagerSettings_CidrRange")); err != nil {
 		return 0, err
 	}
 
-	err = binary.Write(hasher, binary.LittleEndian, m.GetDns())
-	if err != nil {
+	if _, err = hasher.Write([]byte(m.GetAddressPrefix())); err != nil {
 		return 0, err
 	}
 
-	err = binary.Write(hasher, binary.LittleEndian, m.GetUri())
-	if err != nil {
+	if h, ok := interface{}(m.GetPrefixLen()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("PrefixLen")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetPrefixLen(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("PrefixLen")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	return hasher.Sum64(), nil
+}
+
+// Hash function
+func (m *HttpConnectionManagerSettings_InternalAddressConfig) Hash(hasher hash.Hash64) (uint64, error) {
+	if m == nil {
+		return 0, nil
+	}
+	if hasher == nil {
+		hasher = fnv.New64()
+	}
+	var err error
+	if _, err = hasher.Write([]byte("hcm.options.gloo.solo.io.github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/hcm.HttpConnectionManagerSettings_InternalAddressConfig")); err != nil {
 		return 0, err
+	}
+
+	if h, ok := interface{}(m.GetUnixSockets()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("UnixSockets")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetUnixSockets(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("UnixSockets")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	for _, v := range m.GetCidrRanges() {
+
+		if h, ok := interface{}(v).(safe_hasher.SafeHasher); ok {
+			if _, err = hasher.Write([]byte("")); err != nil {
+				return 0, err
+			}
+			if _, err = h.Hash(hasher); err != nil {
+				return 0, err
+			}
+		} else {
+			if fieldValue, err := hashstructure.Hash(v, nil); err != nil {
+				return 0, err
+			} else {
+				if _, err = hasher.Write([]byte("")); err != nil {
+					return 0, err
+				}
+				if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+					return 0, err
+				}
+			}
+		}
+
 	}
 
 	return hasher.Sum64(), nil

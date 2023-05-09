@@ -9,19 +9,26 @@ import (
 	"github.com/solo-io/gloo/projects/gloo/pkg/utils"
 )
 
-func NewPlugin() *plugin {
-	return &plugin{}
-}
-
 var (
 	_ plugins.Plugin         = new(plugin)
 	_ plugins.ListenerPlugin = new(plugin)
 )
 
+const (
+	ExtensionName = "tls_inspector"
+)
+
 type plugin struct{}
 
-func (p *plugin) Init(params plugins.InitParams) error {
-	return nil
+func NewPlugin() *plugin {
+	return &plugin{}
+}
+
+func (p *plugin) Name() string {
+	return ExtensionName
+}
+
+func (p *plugin) Init(_ plugins.InitParams) {
 }
 
 func (p *plugin) ProcessListener(params plugins.Params, in *v1.Listener, out *envoy_config_listener_v3.Listener) error {
@@ -37,21 +44,65 @@ func (p *plugin) ProcessListener(params plugins.Params, in *v1.Listener, out *en
 		},
 	}
 
-	// automatically add tls inspector when ssl is enabled
-	if in.GetSslConfigurations() != nil {
+	// the method for inspecting each listener for ssl config varies by listener type
+	if shouldIncludeTlsInspectorListenerFilter(in) {
 		out.ListenerFilters = append(out.GetListenerFilters(), tlsInspector)
-	} else {
-		// check if ssl config is set on tcp host
-		switch in.GetListenerType().(type) {
-		case *v1.Listener_TcpListener:
-			for _, host := range in.GetTcpListener().GetTcpHosts() {
-				if host.GetSslConfig() != nil || host.GetDestination().GetForwardSniClusterName() != nil {
-					out.ListenerFilters = append(out.GetListenerFilters(), tlsInspector)
-					break
-				}
-			}
-		}
 	}
 
 	return nil
+}
+
+func shouldIncludeTlsInspectorListenerFilter(in *v1.Listener) bool {
+	return includeTlsInspectorForListener(in) ||
+		includeTlsInspectorForTcpListener(in.GetTcpListener()) ||
+		includeTlsInspectorForHybridListener(in.GetHybridListener()) ||
+		includeTlsInspectorForAggregateListener(in.GetAggregateListener())
+}
+
+func includeTlsInspectorForAggregateListener(in *v1.AggregateListener) bool {
+	// check all httpFilterChains for a matcher-specified ssl config
+	for _, filterChain := range in.GetHttpFilterChains() {
+		if filterChain.GetMatcher().GetSslConfig() != nil {
+			return true
+		}
+	}
+
+	return false
+}
+
+func includeTlsInspectorForListener(in *v1.Listener) bool {
+	// automatically add tls inspector when ssl is enabled
+	return in.GetSslConfigurations() != nil
+}
+
+func includeTlsInspectorForTcpListener(in *v1.TcpListener) bool {
+	// check if ssl config is set on tcp host
+	for _, host := range in.GetTcpHosts() {
+		if host.GetSslConfig() != nil || host.GetDestination().GetForwardSniClusterName() != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func includeTlsInspectorForHybridListener(in *v1.HybridListener) bool {
+	for _, matchedListener := range in.GetMatchedListeners() {
+		switch matchedListener.GetListenerType().(type) {
+		case *v1.MatchedListener_TcpListener:
+			// If a sub-TCPListener includes ssl config, return true
+			if includeTlsInspectorForTcpListener(matchedListener.GetTcpListener()) ||
+				matchedListener.GetMatcher().GetSslConfig() != nil {
+				return true
+			}
+
+		case *v1.MatchedListener_HttpListener:
+			// If a sub-HttpListener includes ssl config, return true
+			if matchedListener.GetMatcher().GetSslConfig() != nil {
+				return true
+			}
+
+		}
+	}
+
+	return false
 }

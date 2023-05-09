@@ -15,6 +15,7 @@ weight: 5
 - [AWSLambdaProtocolExtension](#awslambdaprotocolextension)
 - [AWSLambdaConfig](#awslambdaconfig)
 - [ServiceAccountCredentials](#serviceaccountcredentials)
+- [ApiGatewayTransformation](#apigatewaytransformation)
   
 
 
@@ -37,6 +38,9 @@ http calls to AWS Lambda invocations.
 "qualifier": string
 "async": bool
 "emptyBodyOverride": .google.protobuf.StringValue
+"unwrapAsAlb": bool
+"transformerConfig": .solo.io.envoy.config.core.v3.TypedExtensionConfig
+"requestTransformerConfig": .solo.io.envoy.config.core.v3.TypedExtensionConfig
 
 ```
 
@@ -46,6 +50,9 @@ http calls to AWS Lambda invocations.
 | `qualifier` | `string` | The qualifier of the function (defaults to $LATEST if not specified). |
 | `async` | `bool` | Invocation type - async or regular. |
 | `emptyBodyOverride` | [.google.protobuf.StringValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/string-value) | Optional default body if the body is empty. By default on default body is used if the body empty, and an empty body will be sent upstream. |
+| `unwrapAsAlb` | `bool` | Deprecated. Use transformer_config to specify an AWS Lambda response transformer instead. Unwrap responses as AWS ALB does. Expects json lambda responses to construct response. Intended to ease migration when previously using alb to invoke Lambdas. When set on a route the filter will not stream data on the encoding step. For further information see below link for the expected format when true. https://docs.aws.amazon.com/elasticloadbalancing/latest/application/lambda-functions.html Defaults to false. |
+| `transformerConfig` | [.solo.io.envoy.config.core.v3.TypedExtensionConfig](../../../config/core/v3/extension.proto.sk/#typedextensionconfig) | transformer configuration used to process response data cannot be configured simultaneously with unwrap_as_alb. |
+| `requestTransformerConfig` | [.solo.io.envoy.config.core.v3.TypedExtensionConfig](../../../config/core/v3/extension.proto.sk/#typedextensionconfig) | This is a transformer config, as defined in api.envoy.config.filter.http.transformation.v2 used to process request data. |
 
 
 
@@ -62,6 +69,7 @@ http calls to AWS Lambda invocations.
 "secretKey": string
 "sessionToken": string
 "roleArn": string
+"disableRoleChaining": bool
 
 ```
 
@@ -73,6 +81,7 @@ http calls to AWS Lambda invocations.
 | `secretKey` | `string` | The secret_key for AWS this cluster. |
 | `sessionToken` | `string` | The session_token for AWS this cluster. |
 | `roleArn` | `string` | The role_arn to use when generating credentials for the mounted projected SA token. |
+| `disableRoleChaining` | `bool` | Optional override to disable role chaining;. |
 
 
 
@@ -85,6 +94,8 @@ http calls to AWS Lambda invocations.
 ```yaml
 "useDefaultCredentials": .google.protobuf.BoolValue
 "serviceAccountCredentials": .envoy.config.filter.http.aws_lambda.v2.AWSLambdaConfig.ServiceAccountCredentials
+"propagateOriginalRouting": bool
+"credentialRefreshDelay": .google.protobuf.Duration
 
 ```
 
@@ -92,6 +103,8 @@ http calls to AWS Lambda invocations.
 | ----- | ---- | ----------- | 
 | `useDefaultCredentials` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | Use AWS default credentials chain to get credentials. This will search environment variables, ECS metadata and instance metadata to get the credentials. credentials will be rotated automatically. If credentials are provided on the cluster (using the AWSLambdaProtocolExtension), it will override these credentials. This defaults to false, but may change in the future to true. Only one of `useDefaultCredentials` or `serviceAccountCredentials` can be set. |
 | `serviceAccountCredentials` | [.envoy.config.filter.http.aws_lambda.v2.AWSLambdaConfig.ServiceAccountCredentials](../filter.proto.sk/#serviceaccountcredentials) | Use projected service account token, and role arn to create temporary credentials with which to authenticate lambda requests. This functionality is meant to work along side EKS service account to IAM binding functionality as outlined here: https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html If the following environment values are not present, this option cannot be used. 1. AWS_WEB_IDENTITY_TOKEN_FILE 2. AWS_ROLE_ARN If they are not specified envoy will NACK the config update, which will show up in the logs when running OS Gloo. When running Gloo enterprise it will be reflected in the prometheus stat: "glooe.solo.io/xds/nack" The role arn may also be specified in the `AWSLambdaProtocolExtension` on the cluster level, to override the environment variable. Only one of `serviceAccountCredentials` or `useDefaultCredentials` can be set. |
+| `propagateOriginalRouting` | `bool` | Send downstream path and method as `x-envoy-original-path` and `x-envoy-original-method` headers on the request to AWS lambda. Defaults to false. |
+| `credentialRefreshDelay` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) | Sets cadence for refreshing credentials for Service Account. Does nothing if Service account is not set. Does not affect the default filewatch for service account only augments it. Defaults to not refreshing on time period. Suggested is 15 minutes. |
 
 
 
@@ -116,6 +129,21 @@ and therefore must be explicitly specified via the uri
 | `cluster` | `string` | The name of the envoy cluster which represents the desired aws sts endpoint. |
 | `uri` | `string` | The full uri of the aws sts endpoint. |
 | `timeout` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) | timeout for the request. |
+
+
+
+
+---
+### ApiGatewayTransformation
+
+
+
+```yaml
+
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
 
 
 

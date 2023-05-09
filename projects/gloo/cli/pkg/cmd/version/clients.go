@@ -20,23 +20,30 @@ type ServerVersion interface {
 }
 
 type kube struct {
-	namespace string
+	namespace   string
+	kubeContext string
 }
 
 var (
 	KnativeUniqueContainers = []string{"knative-external-proxy", "knative-internal-proxy"}
 	IngressUniqueContainers = []string{"ingress"}
 	GlooEUniqueContainers   = []string{"gloo-ee"}
+	ossImageAnnotation      = "gloo.solo.io/oss-image-tag"
 )
 
-func NewKube(namespace string) *kube {
+func NewKube(namespace, kubeContext string) *kube {
 	return &kube{
-		namespace: namespace,
+		namespace:   namespace,
+		kubeContext: kubeContext,
 	}
 }
 
 func (k *kube) Get(ctx context.Context) ([]*version.ServerVersion, error) {
 	cfg, err := kubeutils.GetConfig("", "")
+	if k.kubeContext != "" {
+		cfg, err = kubeutils.GetConfigWithContext("", "", k.kubeContext)
+	}
+
 	if err != nil {
 		// kubecfg is missing, therefore no cluster is present, only print client version
 		return nil, nil
@@ -57,12 +64,14 @@ func (k *kube) Get(ctx context.Context) ([]*version.ServerVersion, error) {
 	var kubeContainerList []*version.Kubernetes_Container
 	var foundGlooE, foundIngress, foundKnative bool
 	for _, v := range deployments.Items {
+		ossTag := v.Spec.Template.GetAnnotations()[ossImageAnnotation]
 		for _, container := range v.Spec.Template.Spec.Containers {
 			containerInfo := parseContainerString(container)
 			kubeContainerList = append(kubeContainerList, &version.Kubernetes_Container{
 				Tag:      *containerInfo.Tag,
 				Name:     *containerInfo.Repository,
 				Registry: *containerInfo.Registry,
+				OssTag:   ossTag,
 			})
 			switch {
 			case stringutils.ContainsString(*containerInfo.Repository, KnativeUniqueContainers):

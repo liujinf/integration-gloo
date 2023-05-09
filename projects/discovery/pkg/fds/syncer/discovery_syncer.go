@@ -3,16 +3,15 @@ package syncer
 import (
 	"context"
 
+	"github.com/solo-io/go-utils/contextutils"
 	"github.com/solo-io/go-utils/hashutils"
+	"github.com/solo-io/solo-kit/pkg/api/v1/resources/common/kubernetes"
+	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/solo-io/gloo/pkg/utils/syncutil"
-	"go.uber.org/zap/zapcore"
-
 	"github.com/solo-io/gloo/projects/discovery/pkg/fds"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
-	"github.com/solo-io/go-utils/contextutils"
-	"github.com/solo-io/solo-kit/pkg/api/v1/resources/common/kubernetes"
 )
 
 type syncer struct {
@@ -35,14 +34,12 @@ func (s *syncer) Sync(ctx context.Context, snap *v1.DiscoverySnapshot) error {
 	logger.Infof("begin sync %v (%v upstreams)", snapHash, len(snap.Upstreams))
 	defer logger.Infof("end sync %v", snapHash)
 
-	// stringifying the snapshot may be an expensive operation, so we'd like to avoid building the large
+	// stringify the snapshot may be an expensive operation, so we'd like to avoid building the large
 	// string if we're not even going to log it anyway
 	if contextutils.GetLogLevel() == zapcore.DebugLevel {
 		logger.Debug(syncutil.StringifySnapshot(snap))
 	}
-
 	upstreamsToDetect := selectUpstreamsForDiscovery(s.fdsMode, snap.Upstreams, snap.Kubenamespaces)
-
 	return s.fd.Update(upstreamsToDetect, snap.Secrets)
 }
 
@@ -70,7 +67,8 @@ func selectUpstreamsForDiscovery(fdsMode v1.Settings_DiscoveryOptions_FdsMode, u
 	case v1.Settings_DiscoveryOptions_WHITELIST:
 		return selectUpstreamsWhitelist(upstreams, whitelistNamespaces, blacklistNamespaces)
 	}
-	panic("invalid fds mode: " + fdsMode.String())
+	contextutils.LoggerFrom(context.Background()).DPanic("invalid fds mode, falling back to blacklist fds mode: " + fdsMode.String())
+	return selectUpstreamsBlacklist(upstreams, blacklistNamespaces)
 }
 
 func isBlacklistedUpstream(us *v1.Upstream) bool {

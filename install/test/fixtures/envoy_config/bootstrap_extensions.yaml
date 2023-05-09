@@ -14,7 +14,7 @@ node:
   id: "{{.PodName}}.{{.PodNamespace}}"
   metadata:
     # role's value is the key for the in-memory xds cache (projects/gloo/pkg/xds/envoy.go)
-    role: "{{.PodNamespace}}~gateway-proxy"
+    role: "gloo-system~gateway-proxy"
 static_resources:
   listeners:
   - name: prometheus_listener
@@ -53,6 +53,8 @@ static_resources:
                   cluster: admin_port_cluster
           http_filters:
           - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
   clusters:
   - name: gloo.gloo-system.svc.cluster.local:9977
     alt_stat_name: xds_cluster
@@ -68,7 +70,8 @@ static_resources:
                 port_value: 9977
     http2_protocol_options: {}
     upstream_connection_options:
-      tcp_keepalive: {}
+      tcp_keepalive:
+        keepalive_time: 60
     type: STRICT_DNS
     respect_dns_ttl: true
   - name: rest_xds_cluster
@@ -84,7 +87,8 @@ static_resources:
                 address: gloo.gloo-system.svc.cluster.local
                 port_value: 9976
     upstream_connection_options:
-      tcp_keepalive: {}
+      tcp_keepalive:
+        keepalive_time: 60
     type: STRICT_DNS
     respect_dns_ttl: true
   - name: wasm-cache
@@ -99,7 +103,8 @@ static_resources:
                 address: gloo.gloo-system.svc.cluster.local
                 port_value: 9979
     upstream_connection_options:
-      tcp_keepalive: {}
+      tcp_keepalive:
+        keepalive_time: 60
     type: STRICT_DNS
     respect_dns_ttl: true
   - name: admin_port_cluster

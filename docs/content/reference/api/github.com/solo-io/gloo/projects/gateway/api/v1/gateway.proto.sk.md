@@ -12,11 +12,11 @@ weight: 5
 
 
 - [Gateway](#gateway) **Top-Level Resource**
-- [HttpGateway](#httpgateway)
 - [TcpGateway](#tcpgateway)
-- [VirtualServiceSelectorExpressions](#virtualserviceselectorexpressions)
-- [Expression](#expression)
-- [Operator](#operator)
+- [HybridGateway](#hybridgateway)
+- [DelegatedHttpGateway](#delegatedhttpgateway)
+- [MatchedGateway](#matchedgateway)
+- [Matcher](#matcher)
   
 
 
@@ -44,6 +44,7 @@ and the routing configuration to upstreams that are reachable via a specific por
 "useProxyProto": .google.protobuf.BoolValue
 "httpGateway": .gateway.solo.io.HttpGateway
 "tcpGateway": .gateway.solo.io.TcpGateway
+"hybridGateway": .gateway.solo.io.HybridGateway
 "proxyNames": []string
 "routeOptions": .gloo.solo.io.RouteConfigurationOptions
 
@@ -51,42 +52,18 @@ and the routing configuration to upstreams that are reachable via a specific por
 
 | Field | Type | Description |
 | ----- | ---- | ----------- | 
-| `ssl` | `bool` | if set to false, only use virtual services without ssl configured. if set to true, only use virtual services with ssl configured. |
+| `ssl` | `bool` | if set to false, only use virtual services without ssl configured. if set to true, only use virtual services with ssl configured. this field is ignored if GatewayType is HybridGateway. |
 | `bindAddress` | `string` | the bind address the gateway should serve traffic on. |
 | `bindPort` | `int` | bind ports must not conflict across gateways for a single proxy. |
 | `options` | [.gloo.solo.io.ListenerOptions](../../../../gloo/api/v1/options.proto.sk/#listeneroptions) | top level optional configuration for all routes on the gateway. |
 | `namespacedStatuses` | [.core.solo.io.NamespacedStatuses](../../../../../../solo-kit/api/v1/status.proto.sk/#namespacedstatuses) | NamespacedStatuses indicates the validation status of this resource. NamespacedStatuses is read-only by clients, and set by gateway during validation. |
 | `metadata` | [.core.solo.io.Metadata](../../../../../../solo-kit/api/v1/metadata.proto.sk/#metadata) | Metadata contains the object metadata for this resource. |
-| `useProxyProto` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | Enable ProxyProtocol support for this listener. |
-| `httpGateway` | [.gateway.solo.io.HttpGateway](../gateway.proto.sk/#httpgateway) |  Only one of `httpGateway` or `tcpGateway` can be set. |
-| `tcpGateway` | [.gateway.solo.io.TcpGateway](../gateway.proto.sk/#tcpgateway) |  Only one of `tcpGateway` or `httpGateway` can be set. |
-| `proxyNames` | `[]string` | Names of the [`Proxy`](https://docs.solo.io/gloo-edge/latest/reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/proxy.proto.sk/) resources to generate from this gateway. If other gateways exist which point to the same proxy, Gloo will join them together. Proxies have a one-to-many relationship with Envoy bootstrap configuration. In order to connect to Gloo, the Envoy bootstrap configuration sets a `role` in the [node metadata](https://www.envoyproxy.io/docs/envoy/latest/api-v2/api/v2/core/base.proto#envoy-api-msg-core-node) Envoy instances announce their `role` to Gloo, which maps to the `{{ .Namespace }}~{{ .Name }}` of the Proxy resource. The template for this value can be seen in the [Gloo Helm chart](https://github.com/solo-io/gloo/blob/master/install/helm/gloo/templates/9-gateway-proxy-configmap.yaml#L22) Note: this field also accepts fields written in camel-case. They will be converted to kebab-case in the Proxy name. This allows use of the [Gateway Name Helm value](https://github.com/solo-io/gloo/blob/master/install/helm/gloo/values-gateway-template.yaml#L47) for this field Defaults to `["gateway-proxy"]`. |
+| `useProxyProto` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | Enable ProxyProtocol support for this listener. Deprecated: prefer setting the listener option. If configured, the listener option (filter config) overrides any setting here. |
+| `httpGateway` | [.gateway.solo.io.HttpGateway](../http_gateway.proto.sk/#httpgateway) |  Only one of `httpGateway`, `tcpGateway`, or `hybridGateway` can be set. |
+| `tcpGateway` | [.gateway.solo.io.TcpGateway](../gateway.proto.sk/#tcpgateway) |  Only one of `tcpGateway`, `httpGateway`, or `hybridGateway` can be set. |
+| `hybridGateway` | [.gateway.solo.io.HybridGateway](../gateway.proto.sk/#hybridgateway) |  Only one of `hybridGateway`, `httpGateway`, or `tcpGateway` can be set. |
+| `proxyNames` | `[]string` | Names of the [`Proxy`](https://docs.solo.io/gloo-edge/latest/reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/proxy.proto.sk/) resources to generate from this gateway. If other gateways exist which point to the same proxy, Gloo will join them together. Proxies have a one-to-many relationship with Envoy bootstrap configuration. In order to connect to Gloo, the Envoy bootstrap configuration sets a `role` in the [node metadata](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/base.proto#envoy-api-msg-core-node) Envoy instances announce their `role` to Gloo, which maps to the `{{ .Namespace }}~{{ .Name }}` of the Proxy resource. The template for this value can be seen in the [Gloo Helm chart](https://github.com/solo-io/gloo/blob/master/install/helm/gloo/templates/9-gateway-proxy-configmap.yaml#L22) Note: this field also accepts fields written in camel-case. They will be converted to kebab-case in the Proxy name. This allows use of the [Gateway Name Helm value](https://github.com/solo-io/gloo/blob/master/install/helm/gloo/values-gateway-template.yaml#L47) for this field Defaults to `["gateway-proxy"]`. |
 | `routeOptions` | [.gloo.solo.io.RouteConfigurationOptions](../../../../gloo/api/v1/options.proto.sk/#routeconfigurationoptions) | Route configuration options that live under Envoy's [RouteConfigurationOptions](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/route/v3/route.proto#config-route-v3-routeconfiguration). |
-
-
-
-
----
-### HttpGateway
-
-
-
-```yaml
-"virtualServices": []core.solo.io.ResourceRef
-"virtualServiceSelector": map<string, string>
-"virtualServiceExpressions": .gateway.solo.io.VirtualServiceSelectorExpressions
-"virtualServiceNamespaces": []string
-"options": .gloo.solo.io.HttpListenerOptions
-
-```
-
-| Field | Type | Description |
-| ----- | ---- | ----------- | 
-| `virtualServices` | [[]core.solo.io.ResourceRef](../../../../../../solo-kit/api/v1/ref.proto.sk/#resourceref) | Names & namespace refs of the virtual services which contain the actual routes for the gateway. If the list is empty, all virtual services in all namespaces that Gloo watches will apply, with accordance to `ssl` flag on `Gateway` above. The default namespace matching behavior can be overridden via `virtual_service_namespaces` flag below. Only one of `virtualServices`, `virtualServiceExpressions` or `virtualServiceSelector` should be provided. If more than one is provided only one will be checked with priority virtualServiceExpressions, virtualServiceSelector, virtualServices. |
-| `virtualServiceSelector` | `map<string, string>` | Select virtual services by their label. If `virtual_service_namespaces` is provided below, this will apply only to virtual services in the namespaces specified. Only one of `virtualServices`, `virtualServiceExpressions` or `virtualServiceSelector` should be provided. If more than one is provided only one will be checked with priority virtualServiceExpressions, virtualServiceSelector, virtualServices. |
-| `virtualServiceExpressions` | [.gateway.solo.io.VirtualServiceSelectorExpressions](../gateway.proto.sk/#virtualserviceselectorexpressions) | Select virtual services using expressions. If `virtual_service_namespaces` is provided below, this will apply only to virtual services in the namespaces specified. Only one of `virtualServices`, `virtualServiceExpressions` or `virtualServiceSelector` should be provided. If more than one is provided only one will be checked with priority virtualServiceExpressions, virtualServiceSelector, virtualServices. |
-| `virtualServiceNamespaces` | `[]string` | Restrict the search by providing a list of valid search namespaces here. Setting '*' will search all namespaces, equivalent to omitting this value. |
-| `options` | [.gloo.solo.io.HttpListenerOptions](../../../../gloo/api/v1/options.proto.sk/#httplisteneroptions) | HTTP Gateway configuration. |
 
 
 
@@ -111,66 +88,85 @@ and the routing configuration to upstreams that are reachable via a specific por
 
 
 ---
-### VirtualServiceSelectorExpressions
+### HybridGateway
 
- 
-Expressions to define which virtual services to select
-Example:
-expressions:
-   - key: domain
-     operator: in
-     values: example.com
+
 
 ```yaml
-"expressions": []gateway.solo.io.VirtualServiceSelectorExpressions.Expression
+"matchedGateways": []gateway.solo.io.MatchedGateway
+"delegatedHttpGateways": .gateway.solo.io.DelegatedHttpGateway
 
 ```
 
 | Field | Type | Description |
 | ----- | ---- | ----------- | 
-| `expressions` | [[]gateway.solo.io.VirtualServiceSelectorExpressions.Expression](../gateway.proto.sk/#expression) | Expressions allow for more flexible virtual service label matching, such as equality-based requirements, set-based requirements, or a combination of both. https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#equality-based-requirement. |
+| `matchedGateways` | [[]gateway.solo.io.MatchedGateway](../gateway.proto.sk/#matchedgateway) | MatchedGateways can be used to define both HttpGateways and TcpGateways directly on the Gateway resource. Only one of `MatchedGateways` or `DelegatedHttpGateways` should be provided. If more than one is provided only one will be checked with priority MatchedGateways, DelegatedHttpGateways. |
+| `delegatedHttpGateways` | [.gateway.solo.io.DelegatedHttpGateway](../gateway.proto.sk/#delegatedhttpgateway) | DelegatedHttpGateways can be used to configure multiple HttpGateways using the MatchableHttpGateway CR and select them on this Gateway using a resourceRef or label selection Only one of `MatchedGateways` or `DelegatedHttpGateways` should be provided. If more than one is provided only one will be checked with priority MatchedGateways, DelegatedHttpGateways. |
 
 
 
 
 ---
-### Expression
+### DelegatedHttpGateway
 
 
 
 ```yaml
-"key": string
-"operator": .gateway.solo.io.VirtualServiceSelectorExpressions.Expression.Operator
-"values": []string
+"ref": .core.solo.io.ResourceRef
+"selector": .selectors.core.gloo.solo.io.Selector
+"preventChildOverrides": bool
+"httpConnectionManagerSettings": .hcm.options.gloo.solo.io.HttpConnectionManagerSettings
+"sslConfig": .gloo.solo.io.SslConfig
 
 ```
 
 | Field | Type | Description |
 | ----- | ---- | ----------- | 
-| `key` | `string` | Kubernetes label key, must conform to Kubernetes syntax requirements https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set. |
-| `operator` | [.gateway.solo.io.VirtualServiceSelectorExpressions.Expression.Operator](../gateway.proto.sk/#operator) | The operator can only be in, notin, =, ==, !=, exists, ! (DoesNotExist), gt (GreaterThan), lt (LessThan). |
-| `values` | `[]string` |  |
+| `ref` | [.core.solo.io.ResourceRef](../../../../../../solo-kit/api/v1/ref.proto.sk/#resourceref) | Delegate to the resource with the given `name` and `namespace. Only one of `ref` or `selector` can be set. |
+| `selector` | [.selectors.core.gloo.solo.io.Selector](../../../../gloo/api/v1/core/selectors/selectors.proto.sk/#selector) | Delegate to the MatchableHttpGateway that match the given selector. Only one of `selector` or `ref` can be set. |
+| `preventChildOverrides` | `bool` | Used as a meta modifier to the `http_connection_manager_settings` and `ssl_config` fields in a DelegatedHttpGateway. When set, provided ancestor config cannot be overriden by matched HttpGateways. Useful in a multi-team context, where a controlling team managing a primary Gateway file may want to lock down specific functionality from other teams. For example: (DelegatedHttpGateway, MatchableHttpGateway) = {"a": "a1", "b": "b1"}, {"b": "b2", "c": "c2"} When true: get_config(MatchableHttpGateway) --> {"a": "a1", "b": "b1", "c": "c2"} When false: get_config(MatchableHttpGateway) --> {"a": "a1", "b": "b2", "c": "c2"}. |
+| `httpConnectionManagerSettings` | [.hcm.options.gloo.solo.io.HttpConnectionManagerSettings](../../../../gloo/api/v1/options/hcm/hcm.proto.sk/#httpconnectionmanagersettings) | Anscestry-level HTTP Gateway configuration. Options specified here will be passed down to each `MatchableHttpGateway` that is matched via `selector` or `ref`. Ultimately, said options will be consumed by instances of `MatchableHttpGateway.http_gateway`. |
+| `sslConfig` | [.gloo.solo.io.SslConfig](../../../../gloo/api/v1/ssl/ssl.proto.sk/#sslconfig) | Anscestry-level TLS/SSL traffic configuration. Options specified here will be passed down to each `MatchableHttpGateway` that is matched via `selector` or `ref`. From there, they are passed to all VirtualServices associated with said `MatchableHttpGateway`s. |
 
 
 
 
 ---
-### Operator
+### MatchedGateway
 
- 
-Virtual Service Selector expression operator, while the set-based syntax differs from Kubernetes (kubernetes: `key: !mylabel`, gloo: `key: mylabel, operator: "!"` | kubernetes: `key: mylabel`, gloo: `key: mylabel, operator: exists`), the functionality remains the same.
 
-| Name | Description |
-| ----- | ----------- | 
-| `Equals` | = |
-| `DoubleEquals` | == |
-| `NotEquals` | != |
-| `In` | in |
-| `NotIn` | notin |
-| `Exists` | exists |
-| `DoesNotExist` | ! |
-| `GreaterThan` | gt |
-| `LessThan` | lt |
+
+```yaml
+"matcher": .gateway.solo.io.Matcher
+"httpGateway": .gateway.solo.io.HttpGateway
+"tcpGateway": .gateway.solo.io.TcpGateway
+
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
+| `matcher` | [.gateway.solo.io.Matcher](../gateway.proto.sk/#matcher) | Matchers are used to define unique matching criteria for each MatchedGateway Each MatchedGateway within a HybridGateway must have a unique Matcher If multiple matchers in a HybridGateway are identical, the HybridGateway will not be accepted Empty Matchers are effectively catch-alls, and there can be no more than one empty Matcher per HybridGateway. |
+| `httpGateway` | [.gateway.solo.io.HttpGateway](../http_gateway.proto.sk/#httpgateway) |  Only one of `httpGateway` or `tcpGateway` can be set. |
+| `tcpGateway` | [.gateway.solo.io.TcpGateway](../gateway.proto.sk/#tcpgateway) |  Only one of `tcpGateway` or `httpGateway` can be set. |
+
+
+
+
+---
+### Matcher
+
+
+
+```yaml
+"sslConfig": .gloo.solo.io.SslConfig
+"sourcePrefixRanges": []solo.io.envoy.config.core.v3.CidrRange
+
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
+| `sslConfig` | [.gloo.solo.io.SslConfig](../../../../gloo/api/v1/ssl/ssl.proto.sk/#sslconfig) | Gloo use SNI domains as matching criteria for Gateway selection The other ssl_config properties will be applied to the outputFilterChain's transport socket SslConfig from VirtualServices will be ignored in a MatchedGateway. |
+| `sourcePrefixRanges` | [[]solo.io.envoy.config.core.v3.CidrRange](../../../../gloo/api/external/envoy/config/core/v3/address.proto.sk/#cidrrange) | CidrRange specifies an IP Address and a prefix length to construct the subnet mask for a CIDR range. See https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/address.proto#envoy-v3-api-msg-config-core-v3-cidrrange. |
 
 
 

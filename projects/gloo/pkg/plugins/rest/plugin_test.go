@@ -7,7 +7,7 @@ import (
 	envoy_config_route_v3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/wrappers"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	envoy_transform "github.com/solo-io/gloo/projects/gloo/pkg/api/external/envoy/extensions/transformation"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
@@ -38,7 +38,7 @@ var _ = Describe("Plugin", func() {
 		restSpec = &pluginsv1.ServiceSpec_Rest{
 			Rest: &v1rest.ServiceSpec{
 				Transformations: map[string]*envoy_transform.TransformationTemplate{
-					"func": &envoy_transform.TransformationTemplate{},
+					"func": {},
 				},
 			},
 		}

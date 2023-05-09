@@ -3,15 +3,22 @@ package tcp_test
 import (
 	"time"
 
+	envoy_extensions_filters_network_sni_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/sni_cluster/v3"
+	"github.com/solo-io/gloo/projects/gloo/pkg/utils"
+
+	envoy_config_listener_v3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+
 	envoytcp "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
 	envoyauth "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	"github.com/golang/mock/gomock"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/golang/protobuf/ptypes/wrappers"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	v1snap "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/gloosnapshot"
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/tcp"
+	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/ssl"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
 	. "github.com/solo-io/gloo/projects/gloo/pkg/plugins/tcp"
 	translatorutil "github.com/solo-io/gloo/projects/gloo/pkg/translator"
@@ -19,11 +26,14 @@ import (
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 	"github.com/solo-io/solo-kit/pkg/utils/prototime"
 	"github.com/solo-io/solo-kit/test/matchers"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 var _ = Describe("Plugin", func() {
 	var (
-		in *v1.Listener
+		listener    *v1.Listener
+		tcpListener *v1.TcpListener
 
 		ctrl          *gomock.Controller
 		sslTranslator *mock_utils.MockSslConfigTranslator
@@ -41,14 +51,13 @@ var _ = Describe("Plugin", func() {
 
 	Context("listener filter chain plugin", func() {
 		var (
-			tcpListener *v1.TcpListener
-			snap        *v1.ApiSnapshot
-			tcps        *tcp.TcpProxySettings
+			snap *v1snap.ApiSnapshot
+			tcps *tcp.TcpProxySettings
 
 			ns = "one"
 			wd = []*v1.WeightedDestination{
 				{
-					Weight: 5,
+					Weight: &wrappers.UInt32Value{Value: 5},
 					Destination: &v1.Destination{
 						DestinationType: &v1.Destination_Upstream{
 							Upstream: &core.ResourceRef{
@@ -59,7 +68,7 @@ var _ = Describe("Plugin", func() {
 					},
 				},
 				{
-					Weight: 1,
+					Weight: &wrappers.UInt32Value{Value: 1},
 					Destination: &v1.Destination{
 						DestinationType: &v1.Destination_Upstream{
 							Upstream: &core.ResourceRef{
@@ -73,7 +82,7 @@ var _ = Describe("Plugin", func() {
 		)
 
 		BeforeEach(func() {
-			snap = &v1.ApiSnapshot{
+			snap = &v1snap.ApiSnapshot{
 				Upstreams: v1.UpstreamList{
 					{
 						Metadata: &core.Metadata{
@@ -99,21 +108,33 @@ var _ = Describe("Plugin", func() {
 				MaxConnectAttempts: &wrappers.UInt32Value{
 					Value: 5,
 				},
-				IdleTimeout:     prototime.DurationToProto(5 * time.Second),
-				TunnelingConfig: &tcp.TcpProxySettings_TunnelingConfig{Hostname: "proxyhostname"},
+				IdleTimeout: prototime.DurationToProto(5 * time.Second),
+				TunnelingConfig: &tcp.TcpProxySettings_TunnelingConfig{
+					Hostname: "proxyhostname",
+					HeadersToAdd: []*tcp.HeaderValueOption{
+						{
+							Header: &tcp.HeaderValue{
+								Key:   "key",
+								Value: "value",
+							},
+							Append: &wrapperspb.BoolValue{Value: true},
+						},
+					},
+				},
 			}
+			listener = &v1.Listener{}
 			tcpListener = &v1.TcpListener{
 				TcpHosts: []*v1.TcpHost{},
 				Options: &v1.TcpListenerOptions{
 					TcpProxySettings: tcps,
 				},
 			}
-			in = &v1.Listener{
-				ListenerType: &v1.Listener_TcpListener{
-					TcpListener: tcpListener,
-				},
-			}
 		})
+
+		createFilterChains := func() ([]*envoy_config_listener_v3.FilterChain, error) {
+			p := NewPlugin(sslTranslator)
+			return p.CreateTcpFilterChains(plugins.Params{Snapshot: snap}, listener, tcpListener)
+		}
 
 		It("can copy over tcp plugin settings", func() {
 			tcpListener.TcpHosts = append(tcpListener.TcpHosts, &v1.TcpHost{
@@ -132,8 +153,7 @@ var _ = Describe("Plugin", func() {
 				},
 			})
 
-			p := NewPlugin(sslTranslator)
-			filterChains, err := p.ProcessListenerFilterChain(plugins.Params{Snapshot: snap}, in)
+			filterChains, err := createFilterChains()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(filterChains).To(HaveLen(1))
 
@@ -144,6 +164,14 @@ var _ = Describe("Plugin", func() {
 			Expect(cfg.IdleTimeout).To(matchers.MatchProto(tcps.IdleTimeout))
 			Expect(cfg.MaxConnectAttempts).To(matchers.MatchProto(tcps.MaxConnectAttempts))
 			Expect(cfg.TunnelingConfig.GetHostname()).To(Equal(tcps.TunnelingConfig.GetHostname()))
+
+			hta := cfg.TunnelingConfig.HeadersToAdd
+			Expect(len(hta)).To(Equal(1))
+
+			tcpHeaders := tcps.TunnelingConfig.HeadersToAdd[0]
+			Expect(hta[0].Header.Key).To(Equal(tcpHeaders.Header.Key))
+			Expect(hta[0].Header.Value).To(Equal(tcpHeaders.Header.Value))
+			Expect(hta[0].Append.Value).To(Equal(tcpHeaders.Append.Value))
 		})
 
 		It("can transform a single destination", func() {
@@ -162,8 +190,8 @@ var _ = Describe("Plugin", func() {
 					},
 				},
 			})
-			p := NewPlugin(sslTranslator)
-			filterChains, err := p.ProcessListenerFilterChain(plugins.Params{Snapshot: snap}, in)
+
+			filterChains, err := createFilterChains()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(filterChains).To(HaveLen(1))
 
@@ -185,8 +213,8 @@ var _ = Describe("Plugin", func() {
 					},
 				},
 			})
-			p := NewPlugin(sslTranslator)
-			filterChains, err := p.ProcessListenerFilterChain(plugins.Params{Snapshot: snap}, in)
+
+			filterChains, err := createFilterChains()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(filterChains).To(HaveLen(1))
 
@@ -220,8 +248,8 @@ var _ = Describe("Plugin", func() {
 					},
 				},
 			})
-			p := NewPlugin(sslTranslator)
-			filterChains, err := p.ProcessListenerFilterChain(plugins.Params{Snapshot: snap}, in)
+
+			filterChains, err := createFilterChains()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(filterChains).To(HaveLen(1))
 
@@ -237,8 +265,8 @@ var _ = Describe("Plugin", func() {
 		})
 
 		It("can add the forward sni cluster name filter", func() {
-			sslConfig := &v1.SslConfig{
-				SslSecrets: &v1.SslConfig_SecretRef{
+			sslConfig := &ssl.SslConfig{
+				SslSecrets: &ssl.SslConfig_SecretRef{
 					SecretRef: &core.ResourceRef{
 						Name:      "name",
 						Namespace: "namespace",
@@ -260,13 +288,13 @@ var _ = Describe("Plugin", func() {
 				ResolveDownstreamSslConfig(snap.Secrets, sslConfig).
 				Return(&envoyauth.DownstreamTlsContext{}, nil)
 
-			p := NewPlugin(sslTranslator)
-			filterChains, err := p.ProcessListenerFilterChain(plugins.Params{Snapshot: snap}, in)
+			filterChains, err := createFilterChains()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(filterChains).To(HaveLen(1))
 			Expect(filterChains[0].Filters).To(HaveLen(2))
 			Expect(filterChains[0].Filters[0].Name).To(Equal(SniFilter))
-			Expect(filterChains[0].Filters[0].GetTypedConfig()).To(BeNil())
+			sniClusterConfig := utils.MustAnyToMessage(filterChains[0].Filters[0].GetTypedConfig()).(*envoy_extensions_filters_network_sni_cluster_v3.SniCluster)
+			Expect(sniClusterConfig).NotTo(BeNil())
 
 			var cfg envoytcp.TcpProxy
 			err = translatorutil.ParseTypedConfig(filterChains[0].Filters[1], &cfg)
@@ -276,6 +304,42 @@ var _ = Describe("Plugin", func() {
 			Expect(cluster.Cluster).To(Equal(""))
 		})
 
+		It("should propagate proided `transport_socket_connect_timeout` to Envoy", func() {
+			sslConfig := &ssl.SslConfig{
+				SslSecrets: &ssl.SslConfig_SecretRef{
+					SecretRef: &core.ResourceRef{
+						Name:      "name",
+						Namespace: "namespace",
+					},
+				},
+				SniDomains: []string{"hello.world"},
+				TransportSocketConnectTimeout: &durationpb.Duration{
+					Seconds: 3,
+					Nanos:   0,
+				},
+			}
+
+			tcpListener.TcpHosts = append(tcpListener.TcpHosts, &v1.TcpHost{
+				Name: "one",
+				Destination: &v1.TcpHost_TcpAction{
+					Destination: &v1.TcpHost_TcpAction_ForwardSniClusterName{
+						ForwardSniClusterName: &empty.Empty{},
+					},
+				},
+				SslConfig: sslConfig,
+			})
+
+			sslTranslator.EXPECT().
+				ResolveDownstreamSslConfig(snap.Secrets, sslConfig).
+				Return(&envoyauth.DownstreamTlsContext{}, nil)
+
+			filterChains, err := createFilterChains()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(filterChains).To(HaveLen(1))
+
+			Expect(filterChains[0].TransportSocketConnectTimeout.Seconds).To(Equal(int64(3)))
+			Expect(filterChains[0].TransportSocketConnectTimeout.Nanos).To(Equal(int32(0)))
+		})
 	})
 
 })

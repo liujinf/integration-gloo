@@ -4,6 +4,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/golang/protobuf/ptypes/wrappers"
+	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/ssl"
+
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/duration"
 	test_matchers "github.com/solo-io/solo-kit/test/matchers"
@@ -16,11 +19,10 @@ import (
 	"github.com/solo-io/gloo/projects/clusteringress/api/external/knative"
 	v1alpha12 "github.com/solo-io/gloo/projects/clusteringress/pkg/api/external/knative"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	v1 "github.com/solo-io/gloo/projects/clusteringress/pkg/api/v1"
 	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
-	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/retries"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -60,12 +62,7 @@ var _ = Describe("Translate", func() {
 											},
 										},
 									},
-									AppendHeaders:     map[string]string{"add": "me"},
-									DeprecatedTimeout: &metav1.Duration{Duration: time.Nanosecond}, // good luck
-									DeprecatedRetries: &v1alpha1.HTTPRetry{
-										Attempts:      14,
-										PerTryTimeout: &metav1.Duration{Duration: time.Microsecond},
-									},
+									AppendHeaders: map[string]string{"add": "me"},
 								},
 							},
 						},
@@ -88,12 +85,7 @@ var _ = Describe("Translate", func() {
 											},
 										},
 									},
-									AppendHeaders:     map[string]string{"add": "me"},
-									DeprecatedTimeout: &metav1.Duration{Duration: time.Nanosecond}, // good luck
-									DeprecatedRetries: &v1alpha1.HTTPRetry{
-										Attempts:      14,
-										PerTryTimeout: &metav1.Duration{Duration: time.Microsecond},
-									},
+									AppendHeaders: map[string]string{"add": "me"},
 								},
 							},
 						},
@@ -132,12 +124,7 @@ var _ = Describe("Translate", func() {
 											},
 										},
 									},
-									AppendHeaders:     map[string]string{"add": "me"},
-									DeprecatedTimeout: &metav1.Duration{Duration: time.Nanosecond}, // good luck
-									DeprecatedRetries: &v1alpha1.HTTPRetry{
-										Attempts:      14,
-										PerTryTimeout: &metav1.Duration{Duration: time.Microsecond},
-									},
+									AppendHeaders: map[string]string{"add": "me"},
 								},
 							},
 						},
@@ -198,7 +185,7 @@ var _ = Describe("Translate", func() {
 																			},
 																		},
 																	},
-																	Weight: 0x00000064,
+																	Weight: &wrappers.UInt32Value{Value: 0x00000064},
 																},
 															},
 														},
@@ -206,11 +193,6 @@ var _ = Describe("Translate", func() {
 												},
 											},
 											Options: &gloov1.RouteOptions{
-												Timeout: durptr(1),
-												Retries: &retries.RetryPolicy{
-													NumRetries:    0x0000000e,
-													PerTryTimeout: durptr(1000),
-												},
 												HeaderManipulation: &headers.HeaderManipulation{
 													RequestHeadersToAdd: []*envoycore_sk.HeaderValueOption{{HeaderOption: &envoycore_sk.HeaderValueOption_Header{Header: &envoycore_sk.HeaderValue{Key: "add", Value: "me"}}}},
 												},
@@ -252,7 +234,7 @@ var _ = Describe("Translate", func() {
 																			},
 																		},
 																	},
-																	Weight: 0x00000064,
+																	Weight: &wrappers.UInt32Value{Value: 0x00000064},
 																},
 															},
 														},
@@ -260,11 +242,6 @@ var _ = Describe("Translate", func() {
 												},
 											},
 											Options: &gloov1.RouteOptions{
-												Timeout: durptr(1),
-												Retries: &retries.RetryPolicy{
-													NumRetries:    0x0000000e,
-													PerTryTimeout: durptr(1000),
-												},
 												HeaderManipulation: &headers.HeaderManipulation{
 													RequestHeadersToAdd: []*envoycore_sk.HeaderValueOption{{HeaderOption: &envoycore_sk.HeaderValueOption_Header{Header: &envoycore_sk.HeaderValue{Key: "add", Value: "me"}}}},
 												},
@@ -315,7 +292,7 @@ var _ = Describe("Translate", func() {
 																			},
 																		},
 																	},
-																	Weight: 0x00000064,
+																	Weight: &wrappers.UInt32Value{Value: 0x00000064},
 																},
 															},
 														},
@@ -323,11 +300,6 @@ var _ = Describe("Translate", func() {
 												},
 											},
 											Options: &gloov1.RouteOptions{
-												Timeout: durptr(1),
-												Retries: &retries.RetryPolicy{
-													NumRetries:    0x0000000e,
-													PerTryTimeout: durptr(1000),
-												},
 												HeaderManipulation: &headers.HeaderManipulation{
 													RequestHeadersToAdd: []*envoycore_sk.HeaderValueOption{{HeaderOption: &envoycore_sk.HeaderValueOption_Header{Header: &envoycore_sk.HeaderValue{Key: "add", Value: "me"}}}},
 												},
@@ -338,9 +310,9 @@ var _ = Describe("Translate", func() {
 							},
 						},
 					},
-					SslConfigurations: []*gloov1.SslConfig{
+					SslConfigurations: []*ssl.SslConfig{
 						{
-							SslSecrets: &gloov1.SslConfig_SecretRef{
+							SslSecrets: &ssl.SslConfig_SecretRef{
 								SecretRef: &core.ResourceRef{
 									Name:      "areallygreatsecret",
 									Namespace: "example",

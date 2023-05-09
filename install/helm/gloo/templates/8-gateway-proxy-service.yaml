@@ -12,7 +12,7 @@ metadata:
     gloo: gateway-proxy
     gateway-proxy-id: {{ $name | kebabcase }}
   name: {{ $svcName | kebabcase }}
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $spec.namespace | default .Release.Namespace }}
 {{- if $spec.service.extraAnnotations }}
   annotations:
   {{- range $key, $value := $spec.service.extraAnnotations }}
@@ -100,13 +100,15 @@ spec:
   {{- end }} {{/* define gatewayProxy.serviceSpec */}}
 {{- define "gatewayProxy.configDumpServiceSpec" }}
 {{- $name := (index . 1) }}
+{{- $spec := (index . 2) }}
 {{- with (first .) }}
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ $name | kebabcase }}-config-dump-service
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ $spec.namespace | default .Release.Namespace }}
   labels:
+    app: gloo
     gloo: gateway-proxy
     gateway-proxy-id: {{ $name | kebabcase }}
 spec:
@@ -119,8 +121,32 @@ spec:
       port: 8082
 {{- end }} {{/* with (first .) */}}
 {{- end }} {{/* define gatewayProxy.configDumpServiceSpec */}}
+{{- define "gatewayProxy.monitoringServiceSpec" }}
+{{- $name := (index . 1) -}}
+{{- $spec := (index . 2) -}}
+{{- with (first .) }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name | kebabcase }}-monitoring-service
+  namespace: {{ $spec.namespace | default .Release.Namespace }}
+  labels:
+    app: gloo
+    gloo: gateway-proxy
+    gateway-proxy-id: {{ $name | kebabcase }}
+spec:
+  type: ClusterIP
+  selector:
+    gloo: gateway-proxy
+    gateway-proxy-id: {{ $name | kebabcase }}
+  ports:
+    - name: http-monitoring
+      port: 8081
+{{- end }} {{/* with (first .) */}}
+{{- end }} {{/* define gatewayProxy.monitoringServiceSpec */}}
 
 {{- if .Values.gateway.enabled }}
+{{- $global := .Values.global }}
 {{- $gatewayProxy := .Values.gatewayProxies.gatewayProxy -}}
 {{- range $name, $gatewaySpec := .Values.gatewayProxies }}
 {{- $defaultGatewayProxySafe := deepCopy $gatewayProxy -}}
@@ -143,7 +169,11 @@ spec:
 ---
 {{- include "gloo.util.merge" (list $ctx $configDumpServiceYamlOverride "gatewayProxy.configDumpServiceSpec") -}}
 {{- end }} {{/* if and ($spec.readConfig $spec.readConfigMulticluster) */}}
+{{- $statsConfig := coalesce $spec.stats $global.glooStats }}
+{{- if and $statsConfig.enabled $statsConfig.serviceMonitorEnabled }}
+---
+{{- include "gatewayProxy.monitoringServiceSpec" $ctx -}}
+{{- end }} {{/* if $statsConfig.serviceMonitorEnabled */}}
 {{- end }}{{/* if not $spec.disabled */}}
 {{- end }} {{/* range $name, $spec := .Values.gatewayProxies */}}
 {{- end }} {{/* if .Values.gateway.enabled */}}
-

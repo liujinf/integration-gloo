@@ -10,8 +10,8 @@ import (
 	"hash"
 	"hash/fnv"
 
-	"github.com/mitchellh/hashstructure"
 	safe_hasher "github.com/solo-io/protoc-gen-ext/pkg/hasher"
+	"github.com/solo-io/protoc-gen-ext/pkg/hasher/hashstructure"
 )
 
 // ensure the imports are used
@@ -223,6 +223,10 @@ func (m *Kubernetes_Container) Hash(hasher hash.Hash64) (uint64, error) {
 	}
 
 	if _, err = hasher.Write([]byte(m.GetRegistry())); err != nil {
+		return 0, err
+	}
+
+	if _, err = hasher.Write([]byte(m.GetOssTag())); err != nil {
 		return 0, err
 	}
 

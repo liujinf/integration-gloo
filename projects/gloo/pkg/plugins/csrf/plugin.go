@@ -17,35 +17,54 @@ import (
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/pluginutils"
 )
 
+var (
+	_ plugins.Plugin                    = new(plugin)
+	_ plugins.HttpFilterPlugin          = new(plugin)
+	_ plugins.WeightedDestinationPlugin = new(plugin)
+	_ plugins.VirtualHostPlugin         = new(plugin)
+	_ plugins.RoutePlugin               = new(plugin)
+)
+
+const (
+	ExtensionName = "csrf"
+	FilterName    = "envoy.filters.http.csrf"
+)
+
 // filter should be called after routing decision has been made
 var pluginStage = plugins.DuringStage(plugins.RouteStage)
 
-const FilterName = "envoy.filters.http.csrf"
+type plugin struct {
+	removeUnused              bool
+	filterRequiredForListener map[*v1.HttpListener]struct{}
+}
 
 func NewPlugin() *plugin {
 	return &plugin{}
 }
 
-var _ plugins.Plugin = new(plugin)
-var _ plugins.HttpFilterPlugin = new(plugin)
-var _ plugins.WeightedDestinationPlugin = new(plugin)
-var _ plugins.VirtualHostPlugin = new(plugin)
-var _ plugins.RoutePlugin = new(plugin)
+func (p *plugin) Name() string {
+	return ExtensionName
+}
 
-type plugin struct{}
-
-func (p *plugin) Init(params plugins.InitParams) error {
-	return nil
+func (p *plugin) Init(params plugins.InitParams) {
+	p.removeUnused = params.Settings.GetGloo().GetRemoveUnusedFilters().GetValue()
+	p.filterRequiredForListener = make(map[*v1.HttpListener]struct{})
 }
 
 func (p *plugin) HttpFilters(_ plugins.Params, listener *v1.HttpListener) ([]plugins.StagedHttpFilter, error) {
 	glooCsrfConfig := listener.GetOptions().GetCsrf()
+
+	_, ok := p.filterRequiredForListener[listener]
+	if !ok && p.removeUnused && glooCsrfConfig == nil {
+		return []plugins.StagedHttpFilter{}, nil
+	}
+
 	envoyCsrfConfig, err := translateCsrfConfig(glooCsrfConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	csrfFilter, err := plugins.NewStagedFilterWithConfig(FilterName, envoyCsrfConfig, pluginStage)
+	csrfFilter, err := plugins.NewStagedFilter(FilterName, envoyCsrfConfig, pluginStage)
 	if err != nil {
 		return nil, eris.Wrap(err, "generating filter config")
 	}
@@ -63,6 +82,7 @@ func (p *plugin) ProcessRoute(params plugins.RouteParams, in *v1.Route, out *env
 	if err != nil {
 		return err
 	}
+	p.filterRequiredForListener[params.HttpListener] = struct{}{}
 
 	return pluginutils.SetRoutePerFilterConfig(out, FilterName, envoyCsrfConfig)
 }
@@ -81,6 +101,7 @@ func (p *plugin) ProcessVirtualHost(
 	if err != nil {
 		return err
 	}
+	p.filterRequiredForListener[params.HttpListener] = struct{}{}
 
 	return pluginutils.SetVhostPerFilterConfig(out, FilterName, envoyCsrfConfig)
 }
@@ -99,6 +120,7 @@ func (p *plugin) ProcessWeightedDestination(
 	if err != nil {
 		return err
 	}
+	p.filterRequiredForListener[params.HttpListener] = struct{}{}
 
 	return pluginutils.SetWeightedClusterPerFilterConfig(out, FilterName, envoyCsrfConfig)
 }

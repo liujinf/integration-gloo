@@ -1,23 +1,37 @@
 package syncer
 
 import (
-	"github.com/solo-io/gloo/pkg/utils"
-	gloostatusutils "github.com/solo-io/gloo/pkg/utils/statusutils"
-	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
-	"github.com/solo-io/gloo/projects/gloo/pkg/bootstrap"
-	"github.com/solo-io/gloo/projects/gloo/pkg/discovery"
-	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/registry"
 	"github.com/solo-io/go-utils/contextutils"
 	"github.com/solo-io/go-utils/errutils"
 	"github.com/solo-io/solo-kit/pkg/api/external/kubernetes/namespace"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/factory"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/memory"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/common/kubernetes"
+
+	"github.com/solo-io/gloo/pkg/utils"
+	gloostatusutils "github.com/solo-io/gloo/pkg/utils/statusutils"
+	syncerutils "github.com/solo-io/gloo/projects/discovery/pkg/syncer"
+	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	"github.com/solo-io/gloo/projects/gloo/pkg/bootstrap"
+	"github.com/solo-io/gloo/projects/gloo/pkg/discovery"
+	plugins "github.com/solo-io/gloo/projects/gloo/pkg/plugins"
+	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/registry"
 )
 
 func RunUDS(opts bootstrap.Opts) error {
+	udsEnabled := syncerutils.GetUdsEnabled(opts.Settings)
+	if !udsEnabled {
+		contextutils.LoggerFrom(opts.WatchOpts.Ctx).Infof("Upstream discovery "+
+			"(settings.discovery.udsOptions.enabled) disabled. To enable, modify "+
+			"gloo.solo.io/Settings - %v", opts.Settings.GetMetadata().Ref())
+		if err := syncerutils.ErrorIfDiscoveryServiceUnused(&opts); err != nil {
+			return err
+		}
+		return nil
+	}
 	watchOpts := opts.WatchOpts.WithDefaults()
 	watchOpts.Ctx = contextutils.WithLogger(watchOpts.Ctx, "uds")
+	watchOpts.Selector = syncerutils.GetWatchLabels(opts.Settings)
 
 	upstreamClient, err := v1.NewUpstreamClient(watchOpts.Ctx, opts.Upstreams)
 	if err != nil {
@@ -53,17 +67,18 @@ func RunUDS(opts bootstrap.Opts) error {
 	emit := make(chan struct{})
 	emitter := v1.NewDiscoveryEmitterWithEmit(upstreamClient, nsClient, secretClient, emit)
 
-	// jump start all the watches
+	// jumpstart all the watches
 	go func() {
 		emit <- struct{}{}
 	}()
 
-	plugins := registry.Plugins(opts)
+	plugs := registry.Plugins(opts)
 
 	var discoveryPlugins []discovery.DiscoveryPlugin
-	for _, plug := range plugins {
+	for _, plug := range plugs {
 		disc, ok := plug.(discovery.DiscoveryPlugin)
 		if ok {
+			disc.Init(plugins.InitParams{Ctx: watchOpts.Ctx, Settings: opts.Settings})
 			discoveryPlugins = append(discoveryPlugins, disc)
 		}
 	}

@@ -19,8 +19,6 @@ global:
         - 45s
         - --parentShutdownDuration
         - 1m0s
-        - --discoveryAddress
-        - istiod.istio-system.svc:15012
         - --proxyLogLevel=warning
         - --proxyComponentLogLevel=misc:error
         - --connectTimeout
@@ -46,6 +44,9 @@ global:
             value: istiod.istio-system.svc:15012
           - name: ISTIO_META_MESH_ID
             value: cluster.local
+          - name: PROXY_CONFIG
+            value: |
+              {"discoveryAddress": "istiod.istio-system.svc:15012"}
           - name: POD_NAME
             valueFrom:
               fieldRef:
@@ -78,15 +79,25 @@ global:
                 fieldPath: metadata.namespace
         imagePullPolicy: IfNotPresent
         readinessProbe:
-          failureThreshold: 30
+          failureThreshold: 3
           httpGet:
             path: /healthz/ready
             port: 15021
             scheme: HTTP
-          initialDelaySeconds: 1
-          periodSeconds: 2
+          initialDelaySeconds: 3
+          periodSeconds: 10
           successThreshold: 1
           timeoutSeconds: 1
+        livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /healthz/live
+              port: 15021
+              scheme: HTTP
+            initialDelaySeconds: 3
+            periodSeconds: 3
+            successThreshold: 1
+            timeoutSeconds: 1
         volumeMounts:
         - mountPath: /var/run/secrets/istio
           name: istiod-ca-cert

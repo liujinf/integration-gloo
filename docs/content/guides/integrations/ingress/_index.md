@@ -46,14 +46,14 @@ great way to get a cluster up quickly.
 
     ```shell
     kubectl apply \
-      --filename https://raw.githubusercontent.com/solo-io/gloo/v1.2.9/example/petstore/petstore.yaml
+      --filename https://raw.githubusercontent.com/solo-io/gloo/v1.11.x/example/petstore/petstore.yaml
     ```
 
 3. Let's create a Kubernetes Ingress object to route requests to the petstore:
 
     ```yaml
     cat <<EOF | kubectl apply --filename -
-    apiVersion: extensions/v1beta1
+    apiVersion: networking.k8s.io/v1
     kind: Ingress
     metadata:
      name: petstore-ingress
@@ -68,9 +68,12 @@ great way to get a cluster up quickly.
         http:
           paths:
           - path: /.*
+            pathType: ImplementationSpecific
             backend:
-              serviceName: petstore
-              servicePort: 8080
+              service:
+                name: petstore
+                port:
+                  number: 8080
     EOF
     ```
 
@@ -144,7 +147,7 @@ example using `gloo.system.com` domain.
 
     {{< highlight yaml "hl_lines=9-12 14" >}}
 cat <<EOF | kubectl apply --filename -
-apiVersion: extensions/v1beta1
+apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: petstore-ingress
@@ -160,9 +163,12 @@ spec:
     http:
       paths:
       - path: /.*
+        pathType: ImplementationSpecific
         backend:
-          serviceName: petstore
-          servicePort: 8080
+          service:
+            name: petstore
+            port:
+              number: 8080
 EOF
     {{< /highlight >}}
 
@@ -196,4 +202,5 @@ EOF
 
 Great! Our ingress is up and running. Check out the [official docs](https://kubernetes.io/docs/concepts/services-networking/ingress) for more information on using Kubernetes Ingress Controllers.
 
-If you want to take advantage of greater routing capabilities of Gloo Edge, you should look at [Gloo Edge in gateway mode]({{% versioned_link_path fromRoot="/guides/traffic_management/" %}}), which complements Gloo Edge's Ingress support, i.e., you can use both modes together in a single cluster. 
+For even greater routing capabilities, consider running [Gloo Edge in gateway mode]({{% versioned_link_path fromRoot="/guides/traffic_management/" %}}) alongside your Gloo Edge ingress installation. Simply set up one Gloo Edge instance in gateway mode and deploy another Gloo Edge instance that can process Kubernetes ingress objects. You can set up both Gloo Edge instances in the same cluster. 
+

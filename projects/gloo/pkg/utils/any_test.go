@@ -1,7 +1,8 @@
 package utils_test
 
 import (
-	. "github.com/onsi/ginkgo"
+	"github.com/golang/protobuf/proto"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	. "github.com/solo-io/gloo/projects/gloo/pkg/utils"
@@ -14,7 +15,7 @@ var _ = Describe("Any", func() {
 
 	It("should convert golang message to any", func() {
 		msg := &structpb.Struct{
-			Fields: map[string]*structpb.Value{"test": &structpb.Value{
+			Fields: map[string]*structpb.Value{"test": {
 				Kind: &structpb.Value_StringValue{StringValue: "foo"},
 			}},
 		}
@@ -28,7 +29,7 @@ var _ = Describe("Any", func() {
 
 	It("should convert gogo message to any", func() {
 		msg := &gogostructpb.Struct{
-			Fields: map[string]*gogostructpb.Value{"test": &gogostructpb.Value{
+			Fields: map[string]*gogostructpb.Value{"test": {
 				Kind: &gogostructpb.Value_StringValue{StringValue: "foo"},
 			}},
 		}
@@ -40,4 +41,9 @@ var _ = Describe("Any", func() {
 		Expect(msg2.(*structpb.Struct).Fields["test"].GetStringValue()).To(Equal(msg.Fields["test"].GetStringValue()))
 	})
 
+	It("fails with nil message", func() {
+		var msg proto.Message
+		_, err := MessageToAny(msg)
+		Expect(err).To(MatchError("MessageToAny: message cannot be nil"))
+	})
 })

@@ -4,15 +4,26 @@ import (
 	"context"
 	"reflect"
 
+	"github.com/solo-io/gloo/projects/gloo/pkg/discovery"
+
 	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	"github.com/rotisserie/eris"
 
 	"github.com/solo-io/gloo/projects/gloo/pkg/xds"
 
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
-	"github.com/solo-io/gloo/projects/gloo/pkg/discovery"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/factory"
+)
+
+var (
+	_ plugins.Plugin            = new(plugin)
+	_ plugins.UpstreamPlugin    = new(plugin)
+	_ discovery.DiscoveryPlugin = new(plugin)
+)
+
+const (
+	ExtensionName = "aws_ec2"
 )
 
 /*
@@ -27,42 +38,32 @@ type plugin struct {
 	secretClient v1.SecretClient
 
 	settings *v1.Settings
-
-	// pre-initialization only
-	// we need to register the clients while creating the plugin, otherwise our EDS poll and upstream watch will fail
-	// since Init can be called after our poll begins (race condition) we cannot create the client there
-	// since NewPlugin does not return an error, we will store any non-nil errors from initializing the secret client in the plugin struct
-	// we will check those errors during the Init call
-	constructorErr error
 }
 
-// checks to ensure interfaces are implemented
-var _ plugins.Plugin = new(plugin)
-var _ plugins.UpstreamPlugin = new(plugin)
-var _ discovery.DiscoveryPlugin = new(plugin)
-
-func NewPlugin(ctx context.Context, secretFactory factory.ResourceClientFactory) *plugin {
+func NewPlugin(ctx context.Context, secretFactory factory.ResourceClientFactory) (*plugin, error) {
 	p := &plugin{}
 	var err error
+
 	if secretFactory == nil {
-		p.constructorErr = ConstructorInputError("secret")
-		return p
+		return p, ConstructorInputError("secret")
 	}
 	p.secretClient, err = v1.NewSecretClient(ctx, secretFactory)
 	if err != nil {
-		p.constructorErr = ConstructorGetClientError("secret", err)
-		return p
+		return p, ConstructorGetClientError("secret", err)
 	}
-	if err := p.secretClient.Register(); err != nil {
-		p.constructorErr = ConstructorRegisterClientError("secret", err)
-		return p
+	if err = p.secretClient.Register(); err != nil {
+		return p, ConstructorRegisterClientError("secret", err)
 	}
-	return p
+
+	return p, nil
 }
 
-func (p *plugin) Init(params plugins.InitParams) error {
+func (p *plugin) Name() string {
+	return ExtensionName
+}
+
+func (p *plugin) Init(params plugins.InitParams) {
 	p.settings = params.Settings
-	return p.constructorErr
 }
 
 // we do not need to update any fields, just check that the input is valid

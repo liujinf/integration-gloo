@@ -9,25 +9,36 @@ import (
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/rotisserie/eris"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/protocol"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
 	"github.com/solo-io/solo-kit/pkg/utils/prototime"
+
+	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/utils/httpprotocolhelpers"
 )
 
-var _ plugins.Plugin = new(Plugin)
-var _ plugins.UpstreamPlugin = new(Plugin)
+var (
+	_ plugins.Plugin         = new(plugin)
+	_ plugins.UpstreamPlugin = new(plugin)
+)
 
-type Plugin struct{}
+const (
+	ExtensionName = "upstream_conn"
+)
 
-func NewPlugin() *Plugin {
-	return &Plugin{}
+type plugin struct{}
+
+func NewPlugin() *plugin {
+	return &plugin{}
 }
 
-func (p *Plugin) Init(params plugins.InitParams) error {
-	return nil
+func (p *plugin) Name() string {
+	return ExtensionName
 }
 
-func (p *Plugin) ProcessUpstream(params plugins.Params, in *v1.Upstream, out *envoy_config_cluster_v3.Cluster) error {
+func (p *plugin) Init(_ plugins.InitParams) {
+}
 
+func (p *plugin) ProcessUpstream(params plugins.Params, in *v1.Upstream, out *envoy_config_cluster_v3.Cluster) error {
 	cfg := in.GetConnectionConfig()
 	if cfg == nil {
 		return nil
@@ -54,11 +65,19 @@ func (p *Plugin) ProcessUpstream(params plugins.Params, in *v1.Upstream, out *en
 	}
 
 	if cfg.GetCommonHttpProtocolOptions() != nil {
-		commonHttpProtocolOptions, err := convertHttpProtocolOptions(cfg.GetCommonHttpProtocolOptions())
+		commonHttpProtocolOptions, err := convertHttpProtocolOptions(*cfg.GetCommonHttpProtocolOptions())
 		if err != nil {
 			return err
 		}
 		out.CommonHttpProtocolOptions = commonHttpProtocolOptions
+	}
+
+	if cfg.GetHttp1ProtocolOptions() != nil {
+		http1ProtocolOptions, err := httpprotocolhelpers.ConvertHttp1(*cfg.GetHttp1ProtocolOptions())
+		if err != nil {
+			return err
+		}
+		out.HttpProtocolOptions = http1ProtocolOptions
 	}
 
 	return nil
@@ -78,7 +97,7 @@ func convertTcpKeepAlive(tcp *v1.ConnectionConfig_TcpKeepAlive) *envoy_config_co
 	}
 }
 
-func convertHttpProtocolOptions(hpo *v1.ConnectionConfig_HttpProtocolOptions) (*envoy_config_core_v3.HttpProtocolOptions, error) {
+func convertHttpProtocolOptions(hpo protocol.HttpProtocolOptions) (*envoy_config_core_v3.HttpProtocolOptions, error) {
 	out := &envoy_config_core_v3.HttpProtocolOptions{}
 
 	if hpo.GetIdleTimeout() != nil {
@@ -94,11 +113,11 @@ func convertHttpProtocolOptions(hpo *v1.ConnectionConfig_HttpProtocolOptions) (*
 	}
 
 	switch hpo.GetHeadersWithUnderscoresAction() {
-	case v1.ConnectionConfig_HttpProtocolOptions_ALLOW:
+	case protocol.HttpProtocolOptions_ALLOW:
 		out.HeadersWithUnderscoresAction = envoy_config_core_v3.HttpProtocolOptions_ALLOW
-	case v1.ConnectionConfig_HttpProtocolOptions_REJECT_REQUEST:
+	case protocol.HttpProtocolOptions_REJECT_REQUEST:
 		out.HeadersWithUnderscoresAction = envoy_config_core_v3.HttpProtocolOptions_REJECT_REQUEST
-	case v1.ConnectionConfig_HttpProtocolOptions_DROP_HEADER:
+	case protocol.HttpProtocolOptions_DROP_HEADER:
 		out.HeadersWithUnderscoresAction = envoy_config_core_v3.HttpProtocolOptions_DROP_HEADER
 	default:
 		return &envoy_config_core_v3.HttpProtocolOptions{},

@@ -6,6 +6,7 @@ option go_package = "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/wa
 import "extproto/ext.proto";
 option (extproto.equal_all) = true;
 option (extproto.hash_all) = true;
+option (extproto.clone_all) = true;
 
 import "google/protobuf/any.proto";
 
@@ -55,6 +56,9 @@ message WasmFilter {
 
     // selected VM type
     VmType vm_type = 7;
+
+    // when true, bypass the filter if there is a fatal error on the VM; defaults to false
+    bool fail_open = 9;
 }
 
 

@@ -3,12 +3,19 @@ package kube2e
 import (
 	"context"
 	"io/ioutil"
-	"net/http"
 	"os"
-	"os/exec"
-	"regexp"
-	"strconv"
+	"path/filepath"
+	"runtime"
 	"time"
+
+	"github.com/onsi/ginkgo/v2"
+	"github.com/solo-io/go-utils/stats"
+
+	"github.com/solo-io/gloo/test/gomega/assertions"
+
+	"github.com/solo-io/gloo/test/kube2e/upgrade"
+
+	"go.uber.org/zap/zapcore"
 
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/solo-io/gloo/projects/gloo/cli/pkg/cmd/check"
@@ -25,6 +32,14 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+func GetHttpEchoImage() string {
+	httpEchoImage := "hashicorp/http-echo"
+	if runtime.GOARCH == "arm64" {
+		httpEchoImage = "gcr.io/solo-test-236622/http-echo"
+	}
+	return httpEchoImage
+}
+
 func MustKubeClient() kubernetes.Interface {
 	restConfig, err := kubeutils.GetConfig("", "")
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
@@ -33,143 +48,83 @@ func MustKubeClient() kubernetes.Interface {
 	return kubeClient
 }
 
-// Check that everything is OK by running `glooctl check`
+// GlooctlCheckEventuallyHealthy will run up until proved timeoutInterval or until gloo is reported as healthy
 func GlooctlCheckEventuallyHealthy(offset int, testHelper *helper.SoloTestHelper, timeoutInterval string) {
 	EventuallyWithOffset(offset, func() error {
+		contextWithCancel, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		opts := &options.Options{
 			Metadata: core.Metadata{
 				Namespace: testHelper.InstallNamespace,
 			},
 			Top: options.Top{
-				Ctx: context.Background(),
+				Ctx: contextWithCancel,
 			},
 		}
 		err := check.CheckResources(opts)
 		if err != nil {
-			return errors.New("glooctl check detected a problem with the installation")
+			return errors.Wrap(err, "glooctl check detected a problem with the installation")
 		}
 		return nil
 	}, timeoutInterval, "5s").Should(BeNil())
 }
 
-func GetHelmValuesOverrideFile() (filename string, cleanup func()) {
-	values, err := ioutil.TempFile("", "values-*.yaml")
-	Expect(err).NotTo(HaveOccurred())
-
-	// disabling usage statistics is not important to the functionality of the tests,
-	// but we don't want to report usage in CI since we only care about how our users are actually using Gloo.
-	// install to a single namespace so we can run multiple invocations of the regression tests against the
-	// same cluster in CI.
-	_, err = values.Write([]byte(`
-global:
-  image:
-    pullPolicy: IfNotPresent
-  glooRbac:
-    namespaced: true
-    nameSuffix: e2e-test-rbac-suffix
-settings:
-  singleNamespace: true
-  create: true
-  replaceInvalidRoutes: true
-gatewayProxies:
-  gatewayProxy:
-    healthyPanicThreshold: 0
-`))
-	Expect(err).NotTo(HaveOccurred())
-
-	err = values.Close()
-	Expect(err).NotTo(HaveOccurred())
-
-	return values.Name(), func() { _ = os.Remove(values.Name()) }
-}
-
 func EventuallyReachesConsistentState(installNamespace string) {
-	metricsPort := strconv.Itoa(9091)
-	portFwd := exec.Command("kubectl", "port-forward", "-n", installNamespace,
-		"deployment/gloo", metricsPort)
-	portFwd.Stdout = os.Stderr
-	portFwd.Stderr = os.Stderr
-	err := portFwd.Start()
-	Expect(err).ToNot(HaveOccurred())
+	// We port-forward the Gloo deployment stats port to inspect the metrics and log settings
+	glooStatsForwardConfig := assertions.StatsPortFwd{
+		ResourceName:      "deployment/gloo",
+		ResourceNamespace: installNamespace,
+		LocalPort:         stats.DefaultPort,
+		TargetPort:        stats.DefaultPort,
+	}
 
-	defer func() {
-		if portFwd.Process != nil {
-			portFwd.Process.Kill()
-		}
-	}()
+	// Gloo components are configured to log to the Info level by default
+	logLevelAssertion := assertions.LogLevelAssertion(zapcore.InfoLevel)
 
-	// make sure we eventually reach an eventually consistent state
-	lastSnapOut := getSnapOut(metricsPort)
+	// The emitter at some point should stabilize and not continue to increase the number of snapshots produced
+	// We choose 4 here as a bit of a magic number, but we feel comfortable that if 4 consecutive polls of the metrics
+	// endpoint returns that same value, then we have stabilized
+	identicalResultInARow := 4
+	emitterMetricAssertion, _ := assertions.IntStatisticReachesConsistentValueAssertion("api_gloosnapshot_gloo_solo_io_emitter_snap_out", identicalResultInARow)
 
-	eventuallyConsistentPollingInterval := 7 * time.Second // >= 5s for metrics reporting, which happens every 5s
-	time.Sleep(eventuallyConsistentPollingInterval)
-
-	Eventually(func() bool {
-		currentSnapOut := getSnapOut(metricsPort)
-		consistent := lastSnapOut == currentSnapOut
-		lastSnapOut = currentSnapOut
-		return consistent
-	}, "30s", eventuallyConsistentPollingInterval).Should(Equal(true))
-
-	Consistently(func() string {
-		currentSnapOut := getSnapOut(metricsPort)
-		return currentSnapOut
-	}, "30s", eventuallyConsistentPollingInterval).Should(Equal(lastSnapOut))
-}
-
-// needs a port-forward of the metrics port before a call to this will work
-func getSnapOut(metricsPort string) string {
-	var bodyResp string
-	Eventually(func() string {
-		res, err := http.Post("http://localhost:"+metricsPort+"/metrics", "", nil)
-		if err != nil || res.StatusCode != 200 {
-			return ""
-		}
-		defer res.Body.Close()
-		body, err := ioutil.ReadAll(res.Body)
-		Expect(err).ToNot(HaveOccurred())
-		bodyResp = string(body)
-		return bodyResp
-	}, "5s", "1s").ShouldNot(BeEmpty())
-
-	Expect(bodyResp).To(ContainSubstring("api_gloo_solo_io_emitter_snap_out"))
-	findSnapOut := regexp.MustCompile("api_gloo_solo_io_emitter_snap_out ([\\d]+)")
-	matches := findSnapOut.FindAllStringSubmatch(bodyResp, -1)
-	Expect(matches).To(HaveLen(1))
-	snapOut := matches[0][1]
-	return snapOut
+	ginkgo.By("Gloo eventually reaches a consistent state")
+	offset := 1 // This method is called directly from a TestSuite
+	assertions.EventuallyWithOffsetStatisticsMatchAssertions(offset, glooStatsForwardConfig,
+		logLevelAssertion.WithOffset(offset),
+		emitterMetricAssertion.WithOffset(offset),
+	)
 }
 
 func UpdateDisableTransformationValidationSetting(ctx context.Context, shouldDisable bool, installNamespace string) {
-	UpdateSettings(func(settings *v1.Settings) {
+	UpdateSettings(ctx, func(settings *v1.Settings) {
 		Expect(settings.GetGateway().GetValidation()).NotTo(BeNil())
 		settings.GetGateway().GetValidation().DisableTransformationValidation = &wrappers.BoolValue{Value: shouldDisable}
-	}, ctx, installNamespace)
+	}, installNamespace)
 }
 
 // enable/disable strict validation
 func UpdateAlwaysAcceptSetting(ctx context.Context, alwaysAccept bool, installNamespace string) {
-	UpdateSettings(func(settings *v1.Settings) {
+	UpdateSettings(ctx, func(settings *v1.Settings) {
 		Expect(settings.GetGateway().GetValidation()).NotTo(BeNil())
 		settings.GetGateway().GetValidation().AlwaysAccept = &wrappers.BoolValue{Value: alwaysAccept}
-	}, ctx, installNamespace)
+	}, installNamespace)
 }
 
 func UpdateRestEdsSetting(ctx context.Context, enableRestEds bool, installNamespace string) {
-	UpdateSettings(func(settings *v1.Settings) {
+	UpdateSettings(ctx, func(settings *v1.Settings) {
 		Expect(settings.GetGloo()).NotTo(BeNil())
 		settings.GetGloo().EnableRestEds = &wrappers.BoolValue{Value: enableRestEds}
-	}, ctx, installNamespace)
+	}, installNamespace)
 }
 
 func UpdateReplaceInvalidRoutes(ctx context.Context, replaceInvalidRoutes bool, installNamespace string) {
-	UpdateSettings(func(settings *v1.Settings) {
+	UpdateSettings(ctx, func(settings *v1.Settings) {
 		Expect(settings.GetGloo().GetInvalidConfigPolicy()).NotTo(BeNil())
 		settings.GetGloo().GetInvalidConfigPolicy().ReplaceInvalidRoutes = replaceInvalidRoutes
-	}, ctx, installNamespace)
+	}, installNamespace)
 }
 
-func UpdateSettings(updateSettings func(settings *v1.Settings), ctx context.Context, installNamespace string) {
+func UpdateSettings(ctx context.Context, updateSettings func(settings *v1.Settings), installNamespace string) {
 	// when validation config changes, the validation server restarts -- give time for it to come up again.
 	// without the wait, the validation webhook may temporarily fallback to it's failurePolicy, which is not
 	// what we want to test.
@@ -192,3 +147,130 @@ func UpdateSettingsWithPropagationDelay(updateSettings func(settings *v1.Setting
 
 	waitForSettingsToPropagate()
 }
+
+func ToFile(content string) string {
+	f, err := ioutil.TempFile("", "")
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	n, err := f.WriteString(content)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	ExpectWithOffset(1, n).To(Equal(len(content)))
+	_ = f.Close()
+	return f.Name()
+}
+
+// https://github.com/solo-io/gloo/issues/4043#issuecomment-772706604
+// We should move tests away from using the testrunner, and instead depend on EphemeralContainers.
+// The default response changed in later kube versions, which caused this value to change.
+// Ideally the test utilities used by Gloo are maintained in the Gloo repo, so I opted to move
+// this constant here.
+// This response is given by the testrunner when the SimpleServer is started
+func GetSimpleTestRunnerHttpResponse() string {
+	if runtime.GOARCH == "arm64" {
+		return SimpleTestRunnerHttpResponseArm
+	} else {
+		return SimpleTestRunnerHttpResponse
+	}
+}
+
+// For nightly runs, we want to install a released version rather than using a locally built chart
+// To do this, set the environment variable RELEASED_VERSION with either a version name or "LATEST" to get the last release
+func GetTestReleasedVersion(ctx context.Context, repoName string) string {
+	var useVersion string
+	if useVersion = os.Getenv("RELEASED_VERSION"); useVersion != "" {
+		if useVersion == "LATEST" {
+			_, current, err := upgrade.GetUpgradeVersions(ctx, repoName)
+			Expect(err).NotTo(HaveOccurred())
+			useVersion = current.String()
+		}
+	}
+	return useVersion
+}
+func GetTestHelper(ctx context.Context, namespace string) (*helper.SoloTestHelper, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	if useVersion := GetTestReleasedVersion(ctx, "gloo"); useVersion != "" {
+		return helper.NewSoloTestHelper(func(defaults helper.TestConfig) helper.TestConfig {
+			defaults.RootDir = filepath.Join(cwd, "../../..")
+			defaults.HelmChartName = "gloo"
+			defaults.InstallNamespace = namespace
+			defaults.ReleasedVersion = useVersion
+			defaults.Verbose = true
+			return defaults
+		})
+	} else {
+		return helper.NewSoloTestHelper(func(defaults helper.TestConfig) helper.TestConfig {
+			defaults.RootDir = filepath.Join(cwd, "../../..")
+			defaults.HelmChartName = "gloo"
+			defaults.InstallNamespace = namespace
+			defaults.Verbose = true
+			return defaults
+		})
+	}
+}
+
+const SimpleTestRunnerHttpResponse = `<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 3.2 Final//EN"><html>
+<title>Directory listing for /</title>
+<body>
+<h2>Directory listing for /</h2>
+<hr>
+<ul>
+<li><a href="bin/">bin/</a>
+<li><a href="boot/">boot/</a>
+<li><a href="dev/">dev/</a>
+<li><a href="etc/">etc/</a>
+<li><a href="home/">home/</a>
+<li><a href="lib/">lib/</a>
+<li><a href="lib64/">lib64/</a>
+<li><a href="media/">media/</a>
+<li><a href="mnt/">mnt/</a>
+<li><a href="opt/">opt/</a>
+<li><a href="proc/">proc/</a>
+<li><a href="product_name">product_name</a>
+<li><a href="product_uuid">product_uuid</a>
+<li><a href="root/">root/</a>
+<li><a href="root.crt">root.crt</a>
+<li><a href="run/">run/</a>
+<li><a href="sbin/">sbin/</a>
+<li><a href="srv/">srv/</a>
+<li><a href="sys/">sys/</a>
+<li><a href="tmp/">tmp/</a>
+<li><a href="usr/">usr/</a>
+<li><a href="var/">var/</a>
+</ul>
+<hr>
+</body>
+</html>`
+
+const SimpleTestRunnerHttpResponseArm = `<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 3.2 Final//EN"><html>
+<title>Directory listing for /</title>
+<body>
+<h2>Directory listing for /</h2>
+<hr>
+<ul>
+<li><a href="bin/">bin/</a>
+<li><a href="boot/">boot/</a>
+<li><a href="dev/">dev/</a>
+<li><a href="etc/">etc/</a>
+<li><a href="home/">home/</a>
+<li><a href="lib/">lib/</a>
+<li><a href="lib64/">lib64/</a>
+<li><a href="media/">media/</a>
+<li><a href="mnt/">mnt/</a>
+<li><a href="opt/">opt/</a>
+<li><a href="proc/">proc/</a>
+<li><a href="product_uuid">product_uuid</a>
+<li><a href="root/">root/</a>
+<li><a href="root.crt">root.crt</a>
+<li><a href="run/">run/</a>
+<li><a href="sbin/">sbin/</a>
+<li><a href="srv/">srv/</a>
+<li><a href="sys/">sys/</a>
+<li><a href="tmp/">tmp/</a>
+<li><a href="usr/">usr/</a>
+<li><a href="var/">var/</a>
+</ul>
+<hr>
+</body>
+</html>`

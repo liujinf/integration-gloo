@@ -40,6 +40,9 @@ weight: 5
 - [TcpHostReport](#tcphostreport)
 - [Error](#error)
 - [Type](#type)
+- [HybridListenerReport](#hybridlistenerreport)
+- [MatchedListenerReport](#matchedlistenerreport)
+- [AggregateListenerReport](#aggregatelistenerreport)
   
 
 
@@ -112,12 +115,14 @@ weight: 5
 
 ```yaml
 "upstreamRefs": []core.solo.io.ResourceRef
+"secretRefs": []core.solo.io.ResourceRef
 
 ```
 
 | Field | Type | Description |
 | ----- | ---- | ----------- | 
 | `upstreamRefs` | [[]core.solo.io.ResourceRef](../../../../../../../solo-kit/api/v1/ref.proto.sk/#resourceref) | Optional, a list of the upstreams to delete. |
+| `secretRefs` | [[]core.solo.io.ResourceRef](../../../../../../../solo-kit/api/v1/ref.proto.sk/#resourceref) | Optional, a list of the secrets to delete. |
 
 
 
@@ -227,14 +232,18 @@ If the report contains no errors, the (sub-)resource is valid.
 "errors": []gloo.solo.io.ListenerReport.Error
 "httpListenerReport": .gloo.solo.io.HttpListenerReport
 "tcpListenerReport": .gloo.solo.io.TcpListenerReport
+"hybridListenerReport": .gloo.solo.io.HybridListenerReport
+"aggregateListenerReport": .gloo.solo.io.AggregateListenerReport
 
 ```
 
 | Field | Type | Description |
 | ----- | ---- | ----------- | 
 | `errors` | [[]gloo.solo.io.ListenerReport.Error](../gloo_validation.proto.sk/#error) | errors on top-level config of the listener. |
-| `httpListenerReport` | [.gloo.solo.io.HttpListenerReport](../gloo_validation.proto.sk/#httplistenerreport) | report for the http listener. Only one of `httpListenerReport` or `tcpListenerReport` can be set. |
-| `tcpListenerReport` | [.gloo.solo.io.TcpListenerReport](../gloo_validation.proto.sk/#tcplistenerreport) | report for the tcp listener. Only one of `tcpListenerReport` or `httpListenerReport` can be set. |
+| `httpListenerReport` | [.gloo.solo.io.HttpListenerReport](../gloo_validation.proto.sk/#httplistenerreport) | report for the http listener. Only one of `httpListenerReport`, `tcpListenerReport`, `hybridListenerReport`, or `aggregateListenerReport` can be set. |
+| `tcpListenerReport` | [.gloo.solo.io.TcpListenerReport](../gloo_validation.proto.sk/#tcplistenerreport) | report for the tcp listener. Only one of `tcpListenerReport`, `httpListenerReport`, `hybridListenerReport`, or `aggregateListenerReport` can be set. |
+| `hybridListenerReport` | [.gloo.solo.io.HybridListenerReport](../gloo_validation.proto.sk/#hybridlistenerreport) | report for the hybrid listener. Only one of `hybridListenerReport`, `httpListenerReport`, `tcpListenerReport`, or `aggregateListenerReport` can be set. |
+| `aggregateListenerReport` | [.gloo.solo.io.AggregateListenerReport](../gloo_validation.proto.sk/#aggregatelistenerreport) | report for the aggregate listener. Only one of `aggregateListenerReport`, `httpListenerReport`, `tcpListenerReport`, or `hybridListenerReport` can be set. |
 
 
 
@@ -564,6 +573,60 @@ error types for tcp host config
 | `NameNotUniqueError` |  |
 | `InvalidDestinationError` |  |
 | `ProcessingError` |  |
+
+
+
+
+---
+### HybridListenerReport
+
+
+
+```yaml
+"matchedListenerReports": map<string, .gloo.solo.io.MatchedListenerReport>
+
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
+| `matchedListenerReports` | `map<string, .gloo.solo.io.MatchedListenerReport>` | map key should uniquely identify MatchedListenerReport by matcher. |
+
+
+
+
+---
+### MatchedListenerReport
+
+
+
+```yaml
+"httpListenerReport": .gloo.solo.io.HttpListenerReport
+"tcpListenerReport": .gloo.solo.io.TcpListenerReport
+
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
+| `httpListenerReport` | [.gloo.solo.io.HttpListenerReport](../gloo_validation.proto.sk/#httplistenerreport) |  Only one of `httpListenerReport` or `tcpListenerReport` can be set. |
+| `tcpListenerReport` | [.gloo.solo.io.TcpListenerReport](../gloo_validation.proto.sk/#tcplistenerreport) |  Only one of `tcpListenerReport` or `httpListenerReport` can be set. |
+
+
+
+
+---
+### AggregateListenerReport
+
+ 
+the report for an AggregateListener
+
+```yaml
+"httpListenerReports": map<string, .gloo.solo.io.HttpListenerReport>
+
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
+| `httpListenerReports` | `map<string, .gloo.solo.io.HttpListenerReport>` |  |
 
 
 

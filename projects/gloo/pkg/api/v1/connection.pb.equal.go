@@ -90,6 +90,16 @@ func (m *ConnectionConfig) Equal(that interface{}) bool {
 		}
 	}
 
+	if h, ok := interface{}(m.GetHttp1ProtocolOptions()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetHttp1ProtocolOptions()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetHttp1ProtocolOptions(), target.GetHttp1ProtocolOptions()) {
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -136,58 +146,6 @@ func (m *ConnectionConfig_TcpKeepAlive) Equal(that interface{}) bool {
 		if !proto.Equal(m.GetKeepaliveInterval(), target.GetKeepaliveInterval()) {
 			return false
 		}
-	}
-
-	return true
-}
-
-// Equal function
-func (m *ConnectionConfig_HttpProtocolOptions) Equal(that interface{}) bool {
-	if that == nil {
-		return m == nil
-	}
-
-	target, ok := that.(*ConnectionConfig_HttpProtocolOptions)
-	if !ok {
-		that2, ok := that.(ConnectionConfig_HttpProtocolOptions)
-		if ok {
-			target = &that2
-		} else {
-			return false
-		}
-	}
-	if target == nil {
-		return m == nil
-	} else if m == nil {
-		return false
-	}
-
-	if h, ok := interface{}(m.GetIdleTimeout()).(equality.Equalizer); ok {
-		if !h.Equal(target.GetIdleTimeout()) {
-			return false
-		}
-	} else {
-		if !proto.Equal(m.GetIdleTimeout(), target.GetIdleTimeout()) {
-			return false
-		}
-	}
-
-	if m.GetMaxHeadersCount() != target.GetMaxHeadersCount() {
-		return false
-	}
-
-	if h, ok := interface{}(m.GetMaxStreamDuration()).(equality.Equalizer); ok {
-		if !h.Equal(target.GetMaxStreamDuration()) {
-			return false
-		}
-	} else {
-		if !proto.Equal(m.GetMaxStreamDuration(), target.GetMaxStreamDuration()) {
-			return false
-		}
-	}
-
-	if m.GetHeadersWithUnderscoresAction() != target.GetHeadersWithUnderscoresAction() {
-		return false
 	}
 
 	return true

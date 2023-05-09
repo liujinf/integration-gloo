@@ -23,7 +23,7 @@ glooctl install gateway
 
 Install the petstore demo
 ```shell script
-kubectl apply -f https://raw.githubusercontent.com/solo-io/gloo/v1.2.9/example/petstore/petstore.yaml
+kubectl apply -f https://raw.githubusercontent.com/solo-io/gloo/v1.11.x/example/petstore/petstore.yaml
 ```
 
 Create a virtual service with routes for `/foo` and `/bar`
@@ -131,7 +131,7 @@ returns
 {"code":404,"message":"path // was not found"}
 ```
 
-To avoid this problem, we (and [Envoy](https://www.envoyproxy.io/docs/envoy/latest/api-v2/api/v2/route/route.proto.html#envoy-api-field-route-routeaction-prefix-rewrite))
+To avoid this problem, we (and [Envoy](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/route/v3/route.proto.html#envoy-api-field-route-routeaction-prefix-rewrite))
 recommend two matchers, one for each case (order matters)
 ```yaml
 kubectl apply -f - << EOF
@@ -180,5 +180,5 @@ returns
 
 ```shell script
 glooctl uninstall
-kubectl delete -f https://raw.githubusercontent.com/solo-io/gloo/v1.2.9/example/petstore/petstore.yaml
+kubectl delete -f https://raw.githubusercontent.com/solo-io/gloo/v1.11.x/example/petstore/petstore.yaml
 ```

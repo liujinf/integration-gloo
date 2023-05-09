@@ -14,6 +14,15 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+var (
+	// Compile-time assertion
+	_ resources.Resource = new(Artifact)
+)
+
+func NewArtifactHashableResource() resources.HashableResource {
+	return new(Artifact)
+}
+
 func NewArtifact(namespace, name string) *Artifact {
 	artifact := &Artifact{}
 	artifact.SetMetadata(&core.Metadata{

@@ -11,24 +11,32 @@ import (
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
 )
 
+var (
+	_ plugins.Plugin           = new(plugin)
+	_ plugins.HttpFilterPlugin = new(plugin)
+)
+
+const (
+	ExtensionName = "health_check"
+)
+
 // filter info
 var pluginStage = plugins.AfterStage(plugins.AuthZStage)
 
-func NewPlugin() *Plugin {
-	return &Plugin{}
+type plugin struct{}
+
+func NewPlugin() *plugin {
+	return &plugin{}
 }
 
-var _ plugins.Plugin = new(Plugin)
-var _ plugins.HttpFilterPlugin = new(Plugin)
-
-type Plugin struct {
+func (p *plugin) Name() string {
+	return ExtensionName
 }
 
-func (p *Plugin) Init(params plugins.InitParams) error {
-	return nil
+func (p *plugin) Init(_ plugins.InitParams) {
 }
 
-func (p *Plugin) HttpFilters(params plugins.Params, listener *v1.HttpListener) ([]plugins.StagedHttpFilter, error) {
+func (p *plugin) HttpFilters(params plugins.Params, listener *v1.HttpListener) ([]plugins.StagedHttpFilter, error) {
 
 	healthCheck := listener.GetOptions().GetHealthCheck()
 
@@ -52,7 +60,7 @@ func (p *Plugin) HttpFilters(params plugins.Params, listener *v1.HttpListener) (
 		}},
 	}
 
-	healthCheckFilter, err := plugins.NewStagedFilterWithConfig(wellknown.HealthCheck, hc, pluginStage)
+	healthCheckFilter, err := plugins.NewStagedFilter(wellknown.HealthCheck, hc, pluginStage)
 	if err != nil {
 		return nil, errors.Wrapf(err, "generating filter config")
 	}

@@ -1,23 +1,27 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
 
-	udpa_type_v1 "github.com/cncf/udpa/go/udpa/type/v1"
-	"github.com/envoyproxy/go-control-plane/pkg/conversion"
 	"github.com/golang/protobuf/proto"
 	gogoproto "github.com/golang/protobuf/proto"
-	goproto "github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	pany "github.com/golang/protobuf/ptypes/any"
 )
 
+// MessageToAny takes any given proto message msg and returns the marshalled bytes of the proto, and a url to the type
+// definition for the proto in the form of a *pany.Any, errors if nil or if the proto type doesnt exist or if there is
+// a marshalling error
 func MessageToAny(msg proto.Message) (*pany.Any, error) {
-
+	if msg == nil {
+		return nil, errors.New("MessageToAny: message cannot be nil")
+	}
 	name, err := protoToMessageName(msg)
 	if err != nil {
 		return nil, err
 	}
+	// Marshalls the message into bytes using the proto library, or gogoproto if proto errors
 	buf, err := protoToMessageBytes(msg)
 	if err != nil {
 		return nil, err
@@ -28,20 +32,13 @@ func MessageToAny(msg proto.Message) (*pany.Any, error) {
 	}, nil
 }
 
-func MustMessageToAny(msg proto.Message) *pany.Any {
-	anymsg, err := MessageToAny(msg)
-	if err != nil {
-		panic(err)
-	}
-	return anymsg
-}
-
 func AnyToMessage(a *pany.Any) (proto.Message, error) {
 	var x ptypes.DynamicAny
 	err := ptypes.UnmarshalAny(a, &x)
 	return x.Message, err
 }
 
+// Deprecated: Use AnyToMessage
 func MustAnyToMessage(a *pany.Any) proto.Message {
 	var x ptypes.DynamicAny
 	err := ptypes.UnmarshalAny(a, &x)
@@ -51,41 +48,12 @@ func MustAnyToMessage(a *pany.Any) proto.Message {
 	return x.Message
 }
 
-// gogoprotos converted directly to goproto any can't be marshalled unless you wrap
-// the contents of the gogoproto in a typed struct
-func MustGogoMessageToAnyGoProto(msg proto.Message) *pany.Any {
-	any, err := GogoMessageToAnyGoProto(msg)
-	if err != nil {
-		panic(err)
-	}
-	return any
-}
-
-// gogoprotos converted directly to goproto any can't be marshalled unless you wrap
-// the contents of the gogoproto in a typed struct
-func GogoMessageToAnyGoProto(msg proto.Message) (*pany.Any, error) {
-	configStruct, err := conversion.MessageToStruct(msg)
-	if err != nil {
-		return nil, err
-	}
-
-	anyGogo := MustMessageToAny(msg)
-
-	// create a typed struct so go proto can handle marshalling any types derived from gogo protos
-	ts := &udpa_type_v1.TypedStruct{Value: configStruct, TypeUrl: anyGogo.GetTypeUrl()}
-	tsAnyGo := MustMessageToAny(ts)
-
-	anyGo := &pany.Any{Value: tsAnyGo.GetValue(), TypeUrl: tsAnyGo.GetTypeUrl()}
-	return anyGo, nil
-}
-
 func protoToMessageName(msg proto.Message) (string, error) {
 	typeUrlPrefix := "type.googleapis.com/"
 
-	if s := gogoproto.MessageName(msg); s != "" {
-		return typeUrlPrefix + s, nil
-	} else if s := goproto.MessageName(msg); s != "" {
-		return typeUrlPrefix + s, nil
+	potentialName := gogoproto.MessageName(msg)
+	if potentialName != "" {
+		return typeUrlPrefix + potentialName, nil
 	}
 	return "", fmt.Errorf("can't determine message name")
 }

@@ -82,6 +82,7 @@ weight: 5
 "tag": string
 "name": string
 "registry": string
+"ossTag": string
 
 ```
 
@@ -90,6 +91,7 @@ weight: 5
 | `tag` | `string` |  |
 | `name` | `string` |  |
 | `registry` | `string` |  |
+| `ossTag` | `string` |  |
 
 
 
@@ -139,7 +141,7 @@ Description: type of gloo server instance
 | Unknown |  |
 | Gateway |  |
 | Ingress |  |
-| Knative |  |
+| Knative | Deprecated: Will not be available in Gloo Edge 1.11 |
 
 
 <!-- Start of HubSpot Embed Code -->

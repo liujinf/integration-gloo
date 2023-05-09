@@ -7,10 +7,12 @@ import (
 	envoyauth "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"github.com/golang/protobuf/ptypes/wrappers"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	core1 "github.com/solo-io/gloo/projects/gloo/pkg/api/external/envoy/api/v2/core"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	v1static "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/static"
+	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/ssl"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
 	"github.com/solo-io/gloo/projects/gloo/pkg/utils"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
@@ -51,8 +53,7 @@ var _ = Describe("Plugin", func() {
 	})
 
 	JustBeforeEach(func() {
-		err := p.Init(initParams)
-		Expect(err).NotTo(HaveOccurred())
+		p.Init(initParams)
 	})
 
 	Context("h2", func() {
@@ -82,9 +83,9 @@ var _ = Describe("Plugin", func() {
 			p.ProcessUpstream(params, upstream, out)
 			Expect(out.GetType()).To(Equal(envoy_config_cluster_v3.Cluster_STATIC))
 			expected := []*envoy_config_endpoint_v3.LocalityLbEndpoints{
-				&envoy_config_endpoint_v3.LocalityLbEndpoints{
+				{
 					LbEndpoints: []*envoy_config_endpoint_v3.LbEndpoint{
-						&envoy_config_endpoint_v3.LbEndpoint{
+						{
 							HostIdentifier: &envoy_config_endpoint_v3.LbEndpoint_Endpoint{
 								Endpoint: &envoy_config_endpoint_v3.Endpoint{
 									Hostname: "1.2.3.4",
@@ -105,7 +106,7 @@ var _ = Describe("Plugin", func() {
 								},
 							},
 						},
-						&envoy_config_endpoint_v3.LbEndpoint{
+						{
 							HostIdentifier: &envoy_config_endpoint_v3.LbEndpoint_Endpoint{
 								Endpoint: &envoy_config_endpoint_v3.Endpoint{
 									Hostname: "2603:3005:b0b:1d00::b7aa",
@@ -153,8 +154,20 @@ var _ = Describe("Plugin", func() {
 			}
 			p.ProcessUpstream(params, upstream, out)
 			Expect(out.LoadAssignment.Endpoints[0].LbEndpoints[0].Metadata.FilterMetadata[AdvancedHttpCheckerName].Fields[PathFieldName].GetStringValue()).To(Equal("/foo"))
+			Expect(out.LoadAssignment.Endpoints[0].LbEndpoints[0].GetEndpoint().GetHealthCheckConfig().GetHostname()).To(Equal(upstreamSpec.Hosts[0].GetAddr()))
 		})
 
+		It("Should prefer top-level health-check hostnames, when available", func() {
+			upstream.HealthChecks = []*core1.HealthCheck{{
+				HealthChecker: &core1.HealthCheck_HttpHealthCheck_{
+					HttpHealthCheck: &core1.HealthCheck_HttpHealthCheck{
+						Host: "test.host.path",
+					},
+				},
+			}}
+			p.ProcessUpstream(params, upstream, out)
+			Expect(out.LoadAssignment.Endpoints[0].LbEndpoints[0].GetEndpoint().GetHealthCheckConfig().GetHostname()).To(Equal("test.host.path"))
+		})
 	})
 
 	Context("load balancing weight config", func() {
@@ -212,9 +225,9 @@ var _ = Describe("Plugin", func() {
 				upstreamSpec.UseTls = true
 				initParams.Settings = &v1.Settings{
 					UpstreamOptions: &v1.UpstreamOptions{
-						SslParameters: &v1.SslParameters{
-							MinimumProtocolVersion: v1.SslParameters_TLSv1_1,
-							MaximumProtocolVersion: v1.SslParameters_TLSv1_2,
+						SslParameters: &ssl.SslParameters{
+							MinimumProtocolVersion: ssl.SslParameters_TLSv1_1,
+							MaximumProtocolVersion: ssl.SslParameters_TLSv1_2,
 							CipherSuites:           []string{"cipher-test"},
 							EcdhCurves:             []string{"ec-dh-test"},
 						},
@@ -236,15 +249,15 @@ var _ = Describe("Plugin", func() {
 		})
 
 		Context("should error while configuring ssl with invalid tls versions in settings.UpstreamOptions", func() {
-			var invalidProtocolVersion v1.SslParameters_ProtocolVersion = 5 // INVALID
+			var invalidProtocolVersion ssl.SslParameters_ProtocolVersion = 5 // INVALID
 
 			BeforeEach(func() {
 				upstreamSpec.UseTls = true
 				initParams.Settings = &v1.Settings{
 					UpstreamOptions: &v1.UpstreamOptions{
-						SslParameters: &v1.SslParameters{
+						SslParameters: &ssl.SslParameters{
 							MinimumProtocolVersion: invalidProtocolVersion,
-							MaximumProtocolVersion: v1.SslParameters_TLSv1_2,
+							MaximumProtocolVersion: ssl.SslParameters_TLSv1_2,
 							CipherSuites:           []string{"cipher-test"},
 							EcdhCurves:             []string{"ec-dh-test"},
 						},
@@ -260,9 +273,11 @@ var _ = Describe("Plugin", func() {
 
 		It("should not override existing tls config", func() {
 			existing := &envoyauth.UpstreamTlsContext{}
+			typedConfig, err := utils.MessageToAny(existing)
+			Expect(err).ToNot(HaveOccurred())
 			out.TransportSocket = &envoy_config_core_v3.TransportSocket{
 				Name:       wellknown.TransportSocketTls,
-				ConfigType: &envoy_config_core_v3.TransportSocket_TypedConfig{TypedConfig: utils.MustMessageToAny(existing)},
+				ConfigType: &envoy_config_core_v3.TransportSocket_TypedConfig{TypedConfig: typedConfig},
 			}
 			upstreamSpec.UseTls = true
 			p.ProcessUpstream(params, upstream, out)

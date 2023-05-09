@@ -10,10 +10,11 @@ import (
 	envoymatcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
 	envoytype "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	extauthv1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/enterprise/options/extauth/v1"
+	v1snap "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/gloosnapshot"
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/static"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
 	. "github.com/solo-io/gloo/projects/gloo/pkg/plugins/extauth"
@@ -102,18 +103,18 @@ var _ = Describe("ExtAuthzConfigGenerator", func() {
 					extauthSettings *extauthv1.Settings
 					initParams      plugins.InitParams
 					params          plugins.Params
-					extauthPlugin   *Plugin
+					extauthPlugin   plugins.HttpFilterPlugin
 					listener        *gloov1.HttpListener
 					ref             core.ResourceRef
 				)
 
 				BeforeEach(func() {
-					extauthPlugin = &Plugin{}
+					extauthPlugin = NewPlugin()
 					ref = core.ResourceRef{
 						Name:      "test",
 						Namespace: "test",
 					}
-					params.Snapshot = &gloov1.ApiSnapshot{
+					params.Snapshot = &v1snap.ApiSnapshot{
 						Upstreams: []*gloov1.Upstream{
 							{
 								Metadata: &core.Metadata{
@@ -309,18 +310,21 @@ var _ = Describe("ExtAuthzConfigGenerator", func() {
 
 					BeforeEach(func() {
 						usRef := upstream.Metadata.Ref()
-
 						defaultSettings = &extauthv1.Settings{
 							ExtauthzServerRef: usRef,
-							HttpService: &extauthv1.HttpService{
-								PathPrefix: "/foo",
-								Request: &extauthv1.HttpService_Request{
-									AllowedHeaders: []string{"allowed-header"},
-									HeadersToAdd:   map[string]string{"header": "add"},
-								},
-								Response: &extauthv1.HttpService_Response{
-									AllowedClientHeaders:   []string{"allowed-client-header"},
-									AllowedUpstreamHeaders: []string{"allowed-upstream-header"},
+							ServiceType: &extauthv1.Settings_HttpService{
+								HttpService: &extauthv1.HttpService{
+									PathPrefix: "/foo",
+									Request: &extauthv1.HttpService_Request{
+										AllowedHeaders:      []string{"allowed-header"},
+										AllowedHeadersRegex: []string{"allowed-header-regex*"},
+										HeadersToAdd:        map[string]string{"header": "add"},
+									},
+									Response: &extauthv1.HttpService_Response{
+										AllowedClientHeaders:           []string{"allowed-client-header"},
+										AllowedUpstreamHeaders:         []string{"allowed-upstream-header"},
+										AllowedUpstreamHeadersToAppend: []string{"allowed-upstream-header-to-append"},
+									},
 								},
 							},
 						}
@@ -334,6 +338,13 @@ var _ = Describe("ExtAuthzConfigGenerator", func() {
 										AllowedHeaders: &envoymatcher.ListStringMatcher{
 											Patterns: []*envoymatcher.StringMatcher{{
 												MatchPattern: &envoymatcher.StringMatcher_Exact{Exact: "allowed-header"},
+											}, {
+												MatchPattern: &envoymatcher.StringMatcher_SafeRegex{SafeRegex: &envoymatcher.RegexMatcher{
+													Regex: "allowed-header-regex*",
+													EngineType: &envoymatcher.RegexMatcher_GoogleRe2{
+														GoogleRe2: &envoymatcher.RegexMatcher_GoogleRE2{},
+													},
+												}},
 											}},
 										},
 										HeadersToAdd: []*envoycore.HeaderValue{{
@@ -352,6 +363,11 @@ var _ = Describe("ExtAuthzConfigGenerator", func() {
 												MatchPattern: &envoymatcher.StringMatcher_Exact{Exact: "allowed-upstream-header"},
 											}},
 										},
+										AllowedUpstreamHeadersToAppend: &envoymatcher.ListStringMatcher{
+											Patterns: []*envoymatcher.StringMatcher{{
+												MatchPattern: &envoymatcher.StringMatcher_Exact{Exact: "allowed-upstream-header-to-append"},
+											}},
+										},
 									},
 									PathPrefix: "/foo",
 									ServerUri: &envoycore.HttpUri{
@@ -359,6 +375,46 @@ var _ = Describe("ExtAuthzConfigGenerator", func() {
 										Uri:     HttpServerUri,
 										HttpUpstreamType: &envoycore.HttpUri_Cluster{
 											Cluster: translator.UpstreamToClusterName(usRef),
+										},
+									},
+								},
+							},
+						}
+					})
+
+					It("uses the expected defaults", func() {
+						filters, err := extAuthzConfigGenerator.GenerateListenerExtAuthzConfig(nil, gloov1.UpstreamList{upstream})
+						Expect(err).NotTo(HaveOccurred())
+						Expect(filters).To(HaveLen(1))
+
+						actualFilterConfig := filters[0]
+						Expect(actualFilterConfig).To(matchers.MatchProto(expectedConfig))
+					})
+				})
+				When("an GRPC service is configured", func() {
+
+					BeforeEach(func() {
+						usRef := upstream.Metadata.Ref()
+						authority := "something.com"
+						defaultSettings = &extauthv1.Settings{
+							ExtauthzServerRef: usRef,
+							ServiceType: &extauthv1.Settings_GrpcService{
+								GrpcService: &extauthv1.GrpcService{
+									Authority: authority,
+								},
+							},
+						}
+
+						expectedConfig = &envoyauth.ExtAuthz{
+							TransportApiVersion:       envoycore.ApiVersion_V3,
+							MetadataContextNamespaces: []string{JWTFilterName},
+							Services: &envoyauth.ExtAuthz_GrpcService{
+								GrpcService: &envoycore.GrpcService{
+									Timeout: DefaultTimeout,
+									TargetSpecifier: &envoycore.GrpcService_EnvoyGrpc_{
+										EnvoyGrpc: &envoycore.GrpcService_EnvoyGrpc{
+											ClusterName: translator.UpstreamToClusterName(usRef),
+											Authority:   authority,
 										},
 									},
 								},

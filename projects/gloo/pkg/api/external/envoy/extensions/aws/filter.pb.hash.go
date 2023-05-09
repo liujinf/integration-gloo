@@ -10,8 +10,8 @@ import (
 	"hash"
 	"hash/fnv"
 
-	"github.com/mitchellh/hashstructure"
 	safe_hasher "github.com/solo-io/protoc-gen-ext/pkg/hasher"
+	"github.com/solo-io/protoc-gen-ext/pkg/hasher/hashstructure"
 )
 
 // ensure the imports are used
@@ -71,6 +71,51 @@ func (m *AWSLambdaPerRoute) Hash(hasher hash.Hash64) (uint64, error) {
 		}
 	}
 
+	err = binary.Write(hasher, binary.LittleEndian, m.GetUnwrapAsAlb())
+	if err != nil {
+		return 0, err
+	}
+
+	if h, ok := interface{}(m.GetTransformerConfig()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("TransformerConfig")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetTransformerConfig(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("TransformerConfig")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	if h, ok := interface{}(m.GetRequestTransformerConfig()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("RequestTransformerConfig")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetRequestTransformerConfig(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("RequestTransformerConfig")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
+	}
+
 	return hasher.Sum64(), nil
 }
 
@@ -111,6 +156,11 @@ func (m *AWSLambdaProtocolExtension) Hash(hasher hash.Hash64) (uint64, error) {
 		return 0, err
 	}
 
+	err = binary.Write(hasher, binary.LittleEndian, m.GetDisableRoleChaining())
+	if err != nil {
+		return 0, err
+	}
+
 	return hasher.Sum64(), nil
 }
 
@@ -125,6 +175,31 @@ func (m *AWSLambdaConfig) Hash(hasher hash.Hash64) (uint64, error) {
 	var err error
 	if _, err = hasher.Write([]byte("envoy.config.filter.http.aws_lambda.v2.github.com/solo-io/gloo/projects/gloo/pkg/api/external/envoy/extensions/aws.AWSLambdaConfig")); err != nil {
 		return 0, err
+	}
+
+	err = binary.Write(hasher, binary.LittleEndian, m.GetPropagateOriginalRouting())
+	if err != nil {
+		return 0, err
+	}
+
+	if h, ok := interface{}(m.GetCredentialRefreshDelay()).(safe_hasher.SafeHasher); ok {
+		if _, err = hasher.Write([]byte("CredentialRefreshDelay")); err != nil {
+			return 0, err
+		}
+		if _, err = h.Hash(hasher); err != nil {
+			return 0, err
+		}
+	} else {
+		if fieldValue, err := hashstructure.Hash(m.GetCredentialRefreshDelay(), nil); err != nil {
+			return 0, err
+		} else {
+			if _, err = hasher.Write([]byte("CredentialRefreshDelay")); err != nil {
+				return 0, err
+			}
+			if err := binary.Write(hasher, binary.LittleEndian, fieldValue); err != nil {
+				return 0, err
+			}
+		}
 	}
 
 	switch m.CredentialsFetcher.(type) {
@@ -173,6 +248,22 @@ func (m *AWSLambdaConfig) Hash(hasher hash.Hash64) (uint64, error) {
 			}
 		}
 
+	}
+
+	return hasher.Sum64(), nil
+}
+
+// Hash function
+func (m *ApiGatewayTransformation) Hash(hasher hash.Hash64) (uint64, error) {
+	if m == nil {
+		return 0, nil
+	}
+	if hasher == nil {
+		hasher = fnv.New64()
+	}
+	var err error
+	if _, err = hasher.Write([]byte("envoy.config.filter.http.aws_lambda.v2.github.com/solo-io/gloo/projects/gloo/pkg/api/external/envoy/extensions/aws.ApiGatewayTransformation")); err != nil {
+		return 0, err
 	}
 
 	return hasher.Sum64(), nil

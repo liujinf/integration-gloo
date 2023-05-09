@@ -11,17 +11,21 @@ spec:
    fdsMode: WHITELIST
  gateway:
    readGatewaysFromAllNamespaces: false
+   isolateVirtualHostsBySslConfig: false
+   enableGatewayController: true
    validation:
      alwaysAccept: true
      allowWarnings: true
+     serverEnabled: true
      disableTransformationValidation: false
      warnRouteShortCircuiting: false
      proxyValidationServerAddr: gloo:9988
-     validationServerGrpcMaxSizeBytes: 4000000
+     validationServerGrpcMaxSizeBytes: 104857600
  gloo:
    enableRestEds: false
    xdsBindAddr: 0.0.0.0:9977
    restXdsBindAddr: 0.0.0.0:9976
+   proxyDebugBindAddr: 0.0.0.0:9966
    disableKubernetesDestinations: false
    disableProxyGarbageCollection: false
    invalidConfigPolicy:
@@ -31,23 +35,21 @@ spec:
  consul:
    datacenter: datacenter
    username: user
-   password: 1234
+   password: password
    token: aToken
    caFile: testCaFile
    caPath: testCaPath
    certFile: testCertFile
    keyFile: testKeyFile
    insecureSkipVerify: true
-   waitTime: 
-     seconds: 12
+   waitTime: 12s
    serviceDiscovery: 
      dataCenters:
        - dc1
        - dc2
    httpAddress: 1.2.3.4
    dnsAddress: 5.6.7.8
-   dnsPollingInterval: 
-     nanos: 5
+   dnsPollingInterval: 5s
  kubernetesArtifactSource: {}
  kubernetesConfigSource: {}
  kubernetesSecretSource: {}

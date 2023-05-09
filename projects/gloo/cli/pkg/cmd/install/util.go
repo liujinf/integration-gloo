@@ -37,6 +37,7 @@ func init() {
 
 	GlooCrdNames = []string{
 		"gateways.gateway.solo.io",
+		"httpgateways.gateway.solo.io",
 		"proxies.gloo.solo.io",
 		"settings.gloo.solo.io",
 		"upstreams.gloo.solo.io",
@@ -47,11 +48,13 @@ func init() {
 		"ratelimitconfigs.ratelimit.solo.io",
 		"virtualhostoptions.gateway.solo.io",
 		"routeoptions.gateway.solo.io",
+		"graphqlapis.graphql.gloo.solo.io",
 		// gloo-fed CRDs:
 		"glooinstances.fed.solo.io",
 		"failoverschemes.fed.solo.io",
 		"federatedauthconfigs.fed.enterprise.gloo.solo.io",
 		"federatedgateways.fed.gateway.solo.io",
+		"federatedmatchablehttpgateways.fed.gateway.solo.io",
 		"federatedroutetables.fed.gateway.solo.io",
 		"federatedsettings.fed.gloo.solo.io",
 		"federatedupstreamgroups.fed.gloo.solo.io",

@@ -1,6 +1,6 @@
 {{- define "ingressProxy.deploymentSpec"}}
 {{- if .Values.ingress.enabled }}
-{{- $image := .Values.gateway.deployment.image }}
+{{- $image := .Values.ingressProxy.deployment.image }}
 {{- if .Values.global  }}
 {{- $image = merge .Values.ingressProxy.deployment.image .Values.global.image }}
 {{- end }}
@@ -26,15 +26,15 @@ spec:
         {{ $key }}: {{ $value | quote }}
         {{- end }}
         {{- end }}
+        {{- if .Values.global.istioIntegration.disableAutoinjection }}
+        sidecar.istio.io/inject: "false"
+        {{- end }}
       {{- if or .Values.ingressProxy.deployment.extraAnnotations .Values.global.istioIntegration.disableAutoinjection }}
       annotations:
         {{- if .Values.ingressProxy.deployment.extraAnnotations }}
         {{- range $key, $value := .Values.ingressProxy.deployment.extraAnnotations }}
         {{ $key }}: {{ $value | quote }}
         {{- end }}
-        {{- end }}
-        {{- if .Values.global.istioIntegration.disableAutoinjection }}
-        sidecar.istio.io/inject: "false"
         {{- end }}
       {{- end }}
     spec:

@@ -11,6 +11,7 @@ option go_package = "github.com/solo-io/gloo/projects/gloo/pkg/api/grpc/validati
 
 option (extproto.equal_all) = true;
 option (extproto.hash_all) = true;
+option (extproto.clone_all) = true;
 
 // The gloo validation service validates gloo resources for clients against current snapshot resources
 service GlooValidationService {
@@ -52,6 +53,8 @@ message ModifiedResources {
 message DeletedResources {
     // Optional, a list of the upstreams to delete.
     repeated core.solo.io.ResourceRef upstream_refs = 1;
+    // Optional, a list of the secrets to delete.
+    repeated core.solo.io.ResourceRef secret_refs = 2;
     // TODO when we support other resource types, add them here
 }
 
@@ -126,6 +129,10 @@ message ListenerReport {
         HttpListenerReport http_listener_report = 3;
         // report for the tcp listener
         TcpListenerReport tcp_listener_report = 4;
+        // report for the hybrid listener
+        HybridListenerReport hybrid_listener_report = 5;
+        // report for the aggregate listener
+        AggregateListenerReport aggregate_listener_report = 6;
     }
 }
 
@@ -241,4 +248,21 @@ message TcpHostReport {
 
     // errors on the tcp host
     repeated Error errors = 2;
+}
+
+message HybridListenerReport {
+    // map key should uniquely identify MatchedListenerReport by matcher
+    map<string,MatchedListenerReport> matched_listener_reports = 1;
+}
+
+message MatchedListenerReport {
+    oneof ListenerReportType {
+        HttpListenerReport http_listener_report = 1;
+        TcpListenerReport tcp_listener_report = 2;
+    }
+}
+
+// the report for an AggregateListener
+message AggregateListenerReport {
+    map<string, HttpListenerReport> http_listener_reports = 1;
 }

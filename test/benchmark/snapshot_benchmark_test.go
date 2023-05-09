@@ -5,6 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 
+	gloo_matchers "github.com/solo-io/gloo/test/gomega/matchers"
+
+	v1snap "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/gloosnapshot"
+
+	v3 "github.com/solo-io/gloo/projects/gloo/pkg/api/external/envoy/config/core/v3"
+
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/solo-io/gloo/projects/gateway/pkg/defaults"
@@ -15,16 +21,15 @@ import (
 	"github.com/solo-io/gloo/projects/gloo/pkg/translator"
 	glooutils "github.com/solo-io/gloo/projects/gloo/pkg/utils"
 	validationutils "github.com/solo-io/gloo/projects/gloo/pkg/utils/validation"
-	matchers2 "github.com/solo-io/gloo/test/matchers"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/factory"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/memory"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 
-	"github.com/mitchellh/hashstructure"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	"github.com/solo-io/gloo/test/helpers"
+	"github.com/solo-io/protoc-gen-ext/pkg/hasher/hashstructure"
 	"github.com/solo-io/solo-kit/pkg/utils/protoutils"
 )
 
@@ -131,7 +136,7 @@ var _ = Describe("SnapshotBenchmark", func() {
 
 			params = plugins.Params{
 				Ctx: context.TODO(),
-				Snapshot: &v1.ApiSnapshot{
+				Snapshot: &v1snap.ApiSnapshot{
 					Endpoints: endpoints,
 					Upstreams: allUpstreams,
 				},
@@ -156,11 +161,10 @@ var _ = Describe("SnapshotBenchmark", func() {
 		BeforeEach(beforeEach)
 
 		JustBeforeEach(func() {
-			getPlugins := func() []plugins.Plugin {
-				return registeredPlugins
-			}
-			fnvTranslator = translator.NewTranslatorWithHasher(glooutils.NewSslConfigTranslator(), settings, getPlugins, translator.EnvoyCacheResourcesListToFnvHash)
-			hashstructureTranslator = translator.NewTranslatorWithHasher(glooutils.NewSslConfigTranslator(), settings, getPlugins, translator.EnvoyCacheResourcesListToHash)
+			pluginRegistry := registry.NewPluginRegistry(registeredPlugins)
+
+			fnvTranslator = translator.NewTranslatorWithHasher(glooutils.NewSslConfigTranslator(), settings, pluginRegistry, translator.EnvoyCacheResourcesListToFnvHash)
+			hashstructureTranslator = translator.NewTranslatorWithHasher(glooutils.NewSslConfigTranslator(), settings, pluginRegistry, translator.EnvoyCacheResourcesListToFnvHash)
 
 			httpListener := &v1.Listener{
 				Name:        "http-listener",
@@ -198,6 +202,68 @@ var _ = Describe("SnapshotBenchmark", func() {
 					},
 				},
 			}
+			hybridListener := &v1.Listener{
+				Name:        "hybrid-listener",
+				BindAddress: "127.0.0.1",
+				BindPort:    8081,
+				ListenerType: &v1.Listener_HybridListener{
+					HybridListener: &v1.HybridListener{
+						MatchedListeners: []*v1.MatchedListener{
+							{
+								Matcher: &v1.Matcher{
+									SourcePrefixRanges: []*v3.CidrRange{
+										{
+											AddressPrefix: "0.0.0.0",
+											PrefixLen: &wrappers.UInt32Value{
+												Value: 1,
+											},
+										},
+									},
+								},
+								ListenerType: &v1.MatchedListener_HttpListener{
+									HttpListener: &v1.HttpListener{
+										VirtualHosts: []*v1.VirtualHost{{
+											Name:    "virt1",
+											Domains: []string{"*"},
+											Routes:  routes,
+										}},
+									},
+								},
+							},
+							{
+								Matcher: &v1.Matcher{
+									SourcePrefixRanges: []*v3.CidrRange{
+										{
+											AddressPrefix: "255.0.0.0",
+											PrefixLen: &wrappers.UInt32Value{
+												Value: 1,
+											},
+										},
+									},
+								},
+								ListenerType: &v1.MatchedListener_TcpListener{
+									TcpListener: &v1.TcpListener{
+										TcpHosts: []*v1.TcpHost{
+											{
+												Destination: &v1.TcpHost_TcpAction{
+													Destination: &v1.TcpHost_TcpAction_Single{
+														Single: &v1.Destination{
+															DestinationType: &v1.Destination_Upstream{
+																Upstream: upName.Ref(),
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+
 			proxy = &v1.Proxy{
 				Metadata: &core.Metadata{
 					Name:      "test",
@@ -206,6 +272,7 @@ var _ = Describe("SnapshotBenchmark", func() {
 				Listeners: []*v1.Listener{
 					httpListener,
 					tcpListener,
+					hybridListener,
 				},
 			}
 		})
@@ -215,18 +282,16 @@ var _ = Describe("SnapshotBenchmark", func() {
 			proxyClone.GetListeners()[0].Options = &v1.ListenerOptions{PerConnectionBufferLimitBytes: &wrappers.UInt32Value{Value: 4096}}
 
 			b.Time(fmt.Sprintf("runtime of fnv hash translate"), func() {
-				snap, errs, report, err := fnvTranslator.Translate(params, proxyClone)
-				Expect(err).NotTo(HaveOccurred())
+				snap, errs, report := fnvTranslator.Translate(params, proxyClone)
 				Expect(errs.Validate()).NotTo(HaveOccurred())
 				Expect(snap).NotTo(BeNil())
-				Expect(report).To(matchers2.BeEquivalentToDiff(validationutils.MakeReport(proxy)))
+				Expect(report).To(gloo_matchers.BeEquivalentToDiff(validationutils.MakeReport(proxy)))
 			})
 			b.Time(fmt.Sprintf("runtime of hashstructure translate"), func() {
-				snap, errs, report, err := hashstructureTranslator.Translate(params, proxyClone)
-				Expect(err).NotTo(HaveOccurred())
+				snap, errs, report := hashstructureTranslator.Translate(params, proxyClone)
 				Expect(errs.Validate()).NotTo(HaveOccurred())
 				Expect(snap).NotTo(BeNil())
-				Expect(report).To(matchers2.BeEquivalentToDiff(validationutils.MakeReport(proxy)))
+				Expect(report).To(gloo_matchers.BeEquivalentToDiff(validationutils.MakeReport(proxy)))
 			})
 		}, 15)
 	})

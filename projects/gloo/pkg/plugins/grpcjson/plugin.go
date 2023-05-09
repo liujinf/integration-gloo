@@ -1,54 +1,129 @@
 package grpcjson
 
 import (
+	"context"
+	"encoding/base64"
+
+	"github.com/solo-io/go-utils/contextutils"
+
+	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	glooplugins "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options"
+
 	envoy_extensions_filters_http_grpc_json_transcoder_v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/grpc_json_transcoder/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"github.com/rotisserie/eris"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/gloosnapshot"
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/grpc_json"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
+)
+
+var (
+	_ plugins.Plugin           = new(plugin)
+	_ plugins.UpstreamPlugin   = new(plugin)
+	_ plugins.HttpFilterPlugin = new(plugin)
+
+	NoConfigMapRefError = func() error {
+		return eris.Errorf("a configmap ref must be provided")
+	}
+	ConfigMapNotFoundError = func(configRef *grpc_json.GrpcJsonTranscoder_DescriptorConfigMap) error {
+		return eris.Errorf("configmap %s:%s cannot be found", configRef.GetConfigMapRef().GetNamespace(), configRef.GetConfigMapRef().GetName())
+	}
+	ConfigMapNoValuesError = func(configRef *grpc_json.GrpcJsonTranscoder_DescriptorConfigMap) error {
+		return eris.Errorf("configmap %s:%s does not contain any values", configRef.GetConfigMapRef().GetNamespace(), configRef.GetConfigMapRef().GetName())
+	}
+	NoConfigMapKeyError = func(configRef *grpc_json.GrpcJsonTranscoder_DescriptorConfigMap, numValues int) error {
+		return eris.Errorf("key must be provided for configmap %s:%s which contains %d values",
+			configRef.GetConfigMapRef().GetNamespace(), configRef.GetConfigMapRef().GetName(), numValues)
+	}
+	NoDataError = func(configRef *grpc_json.GrpcJsonTranscoder_DescriptorConfigMap, key string) error {
+		return eris.Errorf("configmap %s:%s does not contain a value for key %s", configRef.GetConfigMapRef().GetNamespace(), configRef.GetConfigMapRef().GetName(), key)
+	}
+	DecodingError = func(configRef *grpc_json.GrpcJsonTranscoder_DescriptorConfigMap, key string) error {
+		return eris.Errorf("config map %s:%s contains a value for key %s but is not base64-encoded",
+			configRef.GetConfigMapRef().GetNamespace(), configRef.GetConfigMapRef().GetName(), key)
+	}
+)
+
+const (
+	// ExtensionName for the grpc to json Transcoder plugin
+	ExtensionName = "gprc_json"
 )
 
 // filter info
 var pluginStage = plugins.BeforeStage(plugins.OutAuthStage)
 
-func NewPlugin() *Plugin {
-	return &Plugin{}
+type plugin struct {
+	upstreamFilters []plugins.StagedHttpFilter
 }
 
-var _ plugins.Plugin = new(Plugin)
-var _ plugins.HttpFilterPlugin = new(Plugin)
-
-type Plugin struct {
+func NewPlugin() *plugin {
+	return &plugin{}
 }
 
-func (p *Plugin) Init(params plugins.InitParams) error {
-	return nil
+func (p *plugin) Name() string {
+	return ExtensionName
 }
 
-func (p *Plugin) HttpFilters(params plugins.Params, listener *v1.HttpListener) ([]plugins.StagedHttpFilter, error) {
-	grpcJsonConf := listener.GetOptions().GetGrpcJsonTranscoder()
-	if grpcJsonConf == nil {
-		return nil, nil
+func (p *plugin) Init(_ plugins.InitParams) {
+	p.upstreamFilters = nil
+}
+func (p *plugin) ProcessUpstream(params plugins.Params, in *v1.Upstream, out *envoy_config_cluster_v3.Cluster) error {
+
+	upstreamType, ok := in.GetUpstreamType().(v1.ServiceSpecGetter)
+	if !ok {
+		return nil
 	}
 
-	envoyGrpcJsonConf, err := translateGlooToEnvoyGrpcJson(grpcJsonConf)
+	if upstreamType.GetServiceSpec() == nil {
+		return nil
+	}
+
+	grpcJsonConf, ok := upstreamType.GetServiceSpec().GetPluginType().(*glooplugins.ServiceSpec_GrpcJsonTranscoder)
+	if !ok {
+		return nil
+	}
+	envoyGrpcJsonConf, err := translateGlooToEnvoyGrpcJson(params, grpcJsonConf.GrpcJsonTranscoder)
+	if err != nil {
+		return err
+	}
+	// Discovery will create an empty serviceSpec if the service does not provide descriptors which does not warrant a filter.
+	if envoyGrpcJsonConf.GetDescriptorSet() == nil {
+		return nil
+	}
+	grpcJsonFilter, err := plugins.NewStagedFilter(wellknown.GRPCJSONTranscoder, envoyGrpcJsonConf, pluginStage)
+	p.upstreamFilters = append(p.upstreamFilters, grpcJsonFilter)
+	// GRPC transcoding always requires http2
+	if out.GetHttp2ProtocolOptions() == nil {
+		out.Http2ProtocolOptions = &envoy_config_core_v3.Http2ProtocolOptions{}
+	}
+	return nil
+}
+func (p *plugin) HttpFilters(params plugins.Params, listener *v1.HttpListener) ([]plugins.StagedHttpFilter, error) {
+	grpcJsonConf := listener.GetOptions().GetGrpcJsonTranscoder()
+	if grpcJsonConf == nil {
+		contextutils.LoggerFrom(params.Ctx).Infof("returning filters from us %v", len(p.upstreamFilters))
+		return p.upstreamFilters, nil
+	}
+
+	envoyGrpcJsonConf, err := translateGlooToEnvoyGrpcJson(params, grpcJsonConf)
 	if err != nil {
 		return nil, err
 	}
 
-	grpcJsonFilter, err := plugins.NewStagedFilterWithConfig(wellknown.GRPCJSONTranscoder, envoyGrpcJsonConf, pluginStage)
+	grpcJsonFilter, err := plugins.NewStagedFilter(wellknown.GRPCJSONTranscoder, envoyGrpcJsonConf, pluginStage)
 	if err != nil {
 		return nil, eris.Wrapf(err, "generating filter config")
 	}
-
-	return []plugins.StagedHttpFilter{grpcJsonFilter}, nil
+	contextutils.LoggerFrom(params.Ctx).Infof("found json filters %v", len(p.upstreamFilters))
+	return append(p.upstreamFilters, grpcJsonFilter), nil
 }
 
-func translateGlooToEnvoyGrpcJson(grpcJsonConf *grpc_json.GrpcJsonTranscoder) (*envoy_extensions_filters_http_grpc_json_transcoder_v3.GrpcJsonTranscoder, error) {
+func translateGlooToEnvoyGrpcJson(params plugins.Params, grpcJsonConf *grpc_json.GrpcJsonTranscoder) (*envoy_extensions_filters_http_grpc_json_transcoder_v3.GrpcJsonTranscoder, error) {
 
 	envoyGrpcJsonConf := &envoy_extensions_filters_http_grpc_json_transcoder_v3.GrpcJsonTranscoder{
-		DescriptorSet:                nil, // to be filled in later
+		DescriptorSet:                nil, // may be set in multiple ways
 		Services:                     grpcJsonConf.GetServices(),
 		PrintOptions:                 translateGlooToEnvoyPrintOptions(grpcJsonConf.GetPrintOptions()),
 		MatchIncomingRequestRoute:    grpcJsonConf.GetMatchIncomingRequestRoute(),
@@ -58,7 +133,14 @@ func translateGlooToEnvoyGrpcJson(grpcJsonConf *grpc_json.GrpcJsonTranscoder) (*
 		ConvertGrpcStatus:            grpcJsonConf.GetConvertGrpcStatus(),
 	}
 
+	// Convert from our descriptor storages to the appropriate type
 	switch typedDescriptorSet := grpcJsonConf.GetDescriptorSet().(type) {
+	case *grpc_json.GrpcJsonTranscoder_ProtoDescriptorConfigMap:
+		protoDesc, err := translateConfigMapToProtoBin(params.Ctx, params.Snapshot, typedDescriptorSet.ProtoDescriptorConfigMap)
+		if err != nil {
+			return nil, err
+		}
+		envoyGrpcJsonConf.DescriptorSet = &envoy_extensions_filters_http_grpc_json_transcoder_v3.GrpcJsonTranscoder_ProtoDescriptorBin{ProtoDescriptorBin: protoDesc}
 	case *grpc_json.GrpcJsonTranscoder_ProtoDescriptor:
 		envoyGrpcJsonConf.DescriptorSet = &envoy_extensions_filters_http_grpc_json_transcoder_v3.GrpcJsonTranscoder_ProtoDescriptor{ProtoDescriptor: typedDescriptorSet.ProtoDescriptor}
 	case *grpc_json.GrpcJsonTranscoder_ProtoDescriptorBin:
@@ -78,4 +160,55 @@ func translateGlooToEnvoyPrintOptions(options *grpc_json.GrpcJsonTranscoder_Prin
 		AlwaysPrintEnumsAsInts:     options.GetAlwaysPrintEnumsAsInts(),
 		PreserveProtoFieldNames:    options.GetPreserveProtoFieldNames(),
 	}
+}
+
+// get the proto descriptor data from a ConfigMap
+func translateConfigMapToProtoBin(ctx context.Context, snap *gloosnapshot.ApiSnapshot, configRef *grpc_json.GrpcJsonTranscoder_DescriptorConfigMap) ([]byte, error) {
+	if configRef.GetConfigMapRef() == nil {
+		return nil, NoConfigMapRefError()
+	}
+
+	// make sure the referenced configmap exists in the gloo snapshot
+	configMap, err := snap.Artifacts.Find(configRef.GetConfigMapRef().Strings())
+	if err != nil {
+		return nil, ConfigMapNotFoundError(configRef)
+	}
+
+	// make sure the configmap has data
+	data := configMap.GetData()
+	if len(data) == 0 {
+		return nil, ConfigMapNoValuesError(configRef)
+	}
+
+	// get the base64-encoded proto descriptor string
+	var protoDescriptor string
+	key := configRef.GetKey()
+	if key != "" {
+		// if there is an explicit key, use it
+		protoDescriptor = data[key]
+	} else {
+		// if there is exactly one value, use it
+		if len(data) == 1 {
+			for k, v := range data {
+				key = k
+				protoDescriptor = v
+				break
+			}
+		} else {
+			// if there are multiple key-value pairs, an explicit key must be provided
+			return nil, NoConfigMapKeyError(configRef, len(data))
+		}
+	}
+
+	if protoDescriptor == "" {
+		return nil, NoDataError(configRef, key)
+	}
+
+	// decode the base64-encoded proto descriptor
+	decodedBytes, err := base64.StdEncoding.DecodeString(protoDescriptor)
+	if err != nil {
+		return nil, DecodingError(configRef, key)
+	}
+
+	return decodedBytes, nil
 }

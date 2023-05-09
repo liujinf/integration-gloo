@@ -20,7 +20,15 @@ ClusterRole
 Expand the name of a container image, adding -fips to the name of the repo if configured.
 */}}
 {{- define "gloo.image" -}}
-{{ .registry }}/{{ .repository }}{{ ternary "-fips" "" ( and (has .repository (list "gloo-ee" "extauth-ee" "gloo-ee-envoy-wrapper" "rate-limit-ee" )) (default false .fips)) }}:{{ .tag }}{{ ternary "-extended" "" (default false .extended) }}
+{{- if and .fips .fipsDigest -}}
+{{- /*
+In consideration of https://github.com/solo-io/gloo/issues/7326, we want the ability for -fips images to use their own digests,
+rather than falling back (incorrectly) onto the digests of non-fips images
+*/ -}}
+{{ .registry }}/{{ .repository }}-fips:{{ .tag }}@{{ .fipsDigest }}
+{{- else -}}
+{{ .registry }}/{{ .repository }}{{ ternary "-fips" "" ( and (has .repository (list "gloo-ee" "extauth-ee" "gloo-ee-envoy-wrapper" "rate-limit-ee" )) (default false .fips)) }}:{{ .tag }}{{ ternary "-extended" "" (default false .extended) }}{{- if .digest -}}@{{ .digest }}{{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "gloo.pullSecret" -}}
@@ -50,7 +58,39 @@ affinity: {{ toYaml . | nindent 2 }}
 {{- with .restartPolicy -}}
 restartPolicy: {{ . }}
 {{ end -}}
+{{- with .priorityClassName -}}
+priorityClassName: {{ . }}
+{{ end -}}
+{{- with .initContainers -}}
+initContainers: {{ toYaml . | nindent 2 }}
+{{ end -}}
 {{- end -}}
+
+{{- define "gloo.jobSpecStandardFields" -}}
+{{- with .activeDeadlineSeconds -}}
+activeDeadlineSeconds: {{ . }}
+{{ end -}}
+{{- with .backoffLimit -}}
+backoffLimit: {{ . }}
+{{ end -}}
+{{- with .completions -}}
+completions: {{ . }}
+{{ end -}}
+{{- with .manualSelector -}}
+manualSelector: {{ . }}
+{{ end -}}
+{{- with .parallelism -}}
+parallelism: {{ . }}
+{{ end -}}
+{{- /* include ttlSecondsAfterFinished if setTtlAfterFinished is undefined or equal to true.
+      The 'kindIs' comparision is how we can check for undefined */ -}}
+{{- if or (kindIs "invalid" .setTtlAfterFinished) .setTtlAfterFinished -}}
+{{- with .ttlSecondsAfterFinished  -}}
+ttlSecondsAfterFinished: {{ . }}
+{{ end -}}
+{{- end -}}
+{{- end -}}
+
 {{- /*
 This takes an array of three values:
 - the top context
@@ -92,9 +132,22 @@ version, which merges two named templates.
 {{- $overrides := (index . 1) -}}
 {{- $tpl := fromYaml (include (index . 2) $top) -}}
 {{- if or (empty $overrides) (empty $tpl) -}}
-{{ include (index . 2) $top }} {{/* render source as is */}}
+{{- include (index . 2) $top -}}{{/* render source as is */}}
 {{- else -}}
 {{- $merged := mergeOverwrite $tpl $overrides -}}
 {{- toYaml $merged -}} {{/* render source with overrides as YAML */}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+Returns the unique Gateway namespaces as defined by the helm values.
+*/}}
+{{- define "gloo.gatewayNamespaces" -}}
+{{- $proxyNamespaces := list -}}
+{{- range $key, $gatewaySpec := .Values.gatewayProxies -}}
+  {{- $ns := $gatewaySpec.namespace | default $.Release.Namespace -}}
+  {{- $proxyNamespaces = append $proxyNamespaces $ns -}}
+{{- end -}}
+{{- $proxyNamespaces = $proxyNamespaces | uniq -}}
+{{ toJson $proxyNamespaces }}
 {{- end -}}

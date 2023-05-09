@@ -13,6 +13,7 @@ spec:
     plural: virtualservices
     shortNames:
     - vs
+    - gvs
     singular: virtualservice
   scope: Namespaced
   versions:
@@ -41,6 +42,9 @@ spec:
                   disableTlsSessionResumption:
                     nullable: true
                     type: boolean
+                  ocspStaplePolicy:
+                    type: string
+                    x-kubernetes-int-or-string: true
                   oneWayTls:
                     nullable: true
                     type: boolean
@@ -95,6 +99,8 @@ spec:
                     type: array
                   sslFiles:
                     properties:
+                      ocspStaple:
+                        type: string
                       rootCa:
                         type: string
                       tlsCert:
@@ -102,6 +108,8 @@ spec:
                       tlsKey:
                         type: string
                     type: object
+                  transportSocketConnectTimeout:
+                    type: string
                   verifySubjectAltName:
                     items:
                       type: string
@@ -248,6 +256,20 @@ spec:
                                         type: object
                                       type: array
                                   type: object
+                                keyValueAction:
+                                  properties:
+                                    keyToMask:
+                                      type: string
+                                    maskChar:
+                                      type: string
+                                    name:
+                                      type: string
+                                    percent:
+                                      properties:
+                                        value:
+                                          type: number
+                                      type: object
+                                  type: object
                                 shadow:
                                   type: boolean
                               type: object
@@ -361,6 +383,11 @@ spec:
                                         type: string
                                     type: object
                                   type: array
+                                clockSkewSeconds:
+                                  maximum: 4294967295
+                                  minimum: 0
+                                  nullable: true
+                                  type: integer
                                 issuer:
                                   type: string
                                 jwks:
@@ -435,6 +462,11 @@ spec:
                                             type: string
                                         type: object
                                       type: array
+                                    clockSkewSeconds:
+                                      maximum: 4294967295
+                                      minimum: 0
+                                      nullable: true
+                                      type: integer
                                     issuer:
                                       type: string
                                     jwks:
@@ -507,6 +539,11 @@ spec:
                                             type: string
                                         type: object
                                       type: array
+                                    clockSkewSeconds:
+                                      maximum: 4294967295
+                                      minimum: 0
+                                      nullable: true
+                                      type: integer
                                     issuer:
                                       type: string
                                     jwks:
@@ -559,6 +596,30 @@ spec:
                             type: object
                         type: object
                       rateLimitConfigs:
+                        properties:
+                          refs:
+                            items:
+                              properties:
+                                name:
+                                  type: string
+                                namespace:
+                                  type: string
+                              type: object
+                            type: array
+                        type: object
+                      rateLimitEarlyConfigs:
+                        properties:
+                          refs:
+                            items:
+                              properties:
+                                name:
+                                  type: string
+                                namespace:
+                                  type: string
+                              type: object
+                            type: array
+                        type: object
+                      rateLimitRegularConfigs:
                         properties:
                           refs:
                             items:
@@ -765,6 +826,354 @@ spec:
                                 x-kubernetes-int-or-string: true
                             type: object
                         type: object
+                      ratelimitEarly:
+                        properties:
+                          rateLimits:
+                            items:
+                              properties:
+                                actions:
+                                  items:
+                                    properties:
+                                      destinationCluster:
+                                        type: object
+                                      genericKey:
+                                        properties:
+                                          descriptorValue:
+                                            type: string
+                                        type: object
+                                      headerValueMatch:
+                                        properties:
+                                          descriptorValue:
+                                            type: string
+                                          expectMatch:
+                                            nullable: true
+                                            type: boolean
+                                          headers:
+                                            items:
+                                              properties:
+                                                exactMatch:
+                                                  type: string
+                                                invertMatch:
+                                                  type: boolean
+                                                name:
+                                                  type: string
+                                                prefixMatch:
+                                                  type: string
+                                                presentMatch:
+                                                  type: boolean
+                                                rangeMatch:
+                                                  properties:
+                                                    end:
+                                                      format: int64
+                                                      type: integer
+                                                      x-kubernetes-int-or-string: true
+                                                    start:
+                                                      format: int64
+                                                      type: integer
+                                                      x-kubernetes-int-or-string: true
+                                                  type: object
+                                                regexMatch:
+                                                  type: string
+                                                suffixMatch:
+                                                  type: string
+                                              type: object
+                                            type: array
+                                        type: object
+                                      metadata:
+                                        properties:
+                                          defaultValue:
+                                            type: string
+                                          descriptorKey:
+                                            type: string
+                                          metadataKey:
+                                            properties:
+                                              key:
+                                                type: string
+                                              path:
+                                                items:
+                                                  properties:
+                                                    key:
+                                                      type: string
+                                                  type: object
+                                                type: array
+                                            type: object
+                                          source:
+                                            type: string
+                                            x-kubernetes-int-or-string: true
+                                        type: object
+                                      remoteAddress:
+                                        type: object
+                                      requestHeaders:
+                                        properties:
+                                          descriptorKey:
+                                            type: string
+                                          headerName:
+                                            type: string
+                                        type: object
+                                      sourceCluster:
+                                        type: object
+                                    type: object
+                                  type: array
+                                setActions:
+                                  items:
+                                    properties:
+                                      destinationCluster:
+                                        type: object
+                                      genericKey:
+                                        properties:
+                                          descriptorValue:
+                                            type: string
+                                        type: object
+                                      headerValueMatch:
+                                        properties:
+                                          descriptorValue:
+                                            type: string
+                                          expectMatch:
+                                            nullable: true
+                                            type: boolean
+                                          headers:
+                                            items:
+                                              properties:
+                                                exactMatch:
+                                                  type: string
+                                                invertMatch:
+                                                  type: boolean
+                                                name:
+                                                  type: string
+                                                prefixMatch:
+                                                  type: string
+                                                presentMatch:
+                                                  type: boolean
+                                                rangeMatch:
+                                                  properties:
+                                                    end:
+                                                      format: int64
+                                                      type: integer
+                                                      x-kubernetes-int-or-string: true
+                                                    start:
+                                                      format: int64
+                                                      type: integer
+                                                      x-kubernetes-int-or-string: true
+                                                  type: object
+                                                regexMatch:
+                                                  type: string
+                                                suffixMatch:
+                                                  type: string
+                                              type: object
+                                            type: array
+                                        type: object
+                                      metadata:
+                                        properties:
+                                          defaultValue:
+                                            type: string
+                                          descriptorKey:
+                                            type: string
+                                          metadataKey:
+                                            properties:
+                                              key:
+                                                type: string
+                                              path:
+                                                items:
+                                                  properties:
+                                                    key:
+                                                      type: string
+                                                  type: object
+                                                type: array
+                                            type: object
+                                          source:
+                                            type: string
+                                            x-kubernetes-int-or-string: true
+                                        type: object
+                                      remoteAddress:
+                                        type: object
+                                      requestHeaders:
+                                        properties:
+                                          descriptorKey:
+                                            type: string
+                                          headerName:
+                                            type: string
+                                        type: object
+                                      sourceCluster:
+                                        type: object
+                                    type: object
+                                  type: array
+                              type: object
+                            type: array
+                        type: object
+                      ratelimitRegular:
+                        properties:
+                          rateLimits:
+                            items:
+                              properties:
+                                actions:
+                                  items:
+                                    properties:
+                                      destinationCluster:
+                                        type: object
+                                      genericKey:
+                                        properties:
+                                          descriptorValue:
+                                            type: string
+                                        type: object
+                                      headerValueMatch:
+                                        properties:
+                                          descriptorValue:
+                                            type: string
+                                          expectMatch:
+                                            nullable: true
+                                            type: boolean
+                                          headers:
+                                            items:
+                                              properties:
+                                                exactMatch:
+                                                  type: string
+                                                invertMatch:
+                                                  type: boolean
+                                                name:
+                                                  type: string
+                                                prefixMatch:
+                                                  type: string
+                                                presentMatch:
+                                                  type: boolean
+                                                rangeMatch:
+                                                  properties:
+                                                    end:
+                                                      format: int64
+                                                      type: integer
+                                                      x-kubernetes-int-or-string: true
+                                                    start:
+                                                      format: int64
+                                                      type: integer
+                                                      x-kubernetes-int-or-string: true
+                                                  type: object
+                                                regexMatch:
+                                                  type: string
+                                                suffixMatch:
+                                                  type: string
+                                              type: object
+                                            type: array
+                                        type: object
+                                      metadata:
+                                        properties:
+                                          defaultValue:
+                                            type: string
+                                          descriptorKey:
+                                            type: string
+                                          metadataKey:
+                                            properties:
+                                              key:
+                                                type: string
+                                              path:
+                                                items:
+                                                  properties:
+                                                    key:
+                                                      type: string
+                                                  type: object
+                                                type: array
+                                            type: object
+                                          source:
+                                            type: string
+                                            x-kubernetes-int-or-string: true
+                                        type: object
+                                      remoteAddress:
+                                        type: object
+                                      requestHeaders:
+                                        properties:
+                                          descriptorKey:
+                                            type: string
+                                          headerName:
+                                            type: string
+                                        type: object
+                                      sourceCluster:
+                                        type: object
+                                    type: object
+                                  type: array
+                                setActions:
+                                  items:
+                                    properties:
+                                      destinationCluster:
+                                        type: object
+                                      genericKey:
+                                        properties:
+                                          descriptorValue:
+                                            type: string
+                                        type: object
+                                      headerValueMatch:
+                                        properties:
+                                          descriptorValue:
+                                            type: string
+                                          expectMatch:
+                                            nullable: true
+                                            type: boolean
+                                          headers:
+                                            items:
+                                              properties:
+                                                exactMatch:
+                                                  type: string
+                                                invertMatch:
+                                                  type: boolean
+                                                name:
+                                                  type: string
+                                                prefixMatch:
+                                                  type: string
+                                                presentMatch:
+                                                  type: boolean
+                                                rangeMatch:
+                                                  properties:
+                                                    end:
+                                                      format: int64
+                                                      type: integer
+                                                      x-kubernetes-int-or-string: true
+                                                    start:
+                                                      format: int64
+                                                      type: integer
+                                                      x-kubernetes-int-or-string: true
+                                                  type: object
+                                                regexMatch:
+                                                  type: string
+                                                suffixMatch:
+                                                  type: string
+                                              type: object
+                                            type: array
+                                        type: object
+                                      metadata:
+                                        properties:
+                                          defaultValue:
+                                            type: string
+                                          descriptorKey:
+                                            type: string
+                                          metadataKey:
+                                            properties:
+                                              key:
+                                                type: string
+                                              path:
+                                                items:
+                                                  properties:
+                                                    key:
+                                                      type: string
+                                                  type: object
+                                                type: array
+                                            type: object
+                                          source:
+                                            type: string
+                                            x-kubernetes-int-or-string: true
+                                        type: object
+                                      remoteAddress:
+                                        type: object
+                                      requestHeaders:
+                                        properties:
+                                          descriptorKey:
+                                            type: string
+                                          headerName:
+                                            type: string
+                                        type: object
+                                      sourceCluster:
+                                        type: object
+                                    type: object
+                                  type: array
+                              type: object
+                            type: array
+                        type: object
                       rbac:
                         properties:
                           disable:
@@ -810,6 +1219,13 @@ spec:
                             type: integer
                           perTryTimeout:
                             type: string
+                          retryBackOff:
+                            properties:
+                              baseInterval:
+                                type: string
+                              maxInterval:
+                                type: string
+                            type: object
                           retryOn:
                             type: string
                         type: object
@@ -827,6 +1243,8 @@ spec:
                                         caseSensitive:
                                           nullable: true
                                           type: boolean
+                                        connectMatcher:
+                                          type: object
                                         exact:
                                           type: string
                                         headers:
@@ -865,6 +1283,9 @@ spec:
                                     requestTransformation:
                                       properties:
                                         headerBodyTransform:
+                                          properties:
+                                            addRequestMetadata:
+                                              type: boolean
                                           type: object
                                         transformationTemplate:
                                           properties:
@@ -922,6 +1343,10 @@ spec:
                                                         type: string
                                                     type: object
                                                 type: object
+                                              type: array
+                                            headersToRemove:
+                                              items:
+                                                type: string
                                               type: array
                                             ignoreErrorOnParse:
                                               type: boolean
@@ -946,6 +1371,9 @@ spec:
                                     responseTransformation:
                                       properties:
                                         headerBodyTransform:
+                                          properties:
+                                            addRequestMetadata:
+                                              type: boolean
                                           type: object
                                         transformationTemplate:
                                           properties:
@@ -1003,6 +1431,10 @@ spec:
                                                         type: string
                                                     type: object
                                                 type: object
+                                              type: array
+                                            headersToRemove:
+                                              items:
+                                                type: string
                                               type: array
                                             ignoreErrorOnParse:
                                               type: boolean
@@ -1047,6 +1479,9 @@ spec:
                                     responseTransformation:
                                       properties:
                                         headerBodyTransform:
+                                          properties:
+                                            addRequestMetadata:
+                                              type: boolean
                                           type: object
                                         transformationTemplate:
                                           properties:
@@ -1104,6 +1539,10 @@ spec:
                                                         type: string
                                                     type: object
                                                 type: object
+                                              type: array
+                                            headersToRemove:
+                                              items:
+                                                type: string
                                               type: array
                                             ignoreErrorOnParse:
                                               type: boolean
@@ -1142,6 +1581,8 @@ spec:
                                         caseSensitive:
                                           nullable: true
                                           type: boolean
+                                        connectMatcher:
+                                          type: object
                                         exact:
                                           type: string
                                         headers:
@@ -1180,6 +1621,9 @@ spec:
                                     requestTransformation:
                                       properties:
                                         headerBodyTransform:
+                                          properties:
+                                            addRequestMetadata:
+                                              type: boolean
                                           type: object
                                         transformationTemplate:
                                           properties:
@@ -1237,6 +1681,10 @@ spec:
                                                         type: string
                                                     type: object
                                                 type: object
+                                              type: array
+                                            headersToRemove:
+                                              items:
+                                                type: string
                                               type: array
                                             ignoreErrorOnParse:
                                               type: boolean
@@ -1261,6 +1709,9 @@ spec:
                                     responseTransformation:
                                       properties:
                                         headerBodyTransform:
+                                          properties:
+                                            addRequestMetadata:
+                                              type: boolean
                                           type: object
                                         transformationTemplate:
                                           properties:
@@ -1318,6 +1769,10 @@ spec:
                                                         type: string
                                                     type: object
                                                 type: object
+                                              type: array
+                                            headersToRemove:
+                                              items:
+                                                type: string
                                               type: array
                                             ignoreErrorOnParse:
                                               type: boolean
@@ -1362,6 +1817,9 @@ spec:
                                     responseTransformation:
                                       properties:
                                         headerBodyTransform:
+                                          properties:
+                                            addRequestMetadata:
+                                              type: boolean
                                           type: object
                                         transformationTemplate:
                                           properties:
@@ -1419,6 +1877,10 @@ spec:
                                                         type: string
                                                     type: object
                                                 type: object
+                                              type: array
+                                            headersToRemove:
+                                              items:
+                                                type: string
                                               type: array
                                             ignoreErrorOnParse:
                                               type: boolean
@@ -1465,6 +1927,9 @@ spec:
                           requestTransformation:
                             properties:
                               headerBodyTransform:
+                                properties:
+                                  addRequestMetadata:
+                                    type: boolean
                                 type: object
                               transformationTemplate:
                                 properties:
@@ -1522,6 +1987,10 @@ spec:
                                               type: string
                                           type: object
                                       type: object
+                                    type: array
+                                  headersToRemove:
+                                    items:
+                                      type: string
                                     type: array
                                   ignoreErrorOnParse:
                                     type: boolean
@@ -1546,6 +2015,9 @@ spec:
                           responseTransformation:
                             properties:
                               headerBodyTransform:
+                                properties:
+                                  addRequestMetadata:
+                                    type: boolean
                                 type: object
                               transformationTemplate:
                                 properties:
@@ -1603,6 +2075,10 @@ spec:
                                               type: string
                                           type: object
                                       type: object
+                                    type: array
+                                  headersToRemove:
+                                    items:
+                                      type: string
                                     type: array
                                   ignoreErrorOnParse:
                                     type: boolean
@@ -1636,6 +2112,22 @@ spec:
                                 type: string
                                 x-kubernetes-int-or-string: true
                             type: object
+                          configMapRuleSets:
+                            items:
+                              properties:
+                                configMapRef:
+                                  properties:
+                                    name:
+                                      type: string
+                                    namespace:
+                                      type: string
+                                  type: object
+                                dataMapKeys:
+                                  items:
+                                    type: string
+                                  type: array
+                              type: object
+                            type: array
                           coreRuleSet:
                             properties:
                               customSettingsFile:
@@ -1728,6 +2220,13 @@ spec:
                               format: int32
                               type: integer
                           type: object
+                        graphqlApiRef:
+                          properties:
+                            name:
+                              type: string
+                            namespace:
+                              type: string
+                          type: object
                         inheritableMatchers:
                           nullable: true
                           type: boolean
@@ -1740,6 +2239,8 @@ spec:
                               caseSensitive:
                                 nullable: true
                                 type: boolean
+                              connectMatcher:
+                                type: object
                               exact:
                                 type: string
                               headers:
@@ -1916,6 +2417,20 @@ spec:
                                               type: object
                                             type: array
                                         type: object
+                                      keyValueAction:
+                                        properties:
+                                          keyToMask:
+                                            type: string
+                                          maskChar:
+                                            type: string
+                                          name:
+                                            type: string
+                                          percent:
+                                            properties:
+                                              value:
+                                                type: number
+                                            type: object
+                                        type: object
                                       shadow:
                                         type: boolean
                                     type: object
@@ -2026,6 +2541,26 @@ spec:
                               type: object
                             hostRewrite:
                               type: string
+                            hostRewritePathRegex:
+                              properties:
+                                pattern:
+                                  properties:
+                                    googleRe2:
+                                      properties:
+                                        maxProgramSize:
+                                          maximum: 4294967295
+                                          minimum: 0
+                                          nullable: true
+                                          type: integer
+                                      type: object
+                                    regex:
+                                      type: string
+                                  type: object
+                                substitution:
+                                  type: string
+                              type: object
+                            idleTimeout:
+                              type: string
                             jwt:
                               properties:
                                 disable:
@@ -2067,10 +2602,43 @@ spec:
                                     type: object
                                   type: array
                               type: object
+                            maxStreamDuration:
+                              properties:
+                                grpcTimeoutHeaderMax:
+                                  type: string
+                                grpcTimeoutHeaderOffset:
+                                  type: string
+                                maxStreamDuration:
+                                  type: string
+                              type: object
                             prefixRewrite:
                               nullable: true
                               type: string
                             rateLimitConfigs:
+                              properties:
+                                refs:
+                                  items:
+                                    properties:
+                                      name:
+                                        type: string
+                                      namespace:
+                                        type: string
+                                    type: object
+                                  type: array
+                              type: object
+                            rateLimitEarlyConfigs:
+                              properties:
+                                refs:
+                                  items:
+                                    properties:
+                                      name:
+                                        type: string
+                                      namespace:
+                                        type: string
+                                    type: object
+                                  type: array
+                              type: object
+                            rateLimitRegularConfigs:
                               properties:
                                 refs:
                                   items:
@@ -2279,6 +2847,358 @@ spec:
                                       x-kubernetes-int-or-string: true
                                   type: object
                               type: object
+                            ratelimitEarly:
+                              properties:
+                                includeVhRateLimits:
+                                  type: boolean
+                                rateLimits:
+                                  items:
+                                    properties:
+                                      actions:
+                                        items:
+                                          properties:
+                                            destinationCluster:
+                                              type: object
+                                            genericKey:
+                                              properties:
+                                                descriptorValue:
+                                                  type: string
+                                              type: object
+                                            headerValueMatch:
+                                              properties:
+                                                descriptorValue:
+                                                  type: string
+                                                expectMatch:
+                                                  nullable: true
+                                                  type: boolean
+                                                headers:
+                                                  items:
+                                                    properties:
+                                                      exactMatch:
+                                                        type: string
+                                                      invertMatch:
+                                                        type: boolean
+                                                      name:
+                                                        type: string
+                                                      prefixMatch:
+                                                        type: string
+                                                      presentMatch:
+                                                        type: boolean
+                                                      rangeMatch:
+                                                        properties:
+                                                          end:
+                                                            format: int64
+                                                            type: integer
+                                                            x-kubernetes-int-or-string: true
+                                                          start:
+                                                            format: int64
+                                                            type: integer
+                                                            x-kubernetes-int-or-string: true
+                                                        type: object
+                                                      regexMatch:
+                                                        type: string
+                                                      suffixMatch:
+                                                        type: string
+                                                    type: object
+                                                  type: array
+                                              type: object
+                                            metadata:
+                                              properties:
+                                                defaultValue:
+                                                  type: string
+                                                descriptorKey:
+                                                  type: string
+                                                metadataKey:
+                                                  properties:
+                                                    key:
+                                                      type: string
+                                                    path:
+                                                      items:
+                                                        properties:
+                                                          key:
+                                                            type: string
+                                                        type: object
+                                                      type: array
+                                                  type: object
+                                                source:
+                                                  type: string
+                                                  x-kubernetes-int-or-string: true
+                                              type: object
+                                            remoteAddress:
+                                              type: object
+                                            requestHeaders:
+                                              properties:
+                                                descriptorKey:
+                                                  type: string
+                                                headerName:
+                                                  type: string
+                                              type: object
+                                            sourceCluster:
+                                              type: object
+                                          type: object
+                                        type: array
+                                      setActions:
+                                        items:
+                                          properties:
+                                            destinationCluster:
+                                              type: object
+                                            genericKey:
+                                              properties:
+                                                descriptorValue:
+                                                  type: string
+                                              type: object
+                                            headerValueMatch:
+                                              properties:
+                                                descriptorValue:
+                                                  type: string
+                                                expectMatch:
+                                                  nullable: true
+                                                  type: boolean
+                                                headers:
+                                                  items:
+                                                    properties:
+                                                      exactMatch:
+                                                        type: string
+                                                      invertMatch:
+                                                        type: boolean
+                                                      name:
+                                                        type: string
+                                                      prefixMatch:
+                                                        type: string
+                                                      presentMatch:
+                                                        type: boolean
+                                                      rangeMatch:
+                                                        properties:
+                                                          end:
+                                                            format: int64
+                                                            type: integer
+                                                            x-kubernetes-int-or-string: true
+                                                          start:
+                                                            format: int64
+                                                            type: integer
+                                                            x-kubernetes-int-or-string: true
+                                                        type: object
+                                                      regexMatch:
+                                                        type: string
+                                                      suffixMatch:
+                                                        type: string
+                                                    type: object
+                                                  type: array
+                                              type: object
+                                            metadata:
+                                              properties:
+                                                defaultValue:
+                                                  type: string
+                                                descriptorKey:
+                                                  type: string
+                                                metadataKey:
+                                                  properties:
+                                                    key:
+                                                      type: string
+                                                    path:
+                                                      items:
+                                                        properties:
+                                                          key:
+                                                            type: string
+                                                        type: object
+                                                      type: array
+                                                  type: object
+                                                source:
+                                                  type: string
+                                                  x-kubernetes-int-or-string: true
+                                              type: object
+                                            remoteAddress:
+                                              type: object
+                                            requestHeaders:
+                                              properties:
+                                                descriptorKey:
+                                                  type: string
+                                                headerName:
+                                                  type: string
+                                              type: object
+                                            sourceCluster:
+                                              type: object
+                                          type: object
+                                        type: array
+                                    type: object
+                                  type: array
+                              type: object
+                            ratelimitRegular:
+                              properties:
+                                includeVhRateLimits:
+                                  type: boolean
+                                rateLimits:
+                                  items:
+                                    properties:
+                                      actions:
+                                        items:
+                                          properties:
+                                            destinationCluster:
+                                              type: object
+                                            genericKey:
+                                              properties:
+                                                descriptorValue:
+                                                  type: string
+                                              type: object
+                                            headerValueMatch:
+                                              properties:
+                                                descriptorValue:
+                                                  type: string
+                                                expectMatch:
+                                                  nullable: true
+                                                  type: boolean
+                                                headers:
+                                                  items:
+                                                    properties:
+                                                      exactMatch:
+                                                        type: string
+                                                      invertMatch:
+                                                        type: boolean
+                                                      name:
+                                                        type: string
+                                                      prefixMatch:
+                                                        type: string
+                                                      presentMatch:
+                                                        type: boolean
+                                                      rangeMatch:
+                                                        properties:
+                                                          end:
+                                                            format: int64
+                                                            type: integer
+                                                            x-kubernetes-int-or-string: true
+                                                          start:
+                                                            format: int64
+                                                            type: integer
+                                                            x-kubernetes-int-or-string: true
+                                                        type: object
+                                                      regexMatch:
+                                                        type: string
+                                                      suffixMatch:
+                                                        type: string
+                                                    type: object
+                                                  type: array
+                                              type: object
+                                            metadata:
+                                              properties:
+                                                defaultValue:
+                                                  type: string
+                                                descriptorKey:
+                                                  type: string
+                                                metadataKey:
+                                                  properties:
+                                                    key:
+                                                      type: string
+                                                    path:
+                                                      items:
+                                                        properties:
+                                                          key:
+                                                            type: string
+                                                        type: object
+                                                      type: array
+                                                  type: object
+                                                source:
+                                                  type: string
+                                                  x-kubernetes-int-or-string: true
+                                              type: object
+                                            remoteAddress:
+                                              type: object
+                                            requestHeaders:
+                                              properties:
+                                                descriptorKey:
+                                                  type: string
+                                                headerName:
+                                                  type: string
+                                              type: object
+                                            sourceCluster:
+                                              type: object
+                                          type: object
+                                        type: array
+                                      setActions:
+                                        items:
+                                          properties:
+                                            destinationCluster:
+                                              type: object
+                                            genericKey:
+                                              properties:
+                                                descriptorValue:
+                                                  type: string
+                                              type: object
+                                            headerValueMatch:
+                                              properties:
+                                                descriptorValue:
+                                                  type: string
+                                                expectMatch:
+                                                  nullable: true
+                                                  type: boolean
+                                                headers:
+                                                  items:
+                                                    properties:
+                                                      exactMatch:
+                                                        type: string
+                                                      invertMatch:
+                                                        type: boolean
+                                                      name:
+                                                        type: string
+                                                      prefixMatch:
+                                                        type: string
+                                                      presentMatch:
+                                                        type: boolean
+                                                      rangeMatch:
+                                                        properties:
+                                                          end:
+                                                            format: int64
+                                                            type: integer
+                                                            x-kubernetes-int-or-string: true
+                                                          start:
+                                                            format: int64
+                                                            type: integer
+                                                            x-kubernetes-int-or-string: true
+                                                        type: object
+                                                      regexMatch:
+                                                        type: string
+                                                      suffixMatch:
+                                                        type: string
+                                                    type: object
+                                                  type: array
+                                              type: object
+                                            metadata:
+                                              properties:
+                                                defaultValue:
+                                                  type: string
+                                                descriptorKey:
+                                                  type: string
+                                                metadataKey:
+                                                  properties:
+                                                    key:
+                                                      type: string
+                                                    path:
+                                                      items:
+                                                        properties:
+                                                          key:
+                                                            type: string
+                                                        type: object
+                                                      type: array
+                                                  type: object
+                                                source:
+                                                  type: string
+                                                  x-kubernetes-int-or-string: true
+                                              type: object
+                                            remoteAddress:
+                                              type: object
+                                            requestHeaders:
+                                              properties:
+                                                descriptorKey:
+                                                  type: string
+                                                headerName:
+                                                  type: string
+                                              type: object
+                                            sourceCluster:
+                                              type: object
+                                          type: object
+                                        type: array
+                                    type: object
+                                  type: array
+                              type: object
                             rbac:
                               properties:
                                 disable:
@@ -2342,6 +3262,13 @@ spec:
                                   type: integer
                                 perTryTimeout:
                                   type: string
+                                retryBackOff:
+                                  properties:
+                                    baseInterval:
+                                      type: string
+                                    maxInterval:
+                                      type: string
+                                  type: object
                                 retryOn:
                                   type: string
                               type: object
@@ -2371,6 +3298,8 @@ spec:
                                               caseSensitive:
                                                 nullable: true
                                                 type: boolean
+                                              connectMatcher:
+                                                type: object
                                               exact:
                                                 type: string
                                               headers:
@@ -2409,6 +3338,9 @@ spec:
                                           requestTransformation:
                                             properties:
                                               headerBodyTransform:
+                                                properties:
+                                                  addRequestMetadata:
+                                                    type: boolean
                                                 type: object
                                               transformationTemplate:
                                                 properties:
@@ -2466,6 +3398,10 @@ spec:
                                                               type: string
                                                           type: object
                                                       type: object
+                                                    type: array
+                                                  headersToRemove:
+                                                    items:
+                                                      type: string
                                                     type: array
                                                   ignoreErrorOnParse:
                                                     type: boolean
@@ -2490,6 +3426,9 @@ spec:
                                           responseTransformation:
                                             properties:
                                               headerBodyTransform:
+                                                properties:
+                                                  addRequestMetadata:
+                                                    type: boolean
                                                 type: object
                                               transformationTemplate:
                                                 properties:
@@ -2547,6 +3486,10 @@ spec:
                                                               type: string
                                                           type: object
                                                       type: object
+                                                    type: array
+                                                  headersToRemove:
+                                                    items:
+                                                      type: string
                                                     type: array
                                                   ignoreErrorOnParse:
                                                     type: boolean
@@ -2591,6 +3534,9 @@ spec:
                                           responseTransformation:
                                             properties:
                                               headerBodyTransform:
+                                                properties:
+                                                  addRequestMetadata:
+                                                    type: boolean
                                                 type: object
                                               transformationTemplate:
                                                 properties:
@@ -2648,6 +3594,10 @@ spec:
                                                               type: string
                                                           type: object
                                                       type: object
+                                                    type: array
+                                                  headersToRemove:
+                                                    items:
+                                                      type: string
                                                     type: array
                                                   ignoreErrorOnParse:
                                                     type: boolean
@@ -2686,6 +3636,8 @@ spec:
                                               caseSensitive:
                                                 nullable: true
                                                 type: boolean
+                                              connectMatcher:
+                                                type: object
                                               exact:
                                                 type: string
                                               headers:
@@ -2724,6 +3676,9 @@ spec:
                                           requestTransformation:
                                             properties:
                                               headerBodyTransform:
+                                                properties:
+                                                  addRequestMetadata:
+                                                    type: boolean
                                                 type: object
                                               transformationTemplate:
                                                 properties:
@@ -2781,6 +3736,10 @@ spec:
                                                               type: string
                                                           type: object
                                                       type: object
+                                                    type: array
+                                                  headersToRemove:
+                                                    items:
+                                                      type: string
                                                     type: array
                                                   ignoreErrorOnParse:
                                                     type: boolean
@@ -2805,6 +3764,9 @@ spec:
                                           responseTransformation:
                                             properties:
                                               headerBodyTransform:
+                                                properties:
+                                                  addRequestMetadata:
+                                                    type: boolean
                                                 type: object
                                               transformationTemplate:
                                                 properties:
@@ -2862,6 +3824,10 @@ spec:
                                                               type: string
                                                           type: object
                                                       type: object
+                                                    type: array
+                                                  headersToRemove:
+                                                    items:
+                                                      type: string
                                                     type: array
                                                   ignoreErrorOnParse:
                                                     type: boolean
@@ -2906,6 +3872,9 @@ spec:
                                           responseTransformation:
                                             properties:
                                               headerBodyTransform:
+                                                properties:
+                                                  addRequestMetadata:
+                                                    type: boolean
                                                 type: object
                                               transformationTemplate:
                                                 properties:
@@ -2963,6 +3932,10 @@ spec:
                                                               type: string
                                                           type: object
                                                       type: object
+                                                    type: array
+                                                  headersToRemove:
+                                                    items:
+                                                      type: string
                                                     type: array
                                                   ignoreErrorOnParse:
                                                     type: boolean
@@ -3017,6 +3990,9 @@ spec:
                                 requestTransformation:
                                   properties:
                                     headerBodyTransform:
+                                      properties:
+                                        addRequestMetadata:
+                                          type: boolean
                                       type: object
                                     transformationTemplate:
                                       properties:
@@ -3074,6 +4050,10 @@ spec:
                                                     type: string
                                                 type: object
                                             type: object
+                                          type: array
+                                        headersToRemove:
+                                          items:
+                                            type: string
                                           type: array
                                         ignoreErrorOnParse:
                                           type: boolean
@@ -3098,6 +4078,9 @@ spec:
                                 responseTransformation:
                                   properties:
                                     headerBodyTransform:
+                                      properties:
+                                        addRequestMetadata:
+                                          type: boolean
                                       type: object
                                     transformationTemplate:
                                       properties:
@@ -3155,6 +4138,10 @@ spec:
                                                     type: string
                                                 type: object
                                             type: object
+                                          type: array
+                                        headersToRemove:
+                                          items:
+                                            type: string
                                           type: array
                                         ignoreErrorOnParse:
                                           type: boolean
@@ -3180,6 +4167,12 @@ spec:
                             upgrades:
                               items:
                                 properties:
+                                  connect:
+                                    properties:
+                                      enabled:
+                                        nullable: true
+                                        type: boolean
+                                    type: object
                                   websocket:
                                     properties:
                                       enabled:
@@ -3199,6 +4192,22 @@ spec:
                                       type: string
                                       x-kubernetes-int-or-string: true
                                   type: object
+                                configMapRuleSets:
+                                  items:
+                                    properties:
+                                      configMapRef:
+                                        properties:
+                                          name:
+                                            type: string
+                                          namespace:
+                                            type: string
+                                        type: object
+                                      dataMapKeys:
+                                        items:
+                                          type: string
+                                        type: array
+                                    type: object
+                                  type: array
                                 coreRuleSet:
                                   properties:
                                     customSettingsFile:
@@ -3251,6 +4260,24 @@ spec:
                               type: string
                             prefixRewrite:
                               type: string
+                            regexRewrite:
+                              properties:
+                                pattern:
+                                  properties:
+                                    googleRe2:
+                                      properties:
+                                        maxProgramSize:
+                                          maximum: 4294967295
+                                          minimum: 0
+                                          nullable: true
+                                          type: integer
+                                      type: object
+                                    regex:
+                                      type: string
+                                  type: object
+                                substitution:
+                                  type: string
+                              type: object
                             responseCode:
                               type: string
                               x-kubernetes-int-or-string: true
@@ -3261,6 +4288,13 @@ spec:
                           properties:
                             clusterHeader:
                               type: string
+                            dynamicForwardProxy:
+                              properties:
+                                autoHostRewriteHeader:
+                                  type: string
+                                hostRewrite:
+                                  type: string
+                              type: object
                             multi:
                               properties:
                                 destinations:
@@ -3293,6 +4327,12 @@ spec:
                                                   requestTransformation:
                                                     type: boolean
                                                   responseTransformation:
+                                                    type: boolean
+                                                  unwrapAsAlb:
+                                                    type: boolean
+                                                  unwrapAsApiGateway:
+                                                    type: boolean
+                                                  wrapAsApiGateway:
                                                     type: boolean
                                                 type: object
                                               azure:
@@ -3389,6 +4429,10 @@ spec:
                                                                   type: string
                                                               type: object
                                                           type: object
+                                                        type: array
+                                                      headersToRemove:
+                                                        items:
+                                                          type: string
                                                         type: array
                                                       ignoreErrorOnParse:
                                                         type: boolean
@@ -3593,6 +4637,8 @@ spec:
                                                             caseSensitive:
                                                               nullable: true
                                                               type: boolean
+                                                            connectMatcher:
+                                                              type: object
                                                             exact:
                                                               type: string
                                                             headers:
@@ -3631,6 +4677,9 @@ spec:
                                                         requestTransformation:
                                                           properties:
                                                             headerBodyTransform:
+                                                              properties:
+                                                                addRequestMetadata:
+                                                                  type: boolean
                                                               type: object
                                                             transformationTemplate:
                                                               properties:
@@ -3688,6 +4737,10 @@ spec:
                                                                             type: string
                                                                         type: object
                                                                     type: object
+                                                                  type: array
+                                                                headersToRemove:
+                                                                  items:
+                                                                    type: string
                                                                   type: array
                                                                 ignoreErrorOnParse:
                                                                   type: boolean
@@ -3712,6 +4765,9 @@ spec:
                                                         responseTransformation:
                                                           properties:
                                                             headerBodyTransform:
+                                                              properties:
+                                                                addRequestMetadata:
+                                                                  type: boolean
                                                               type: object
                                                             transformationTemplate:
                                                               properties:
@@ -3769,6 +4825,10 @@ spec:
                                                                             type: string
                                                                         type: object
                                                                     type: object
+                                                                  type: array
+                                                                headersToRemove:
+                                                                  items:
+                                                                    type: string
                                                                   type: array
                                                                 ignoreErrorOnParse:
                                                                   type: boolean
@@ -3813,6 +4873,9 @@ spec:
                                                         responseTransformation:
                                                           properties:
                                                             headerBodyTransform:
+                                                              properties:
+                                                                addRequestMetadata:
+                                                                  type: boolean
                                                               type: object
                                                             transformationTemplate:
                                                               properties:
@@ -3870,6 +4933,10 @@ spec:
                                                                             type: string
                                                                         type: object
                                                                     type: object
+                                                                  type: array
+                                                                headersToRemove:
+                                                                  items:
+                                                                    type: string
                                                                   type: array
                                                                 ignoreErrorOnParse:
                                                                   type: boolean
@@ -3908,6 +4975,8 @@ spec:
                                                             caseSensitive:
                                                               nullable: true
                                                               type: boolean
+                                                            connectMatcher:
+                                                              type: object
                                                             exact:
                                                               type: string
                                                             headers:
@@ -3946,6 +5015,9 @@ spec:
                                                         requestTransformation:
                                                           properties:
                                                             headerBodyTransform:
+                                                              properties:
+                                                                addRequestMetadata:
+                                                                  type: boolean
                                                               type: object
                                                             transformationTemplate:
                                                               properties:
@@ -4003,6 +5075,10 @@ spec:
                                                                             type: string
                                                                         type: object
                                                                     type: object
+                                                                  type: array
+                                                                headersToRemove:
+                                                                  items:
+                                                                    type: string
                                                                   type: array
                                                                 ignoreErrorOnParse:
                                                                   type: boolean
@@ -4027,6 +5103,9 @@ spec:
                                                         responseTransformation:
                                                           properties:
                                                             headerBodyTransform:
+                                                              properties:
+                                                                addRequestMetadata:
+                                                                  type: boolean
                                                               type: object
                                                             transformationTemplate:
                                                               properties:
@@ -4084,6 +5163,10 @@ spec:
                                                                             type: string
                                                                         type: object
                                                                     type: object
+                                                                  type: array
+                                                                headersToRemove:
+                                                                  items:
+                                                                    type: string
                                                                   type: array
                                                                 ignoreErrorOnParse:
                                                                   type: boolean
@@ -4128,6 +5211,9 @@ spec:
                                                         responseTransformation:
                                                           properties:
                                                             headerBodyTransform:
+                                                              properties:
+                                                                addRequestMetadata:
+                                                                  type: boolean
                                                               type: object
                                                             transformationTemplate:
                                                               properties:
@@ -4186,6 +5272,10 @@ spec:
                                                                         type: object
                                                                     type: object
                                                                   type: array
+                                                                headersToRemove:
+                                                                  items:
+                                                                    type: string
+                                                                  type: array
                                                                 ignoreErrorOnParse:
                                                                   type: boolean
                                                                 mergeExtractorsToBody:
@@ -4217,6 +5307,9 @@ spec:
                                               requestTransformation:
                                                 properties:
                                                   headerBodyTransform:
+                                                    properties:
+                                                      addRequestMetadata:
+                                                        type: boolean
                                                     type: object
                                                   transformationTemplate:
                                                     properties:
@@ -4274,6 +5367,10 @@ spec:
                                                                   type: string
                                                               type: object
                                                           type: object
+                                                        type: array
+                                                      headersToRemove:
+                                                        items:
+                                                          type: string
                                                         type: array
                                                       ignoreErrorOnParse:
                                                         type: boolean
@@ -4298,6 +5395,9 @@ spec:
                                               responseTransformation:
                                                 properties:
                                                   headerBodyTransform:
+                                                    properties:
+                                                      addRequestMetadata:
+                                                        type: boolean
                                                     type: object
                                                   transformationTemplate:
                                                     properties:
@@ -4356,6 +5456,10 @@ spec:
                                                               type: object
                                                           type: object
                                                         type: array
+                                                      headersToRemove:
+                                                        items:
+                                                          type: string
+                                                        type: array
                                                       ignoreErrorOnParse:
                                                         type: boolean
                                                       mergeExtractorsToBody:
@@ -4379,7 +5483,9 @@ spec:
                                             type: object
                                         type: object
                                       weight:
-                                        format: int32
+                                        maximum: 4294967295
+                                        minimum: 0
+                                        nullable: true
                                         type: integer
                                     type: object
                                   type: array
@@ -4411,6 +5517,12 @@ spec:
                                         requestTransformation:
                                           type: boolean
                                         responseTransformation:
+                                          type: boolean
+                                        unwrapAsAlb:
+                                          type: boolean
+                                        unwrapAsApiGateway:
+                                          type: boolean
+                                        wrapAsApiGateway:
                                           type: boolean
                                       type: object
                                     azure:
@@ -4508,6 +5620,10 @@ spec:
                                                     type: object
                                                 type: object
                                               type: array
+                                            headersToRemove:
+                                              items:
+                                                type: string
+                                              type: array
                                             ignoreErrorOnParse:
                                               type: boolean
                                             mergeExtractorsToBody:
@@ -4561,6 +5677,12 @@ spec:
                 type: object
             type: object
           status:
+            default: {}
+            properties:
+              statuses:
+                default: {}
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
             type: object
             x-kubernetes-preserve-unknown-fields: true
         type: object

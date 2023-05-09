@@ -86,6 +86,7 @@ weight: 5
 "requestHeadersOnly": bool
 "responseHeadersOnly": bool
 "regressionLogs": bool
+"dlpTransformation": .envoy.config.filter.http.transformation_ee.v2.DlpTransformation
 
 ```
 
@@ -98,6 +99,7 @@ weight: 5
 | `requestHeadersOnly` | `bool` | If set, the body will not be buffered and fed to ModSecurity. Only the headers will. This can help improve performance. |
 | `responseHeadersOnly` | `bool` |  |
 | `regressionLogs` | `bool` | log in a format suited for the OWASP regression tests. this format is a multiline log format, so it is disabled for regular use. do not enable this in production!. |
+| `dlpTransformation` | [.envoy.config.filter.http.transformation_ee.v2.DlpTransformation](../../transformation_ee/transformation.proto.sk/#dlptransformation) |  |
 
 
 
@@ -117,7 +119,7 @@ weight: 5
 | Field | Type | Description |
 | ----- | ---- | ----------- | 
 | `ruleStr` | `string` | String of rules which are added directly. |
-| `files` | `[]string` | Array of files to include. |
+| `files` | `[]string` | Array of files with rules to include. Any subsequent changes to the rules in these files are not automatically updated. To update rules from files, version and update the file name. If you want dynamically updated rules, use the `configMapRuleSets` option instead. |
 | `directory` | `string` | A directory to include. all *.conf files in this directory will be included. sub directories will NOT be checked. |
 
 
@@ -135,6 +137,7 @@ weight: 5
 "auditLogging": .envoy.config.filter.http.modsecurity.v2.AuditLogging
 "requestHeadersOnly": bool
 "responseHeadersOnly": bool
+"dlpTransformation": .envoy.config.filter.http.transformation_ee.v2.DlpTransformation
 
 ```
 
@@ -146,6 +149,7 @@ weight: 5
 | `auditLogging` | [.envoy.config.filter.http.modsecurity.v2.AuditLogging](../waf.proto.sk/#auditlogging) | This instructs the filter what to do with the transaction's audit log. |
 | `requestHeadersOnly` | `bool` | If set, the body will not be buffered and fed to ModSecurity. Only the headers will. This can help improve performance. |
 | `responseHeadersOnly` | `bool` |  |
+| `dlpTransformation` | [.envoy.config.filter.http.transformation_ee.v2.DlpTransformation](../../transformation_ee/transformation.proto.sk/#dlptransformation) |  |
 
 
 

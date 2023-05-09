@@ -18,6 +18,11 @@ import (
 	"github.com/solo-io/solo-kit/pkg/errors"
 )
 
+var (
+	_ plugins.Plugin         = new(plugin)
+	_ plugins.UpstreamPlugin = new(plugin)
+)
+
 const (
 	// TODO: make solo-projects use this constant
 	TransportSocketMatchKey = "envoy.transport_socket_match"
@@ -25,10 +30,8 @@ const (
 	AdvancedHttpCheckerName = "io.solo.health_checkers.advanced_http"
 	PathFieldName           = "path"
 	MethodFieldName         = "method"
+	ExtensionName           = "static"
 )
-
-var _ plugins.Plugin = new(plugin)
-var _ plugins.UpstreamPlugin = new(plugin)
 
 type plugin struct {
 	settings *v1.Settings
@@ -36,6 +39,10 @@ type plugin struct {
 
 func NewPlugin() plugins.Plugin {
 	return &plugin{}
+}
+
+func (p *plugin) Name() string {
+	return ExtensionName
 }
 
 func (p *plugin) Resolve(u *v1.Upstream) (*url.URL, error) {
@@ -50,9 +57,8 @@ func (p *plugin) Resolve(u *v1.Upstream) (*url.URL, error) {
 	return url.Parse(fmt.Sprintf("tcp://%v:%v", staticSpec.Static.GetHosts()[0].GetAddr(), staticSpec.Static.GetHosts()[0].GetPort()))
 }
 
-func (p *plugin) Init(params plugins.InitParams) error {
+func (p *plugin) Init(params plugins.InitParams) {
 	p.settings = params.Settings
-	return nil
 }
 
 func (p *plugin) ProcessUpstream(params plugins.Params, in *v1.Upstream, out *envoy_config_cluster_v3.Cluster) error {
@@ -95,6 +101,23 @@ func (p *plugin) ProcessUpstream(params plugins.Params, in *v1.Upstream, out *en
 			}
 		}
 
+		healthCheckConfig := &envoy_config_endpoint_v3.Endpoint_HealthCheckConfig{
+			Hostname: host.GetAddr(),
+		}
+
+		if (in.GetHealthChecks() != nil) &&
+			(len(in.GetHealthChecks()) > 0) &&
+			(in.GetHealthChecks()[0].GetHttpHealthCheck().GetHost() != "") {
+
+			// The discerning reader may ask the question "Why are we hardcoding this to use the 0th healthcheck?"
+			// This was done with two assumptions:
+			// 		1) no one _currently_ uses this feature.  It was previously _always_ hardcoded to be a loopback call to host.GetAddr()
+			//		2) looking through our field engineering scripts/customer use-cases, _right now_, it appears that customers are using only a single top-level healthcheck
+			healthCheckConfig = &envoy_config_endpoint_v3.Endpoint_HealthCheckConfig{
+				Hostname: in.GetHealthChecks()[0].GetHttpHealthCheck().GetHost(),
+			}
+		}
+
 		out.GetLoadAssignment().GetEndpoints()[0].LbEndpoints = append(out.GetLoadAssignment().GetEndpoints()[0].GetLbEndpoints(),
 			&envoy_config_endpoint_v3.LbEndpoint{
 				Metadata: getMetadata(spec, host),
@@ -112,9 +135,7 @@ func (p *plugin) ProcessUpstream(params plugins.Params, in *v1.Upstream, out *en
 								},
 							},
 						},
-						HealthCheckConfig: &envoy_config_endpoint_v3.Endpoint_HealthCheckConfig{
-							Hostname: host.GetAddr(),
-						},
+						HealthCheckConfig: healthCheckConfig,
 					},
 				},
 				LoadBalancingWeight: host.GetLoadBalancingWeight(),
@@ -135,9 +156,13 @@ func (p *plugin) ProcessUpstream(params plugins.Params, in *v1.Upstream, out *en
 				// TODO(yuval-k): Add verification context
 				Sni: hostname,
 			}
+			typedConfig, err := utils.MessageToAny(tlsContext)
+			if err != nil {
+				return err
+			}
 			out.TransportSocket = &envoy_config_core_v3.TransportSocket{
 				Name:       wellknown.TransportSocketTls,
-				ConfigType: &envoy_config_core_v3.TransportSocket_TypedConfig{TypedConfig: utils.MustMessageToAny(tlsContext)},
+				ConfigType: &envoy_config_core_v3.TransportSocket_TypedConfig{TypedConfig: typedConfig},
 			}
 		}
 	}
@@ -186,8 +211,11 @@ func mutateSni(in *envoy_config_core_v3.TransportSocket, sni string) (*envoy_con
 		return nil, errors.Errorf("unknown tls config type: %T", cfg)
 	}
 	typedCfg.Sni = sni
-
-	copy.ConfigType = &envoy_config_core_v3.TransportSocket_TypedConfig{TypedConfig: utils.MustMessageToAny(typedCfg)}
+	typedConfig, err := utils.MessageToAny(typedCfg)
+	if err != nil {
+		return nil, err
+	}
+	copy.ConfigType = &envoy_config_core_v3.TransportSocket_TypedConfig{TypedConfig: typedConfig}
 
 	return &copy, nil
 }

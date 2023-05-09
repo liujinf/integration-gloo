@@ -29,7 +29,7 @@ Gloo Edge Open-Source runs in 3 different modes to enable different use cases:
     <td width="10%">
       <a href="{{% versioned_link_path fromRoot="/installation/ingress/" %}}"><img src='{{% versioned_link_path fromRoot="/img/ingress.png" %}}' width="60"/></a>
     </td>
-    <td>Run Gloo Edge in <code>ingress</code> mode to act as a standard Kubernetes Ingress controller. In this mode, Gloo Edge will import its configuration from the <code>extensions/v1beta1.Ingress</code> Kubernetes resource. This can be used to achieve compatibility with the standard Kubernetes ingress API. Note that Gloo Edge's Ingress API does not support customization via annotations. If you wish to extend Gloo Edge beyond the functions of basic ingress, it is recommended to run Gloo Edge in <code>gateway</code> mode.
+    <td>Run Gloo Edge in <code>ingress</code> mode to act as a standard Kubernetes Ingress controller. In this mode, Gloo Edge will import its configuration from the <code>networking.k8s.io/v1.Ingress</code> Kubernetes resource. This can be used to achieve compatibility with the standard Kubernetes ingress API. Note that Gloo Edge's Ingress API does not support customization via annotations. If you wish to extend Gloo Edge beyond the functions of basic ingress, it is recommended to run Gloo Edge in <code>gateway</code> mode.
     </td>
   </tr>
 </table>
@@ -50,7 +50,7 @@ Gloo Edge Enterprise has a single installation workflow:
       <a href="{{% versioned_link_path fromRoot="/installation/enterprise/" %}}"><img src='{{% versioned_link_path fromRoot="/img/gloo-ee.png" %}}' width="60"/></a>
     </td>
     <td>
-    Gloo Edge Enterprise is based on open-source Gloo Edge with additional (closed source) UI and plugins. See <a href="https://solo.io/glooe">the Gloo Edge Enterprise documentation</a> for more details on the additional features of the Enterprise version of Gloo Edge.
+    Gloo Edge Enterprise is based on open-source Gloo Edge with additional (closed source) UI and plugins. See <a href="{{% versioned_link_path fromRoot="/installation/enterprise/" %}}">the Gloo Edge Enterprise documentation</a> for more details on the additional features of the Enterprise version of Gloo Edge.
     </td>
   </tr>
 </table>

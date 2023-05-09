@@ -21,7 +21,16 @@ import (
 )
 
 const (
-	ContainerNameToCheck = "discovery"
+	// If the gateway pod is present use the image tag on that to get the gloo server version
+	// Otherwise, look for the annotation on the gloo pod
+	ContainerNameToCheckTag = "gateway"
+)
+
+var (
+	ContainerNamesToCheckAnnotation = map[string]bool{
+		"gloo":    true,
+		"gloo-ee": true,
+	}
 )
 
 func VersionMismatchWarning(opts *options.Options, cmd *cobra.Command) error {
@@ -36,7 +45,7 @@ func VersionMismatchWarning(opts *options.Options, cmd *cobra.Command) error {
 		nsToCheck = opts.Install.Gloo.Namespace
 	}
 
-	return WarnOnMismatch(opts.Top.Ctx, os.Args[0], versioncmd.NewKube(nsToCheck), &defaultLogger{})
+	return WarnOnMismatch(opts.Top.Ctx, os.Args[0], versioncmd.NewKube(nsToCheck, ""), &defaultLogger{})
 }
 
 // use this logger interface, so that in the unit test we can accumulate lines that were output
@@ -79,7 +88,7 @@ func WarnOnMismatch(ctx context.Context, binaryName string, sv versioncmd.Server
 		return nil
 	}
 
-	openSourceVersions, err := getOpenSourceVersions(clientServerVersions.GetServer())
+	openSourceVersions, err := GetOpenSourceVersions(clientServerVersions.GetServer())
 	if err != nil {
 		warnOnError(err, logger)
 		return nil
@@ -140,21 +149,24 @@ type ContainerVersion struct {
 }
 
 // return an array of open source gloo versions found in the cluster
-// this is determined by looking at all the versions of discovery that we can find
-func getOpenSourceVersions(podVersions []*versiondiscovery.ServerVersion) (versions []*versionutils.Version, err error) {
+// this is determined by looking at either the version of gateway (if the pod is present) or the annotation in the gloo pod.
+func GetOpenSourceVersions(podVersions []*versiondiscovery.ServerVersion) (versions []*versionutils.Version, err error) {
 	for _, podVersion := range podVersions {
 		switch podVersion.GetVersionType().(type) {
 		case *versiondiscovery.ServerVersion_Kubernetes:
 			for _, container := range podVersion.GetKubernetes().GetContainers() {
-				containerVersion, err := versionutils.ParseVersion("v" + container.GetTag())
-				if err != nil {
-					// if the container version doesn't match our versioning scheme
-					// (ie, as of writing this the redis container is on version "5")
-					// then just skip it
-					continue
-				}
-
-				if container.GetName() == ContainerNameToCheck {
+				if _, ok := ContainerNamesToCheckAnnotation[container.GetName()]; ok {
+					containerOssVersion, err := versionutils.ParseVersion("v" + container.GetOssTag())
+					if err != nil {
+						// If the annotation wasn't present or didn't contain a valid version, move on
+						continue
+					}
+					versions = append(versions, containerOssVersion)
+				} else if container.GetName() == ContainerNameToCheckTag {
+					containerVersion, err := versionutils.ParseVersion("v" + container.GetTag())
+					if err != nil {
+						continue
+					}
 					versions = append(versions, containerVersion)
 				}
 			}
@@ -162,6 +174,5 @@ func getOpenSourceVersions(podVersions []*versiondiscovery.ServerVersion) (versi
 			return nil, eris.Errorf("Unhandled server version type: %v", podVersion.GetVersionType())
 		}
 	}
-
 	return versions, nil
 }

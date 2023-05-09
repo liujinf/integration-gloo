@@ -45,6 +45,7 @@ SslConfig contains the options necessary to configure a virtual host or listener
 "alpnProtocols": []string
 "oneWayTls": .google.protobuf.BoolValue
 "disableTlsSessionResumption": .google.protobuf.BoolValue
+"transportSocketConnectTimeout": .google.protobuf.Duration
 
 ```
 
@@ -56,9 +57,10 @@ SslConfig contains the options necessary to configure a virtual host or listener
 | `sniDomains` | `[]string` | optional. the SNI domains that should be considered for TLS connections. |
 | `verifySubjectAltName` | `[]string` | Verify that the Subject Alternative Name in the peer certificate is one of the specified values. note that a root_ca must be provided if this option is used. |
 | `parameters` | [.gloo.solo.io.SslParameters](../ssl.proto.sk/#sslparameters) |  |
-| `alpnProtocols` | `[]string` | Set Application Level Protocol Negotiation If empty, defaults to ["h2", "http/1.1"]. |
+| `alpnProtocols` | `[]string` | Set Application Level Protocol Negotiation If empty, defaults to ["h2", "http/1.1"]. As an advanced option you may use ["allow_empty"] to avoid defaults and set alpn to have no alpn set (ie pass empty slice). |
 | `oneWayTls` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | If the SSL config has the ca.crt (root CA) provided, Gloo uses it to perform mTLS by default. Set oneWayTls to true to disable mTLS in favor of server-only TLS (one-way TLS), even if Gloo has the root CA. If unset, defaults to false. |
 | `disableTlsSessionResumption` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | If set to true, the TLS session resumption will be deactivated, note that it deactivates only the tickets based tls session resumption (not the cache). |
+| `transportSocketConnectTimeout` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) | If present and nonzero, the amount of time to allow incoming connections to complete any transport socket negotiations. If this expires before the transport reports connection establishment, the connection is summarily closed. |
 
 
 
@@ -99,6 +101,7 @@ SslConfig contains the options necessary to configure an upstream to use TLS ori
 "verifySubjectAltName": []string
 "parameters": .gloo.solo.io.SslParameters
 "alpnProtocols": []string
+"allowRenegotiation": .google.protobuf.BoolValue
 
 ```
 
@@ -111,6 +114,7 @@ SslConfig contains the options necessary to configure an upstream to use TLS ori
 | `verifySubjectAltName` | `[]string` | Verify that the Subject Alternative Name in the peer certificate is one of the specified values. note that a root_ca must be provided if this option is used. |
 | `parameters` | [.gloo.solo.io.SslParameters](../ssl.proto.sk/#sslparameters) |  |
 | `alpnProtocols` | `[]string` | Set Application Level Protocol Negotiation. If empty, it is not set. |
+| `allowRenegotiation` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | Allow Tls renegotiation, the default value is false. TLS renegotiation is considered insecure and shouldn’t be used unless absolutely necessary. |
 
 
 

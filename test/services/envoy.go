@@ -14,14 +14,21 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"text/template"
 	"time"
 
+	"github.com/solo-io/skv2/codegen/util"
+
+	"github.com/solo-io/gloo/test/testutils"
+	"github.com/solo-io/gloo/test/testutils/version"
+
+	"github.com/solo-io/gloo/test/ginkgo/parallel"
+
 	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
 
-	"github.com/onsi/ginkgo"
-	"github.com/onsi/ginkgo/config"
+	"github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	errors "github.com/rotisserie/eris"
 
@@ -41,7 +48,7 @@ func NextBindPort() uint32 {
 }
 
 func AdvanceBindPort(p *uint32) uint32 {
-	return atomic.AddUint32(p, 1) + uint32(config.GinkgoConfig.ParallelNode*1000)
+	return atomic.AddUint32(p, 1) + uint32(parallel.GetPortOffset())
 }
 
 type EnvoyBootstrapBuilder interface {
@@ -201,37 +208,12 @@ type EnvoyFactory struct {
 	envoypath string
 	tmpdir    string
 	useDocker bool
-	instances []*EnvoyInstance
-}
-
-func getEnvoyImageTag() string {
-	eit := os.Getenv("ENVOY_IMAGE_TAG")
-	if eit != "" {
-		return eit
-	}
-
-	// get project base
-	gomod, err := exec.Command("go", "env", "GOMOD").CombinedOutput()
-	Expect(err).NotTo(HaveOccurred())
-	gomodfile := strings.TrimSpace(string(gomod))
-	projectbase, _ := filepath.Split(gomodfile)
-
-	makefile := filepath.Join(projectbase, "Makefile")
-	inFile, err := os.Open(makefile)
-	Expect(err).NotTo(HaveOccurred())
-
-	defer inFile.Close()
-
-	const prefix = "ENVOY_GLOO_IMAGE ?= quay.io/solo-io/envoy-gloo:"
-
-	scanner := bufio.NewScanner(inFile)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, prefix) {
-			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
-		}
-	}
-	return ""
+	// The tag of the image that will be used to run the Envoy instance in Docker
+	// This can either be a previously released tag: https://quay.io/repository/solo-io/gloo-envoy-wrapper?tab=tags
+	// Or the tag of a locally built image
+	// See the Setup section of the ./test/e2e/README for details about building a local image
+	dockerImageTag string
+	instances      []*EnvoyInstance
 }
 
 func NewEnvoyFactory() (*EnvoyFactory, error) {
@@ -264,7 +246,10 @@ func NewEnvoyFactory() (*EnvoyFactory, error) {
 	case "darwin":
 		log.Printf("Using docker to run envoy")
 
-		return &EnvoyFactory{useDocker: true}, nil
+		return &EnvoyFactory{
+			useDocker:      true,
+			dockerImageTag: mustGetEnvoyWrapperTag(),
+		}, nil
 	case "linux":
 		// try to grab one form docker...
 		tmpdir, err := ioutil.TempDir(os.Getenv("HELPER_TMP"), "envoy")
@@ -272,10 +257,8 @@ func NewEnvoyFactory() (*EnvoyFactory, error) {
 			return nil, err
 		}
 
-		envoyImageTag := getEnvoyImageTag()
-		if envoyImageTag == "" {
-			panic("Must set the ENVOY_IMAGE_TAG env var. Find valid tag names here https://quay.io/repository/solo-io/gloo-envoy-wrapper?tab=tags")
-		}
+		envoyImageTag := mustGetEnvoyGlooTag()
+
 		log.Printf("Using envoy docker image tag: %s", envoyImageTag)
 
 		bash := fmt.Sprintf(`
@@ -311,6 +294,54 @@ docker rm $CID
 	}
 }
 
+// mustGetEnvoyGlooTag returns the tag of the envoy-gloo image which will be executed
+// The tag is chosen using the following process:
+//  1. If ENVOY_IMAGE_TAG is defined, use that tag
+//  2. If not defined, use the ENVOY_GLOO_IMAGE tag defined in the Makefile
+func mustGetEnvoyGlooTag() string {
+	eit := os.Getenv(testutils.EnvoyImageTag)
+	if eit != "" {
+		return eit
+	}
+
+	makefile := filepath.Join(util.GetModuleRoot(), "Makefile")
+	inFile, err := os.Open(makefile)
+	Expect(err).NotTo(HaveOccurred())
+
+	defer inFile.Close()
+
+	const prefix = "ENVOY_GLOO_IMAGE ?= quay.io/solo-io/envoy-gloo:"
+
+	scanner := bufio.NewScanner(inFile)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+
+	ginkgo.Fail("Could not determine envoy-gloo tag. Find valid tag names here https://quay.io/repository/solo-io/envoy-gloo?tab=tags")
+	return ""
+}
+
+// mustGetEnvoyWrapperTag returns the tag of the envoy-gloo-wrapper image which will be executed
+// The tag is chosen using the following process:
+//  1. If ENVOY_IMAGE_TAG is defined, use that tag
+//  2. If not defined, use the latest released tag of that image
+func mustGetEnvoyWrapperTag() string {
+	eit := os.Getenv(testutils.EnvoyImageTag)
+	if eit != "" {
+		return eit
+	}
+
+	latestPatchVersion, err := version.GetLastReleaseOfCurrentBranch()
+	if err != nil {
+		ginkgo.Fail(errors.Wrap(err, "Failed to extract the latest release of current minor").Error())
+	}
+
+	return strings.TrimPrefix(latestPatchVersion.String(), "v")
+}
+
 func (ef *EnvoyFactory) EnvoyPath() string {
 	return ef.envoypath
 }
@@ -330,35 +361,23 @@ func (ef *EnvoyFactory) Clean() error {
 	return nil
 }
 
-func (ei *EnvoyInstance) EnvoyConfig() (*http.Response, error) {
-	adminUrl := fmt.Sprintf("http://%s:%d/config_dump",
-		ei.LocalAddr(),
-		ei.AdminPort)
-	r, err := http.Get(adminUrl)
-	if err != nil {
-		return nil, err
-	}
-	return r, nil
-}
-
 type EnvoyInstance struct {
-	AccessLogAddr string
-	AccessLogPort uint32
-	RatelimitAddr string
-	RatelimitPort uint32
-	ID            string
-	Role          string
-	envoypath     string
-	envoycfg      string
-	logs          *bytes.Buffer
-	cmd           *exec.Cmd
-	UseDocker     bool
-	GlooAddr      string // address for gloo and services
-	Port          uint32
-	RestXdsPort   uint32
-	AdminPort     uint32
-	// Path to access logs for binary run
-	AccessLogs string
+	AccessLogAddr  string
+	AccessLogPort  uint32
+	RatelimitAddr  string
+	RatelimitPort  uint32
+	ID             string
+	Role           string
+	envoypath      string
+	envoycfg       string
+	logs           *SafeBuffer
+	cmd            *exec.Cmd
+	UseDocker      bool
+	DockerImageTag string
+	GlooAddr       string // address for gloo and services
+	Port           uint32
+	RestXdsPort    uint32
+	AdminPort      uint32
 
 	// Envoy API Version to use, default to V3
 	ApiVersion string
@@ -394,25 +413,17 @@ func (ef *EnvoyFactory) NewEnvoyInstance() (*EnvoyInstance, error) {
 	}
 
 	ei := &EnvoyInstance{
-		envoypath:     ef.envoypath,
-		UseDocker:     ef.useDocker,
-		GlooAddr:      gloo,
-		AccessLogAddr: gloo,
-		AdminPort:     atomic.AddUint32(&adminPort, 1) + uint32(config.GinkgoConfig.ParallelNode*1000),
-		ApiVersion:    "V3",
+		envoypath:      ef.envoypath,
+		UseDocker:      ef.useDocker,
+		DockerImageTag: ef.dockerImageTag,
+		GlooAddr:       gloo,
+		AccessLogAddr:  gloo,
+		AdminPort:      atomic.AddUint32(&adminPort, 1) + uint32(parallel.GetPortOffset()),
+		ApiVersion:     "V3",
 	}
 	ef.instances = append(ef.instances, ei)
 	return ei, nil
 
-}
-
-func (ei *EnvoyInstance) RunWithId(id string) error {
-	ei.ID = id
-	return ei.RunWithRole(DefaultProxyName, 8081)
-}
-
-func (ei *EnvoyInstance) Run(port int) error {
-	return ei.RunWithRole(DefaultProxyName, port)
 }
 
 func (ei *EnvoyInstance) RunWith(eic EnvoyInstanceConfig) error {
@@ -507,14 +518,16 @@ func (ei *EnvoyInstance) runWithAll(eic EnvoyInstanceConfig, bootstrapBuilder En
 		return ei.runContainer(eic.Context())
 	}
 
-	args := []string{"--config-yaml", ei.envoycfg, "--disable-hot-restart", "--log-level", "debug", "--bootstrap-version", "3"}
+	args := []string{"--config-yaml", ei.envoycfg, "--disable-hot-restart", "--log-level", "debug"}
 
 	// run directly
 	cmd := exec.CommandContext(eic.Context(), ei.envoypath, args...)
 
-	buf := &bytes.Buffer{}
-	ei.logs = buf
-	w := io.MultiWriter(ginkgo.GinkgoWriter, buf)
+	safeBuffer := &SafeBuffer{
+		buffer: &bytes.Buffer{},
+	}
+	ei.logs = safeBuffer
+	w := io.MultiWriter(ginkgo.GinkgoWriter, safeBuffer)
 	cmd.Stdout = w
 	cmd.Stderr = w
 
@@ -525,11 +538,7 @@ func (ei *EnvoyInstance) runWithAll(eic EnvoyInstanceConfig, bootstrapBuilder En
 	}
 	ei.cmd = cmd
 
-	err = ei.waitForEnvoyToBeRunning()
-	if err != nil {
-		return err
-	}
-	return nil
+	return ei.waitForEnvoyToBeRunning()
 }
 
 func (ei *EnvoyInstance) Binary() string {
@@ -553,9 +562,9 @@ func (ei *EnvoyInstance) setRuntimeConfiguration(queryParameters string) error {
 	return err
 }
 
-func (ei *EnvoyInstance) Clean() error {
+func (ei *EnvoyInstance) Clean() {
 	if ei == nil {
-		return nil
+		return
 	}
 	http.Post(fmt.Sprintf("http://localhost:%d/quitquitquit", ei.AdminPort), "", nil)
 	if ei.cmd != nil {
@@ -568,19 +577,14 @@ func (ei *EnvoyInstance) Clean() error {
 		// This is just a backup to make sure it really gets deleted
 		stopContainer()
 	}
-	return nil
 }
 
 func (ei *EnvoyInstance) runContainer(ctx context.Context) error {
-	envoyImageTag := getEnvoyImageTag()
-	if envoyImageTag == "" {
-		return errors.New("Must set the ENVOY_IMAGE_TAG env var. Find valid tag names here https://quay.io/repository/solo-io/gloo-envoy-wrapper?tab=tags")
-	}
-
-	image := "quay.io/solo-io/gloo-envoy-wrapper:" + envoyImageTag
+	image := fmt.Sprintf("quay.io/solo-io/gloo-envoy-wrapper:%s", ei.DockerImageTag)
 	args := []string{"run", "--rm", "--name", containerName,
 		"-p", fmt.Sprintf("%d:%d", defaults.HttpPort, defaults.HttpPort),
 		"-p", fmt.Sprintf("%d:%d", defaults.HttpsPort, defaults.HttpsPort),
+		"-p", fmt.Sprintf("%d:%d", defaults.HybridPort, defaults.HybridPort),
 		"-p", fmt.Sprintf("%d:%d", ei.AdminPort, ei.AdminPort),
 	}
 
@@ -597,7 +601,6 @@ func (ei *EnvoyInstance) runContainer(ctx context.Context) error {
 		image,
 		"--disable-hot-restart",
 		"--log-level", "debug",
-		"--bootstrap-version", "3",
 		"--config-yaml", ei.envoycfg,
 	)
 
@@ -615,8 +618,8 @@ func (ei *EnvoyInstance) runContainer(ctx context.Context) error {
 }
 
 func (ei *EnvoyInstance) waitForEnvoyToBeRunning() error {
-	pingInterval := time.Tick(time.Second)
-	pingDuration := time.Second * 15
+	pingInterval := time.Tick(time.Millisecond * 100)
+	pingDuration := time.Second * 10
 	pingEndpoint := fmt.Sprintf("localhost:%d", ei.AdminPort)
 
 	ctx, cancel := context.WithTimeout(context.Background(), pingDuration)
@@ -697,4 +700,50 @@ func (ei *EnvoyInstance) Logs() (string, error) {
 	}
 
 	return ei.logs.String(), nil
+}
+
+func (ei *EnvoyInstance) ConfigDump() (string, error) {
+	return ei.getAdminEndpointData("config_dump")
+}
+
+func (ei *EnvoyInstance) Statistics() (string, error) {
+	return ei.getAdminEndpointData("stats")
+}
+
+func (ei *EnvoyInstance) getAdminEndpointData(endpoint string) (string, error) {
+	adminUrl := fmt.Sprintf("http://%s:%d/%s", ei.LocalAddr(), ei.AdminPort, endpoint)
+	response, err := http.Get(adminUrl)
+	if err != nil {
+		return "", err
+	}
+
+	responseBytes := new(bytes.Buffer)
+	defer response.Body.Close()
+	if _, err := io.Copy(responseBytes, response.Body); err != nil {
+		return "", err
+	}
+
+	return responseBytes.String(), nil
+}
+
+// SafeBuffer is a goroutine safe bytes.Buffer
+type SafeBuffer struct {
+	buffer *bytes.Buffer
+	mutex  sync.Mutex
+}
+
+// Write appends the contents of p to the buffer, growing the buffer as needed. It returns
+// the number of bytes written.
+func (s *SafeBuffer) Write(p []byte) (n int, err error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.buffer.Write(p)
+}
+
+// String returns the contents of the unread portion of the buffer
+// as a string.  If the Buffer is a nil pointer, it returns "<nil>".
+func (s *SafeBuffer) String() string {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.buffer.String()
 }

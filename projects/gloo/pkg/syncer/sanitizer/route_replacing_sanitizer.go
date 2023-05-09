@@ -4,6 +4,10 @@ import (
 	"context"
 	"regexp"
 	"sort"
+	"strings"
+
+	"github.com/solo-io/gloo/projects/gloo/constants"
+	v1snap "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/gloosnapshot"
 
 	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -12,8 +16,8 @@ import (
 	envoy_config_route_v3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoyhcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
-	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/ptypes/any"
 	"github.com/hashicorp/go-multierror"
 	"github.com/rotisserie/eris"
 	"github.com/solo-io/gloo/pkg/utils"
@@ -26,6 +30,7 @@ import (
 	"github.com/solo-io/go-utils/contextutils"
 	envoycache "github.com/solo-io/solo-kit/pkg/api/v1/control-plane/cache"
 	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/resource"
+	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/types"
 	"github.com/solo-io/solo-kit/pkg/api/v2/reporter"
 	"go.opencensus.io/tag"
 	"go.uber.org/zap"
@@ -39,11 +44,15 @@ const (
 
 var (
 	routeConfigKey, _ = tag.NewKey("route_config_name")
+	mRoutesReplaced   = utils.MakeLastValueCounter("gloo.solo.io/sanitizer/routes_replaced", "The number routes replaced in the sanitized xds snapshot", stats.ProxyNameKey, routeConfigKey)
 
-	mRoutesReplaced = utils.MakeLastValueCounter("gloo.solo.io/sanitizer/routes_replaced", "The number routes replaced in the sanitized xds snapshot", stats.ProxyNameKey, routeConfigKey)
+	// Compile-time assertion
+	_ XdsSanitizer = new(RouteReplacingSanitizer)
 )
 
 type RouteReplacingSanitizer struct {
+	// note to devs: this can be called in parallel by the validation webhook and main translation loops at the same time
+	// any stateful fields should be protected by a mutex
 	enabled          bool
 	fallbackListener *envoy_config_listener_v3.Listener
 	fallbackCluster  *envoy_config_cluster_v3.Cluster
@@ -99,9 +108,15 @@ func makeFallbackListenerAndCluster(
 				}},
 			},
 		},
-		HttpFilters: []*envoyhcm.HttpFilter{{
-			Name: wellknown.Router,
-		}},
+		HttpFilters: []*envoyhcm.HttpFilter{
+			{
+				Name: wellknown.Router,
+				ConfigType: &envoyhcm.HttpFilter_TypedConfig{
+					TypedConfig: &any.Any{
+						TypeUrl: "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router",
+					},
+				},
+			}},
 	}
 
 	typedHcmConfig, err := glooutils.MessageToAny(hcmConfig)
@@ -156,64 +171,61 @@ func makeFallbackListenerAndCluster(
 
 func (s *RouteReplacingSanitizer) SanitizeSnapshot(
 	ctx context.Context,
-	glooSnapshot *v1.ApiSnapshot,
+	glooSnapshot *v1snap.ApiSnapshot,
 	xdsSnapshot envoycache.Snapshot,
 	reports reporter.ResourceReports,
-) (envoycache.Snapshot, error) {
+) envoycache.Snapshot {
 	if !s.enabled {
-		// if if the route sanitizer is not enabled, enforce strict validation of routes (warnings are treated as errors)
-		// this is necessary because the translator only uses Validate() which ignores warnings
-		return xdsSnapshot, reports.ValidateStrict()
+		return xdsSnapshot
 	}
 
 	ctx = contextutils.WithLogger(ctx, "invalid-route-replacer")
 
 	contextutils.LoggerFrom(ctx).Debug("replacing routes which point to missing or errored upstreams with a direct response action")
 
-	routeConfigs, err := getRoutes(xdsSnapshot)
-	if err != nil {
-		return nil, err
+	routeConfigs := getRoutes(ctx, xdsSnapshot)
+	if len(routeConfigs) == 0 {
+		contextutils.LoggerFrom(ctx).Debug("xds snapshot had no routes for route sanitizer to replace")
+		return xdsSnapshot
 	}
 
 	// mark all valid destination clusters
-	validClusters := getClusters(glooSnapshot)
+	validClusters := getClusters(glooSnapshot, xdsSnapshot)
 
 	proxyReports := reports.FilterByKind("*v1.Proxy")
 	erroredRouteNames := s.removeErroredRoutesFromReport(proxyReports, reports)
 
 	replacedRouteConfigs, needsListener := s.replaceRoutes(ctx, validClusters, routeConfigs, erroredRouteNames)
 
-	clusters := xdsSnapshot.GetResources(resource.ClusterTypeV3)
-	listeners := xdsSnapshot.GetResources(resource.ListenerTypeV3)
+	clusters := xdsSnapshot.GetResources(types.ClusterTypeV3)
+	listeners := xdsSnapshot.GetResources(types.ListenerTypeV3)
 
 	if needsListener {
 		s.insertFallbackListener(&listeners)
 		s.insertFallbackCluster(&clusters)
 	}
 
-	xdsSnapshot = xds.NewSnapshotFromResources(
-		xdsSnapshot.GetResources(resource.EndpointTypeV3),
+	newXdsSnapshot := xds.NewSnapshotFromResources(
+		xdsSnapshot.GetResources(types.EndpointTypeV3),
 		clusters,
 		translator.MakeRdsResources(replacedRouteConfigs),
 		listeners,
 	)
 
-	// If the snapshot is not consistent, error
-	if err := xdsSnapshot.Consistent(); err != nil {
-		return xdsSnapshot, err
-	}
-
-	return xdsSnapshot, nil
+	return newXdsSnapshot
 }
 
-func getRoutes(snap envoycache.Snapshot) ([]*envoy_config_route_v3.RouteConfiguration, error) {
-	routeConfigProtos := snap.GetResources(resource.RouteTypeV3)
+func getRoutes(ctx context.Context, snap envoycache.Snapshot) []*envoy_config_route_v3.RouteConfiguration {
+	routeConfigProtos := snap.GetResources(types.RouteTypeV3)
 	var routeConfigs []*envoy_config_route_v3.RouteConfiguration
 
 	for _, routeConfigProto := range routeConfigProtos.Items {
 		routeConfig, ok := routeConfigProto.ResourceProto().(*envoy_config_route_v3.RouteConfiguration)
 		if !ok {
-			return nil, eris.Errorf("invalid type, expected *envoyapi.RouteConfiguration, found %T", routeConfigProto)
+			// should never happen
+			contextutils.LoggerFrom(ctx).DPanicf("error: xds snapshot resources of type RouteTypeV3 were not "+
+				"converted to *envoy_config_route_v3.RouteConfiguration, instead found %T", routeConfigProto.ResourceProto())
+			return nil
 		}
 		routeConfigs = append(routeConfigs, routeConfig)
 	}
@@ -222,16 +234,32 @@ func getRoutes(snap envoycache.Snapshot) ([]*envoy_config_route_v3.RouteConfigur
 		return routeConfigs[i].GetName() < routeConfigs[j].GetName()
 	})
 
-	return routeConfigs, nil
+	return routeConfigs
 }
 
-func getClusters(snap *v1.ApiSnapshot) map[string]struct{} {
-	// mark all valid destination clusters
+func getClusters(glooSnapshot *v1snap.ApiSnapshot, xdsSnapshot envoycache.Snapshot) map[string]struct{} {
+	// mark all valid destination clusters, i.e. those that are in both the gloo snapshot and xds snapshot
 	validClusters := make(map[string]struct{})
-	for _, up := range snap.Upstreams.AsInputResources() {
+	xdsClusters := xdsSnapshot.GetResources(types.ClusterTypeV3)
+
+	for _, up := range glooSnapshot.Upstreams.AsInputResources() {
 		clusterName := translator.UpstreamToClusterName(up.GetMetadata().Ref())
-		validClusters[clusterName] = struct{}{}
+		if xdsClusters.Items[clusterName] != nil {
+			validClusters[clusterName] = struct{}{}
+		}
 	}
+
+	for clusterName := range xdsClusters.Items {
+		// clusters created by gloo, such as dynamic forward proxy clusters, are always valid.
+		// This loop _ensures_ they are, because the "exist in gloo snapshot's upstreams" isn't a valid assumption
+		// for such clusters.  They can be identified with the prefix "solo_io_generated_"
+		if strings.HasPrefix(clusterName, constants.SoloGeneratedClusterPrefix) {
+			validClusters[clusterName] = struct{}{}
+		}
+		// in the future, if you are considering adding a new prefix here, please consider whether it is
+		// possible to rename the cluster to use $SoloGeneratedClusterPrefix instead.
+	}
+
 	return validClusters
 }
 
@@ -256,9 +284,8 @@ func (s *RouteReplacingSanitizer) replaceRoutes(
 	// replace any routes which do not point to a valid destination cluster
 	for _, cfg := range routeConfigs {
 		var replaced int64
-		sanitizedRouteConfig := proto.Clone(cfg).(*envoy_config_route_v3.RouteConfiguration)
 
-		for i, vh := range sanitizedRouteConfig.GetVirtualHosts() {
+		for i, vh := range cfg.GetVirtualHosts() {
 			for j, route := range vh.GetRoutes() {
 				routeAction := route.GetRoute()
 				if routeAction == nil {
@@ -287,13 +314,11 @@ func (s *RouteReplacingSanitizer) replaceRoutes(
 				default:
 					continue
 				}
-				vh.GetRoutes()[j] = route
 			}
-			sanitizedRouteConfig.GetVirtualHosts()[i] = vh
 		}
 
-		utils.Measure(ctx, mRoutesReplaced, replaced, tag.Insert(routeConfigKey, sanitizedRouteConfig.GetName()))
-		sanitizedRouteConfigs = append(sanitizedRouteConfigs, sanitizedRouteConfig)
+		utils.Measure(ctx, mRoutesReplaced, replaced, tag.Insert(routeConfigKey, cfg.GetName()))
+		sanitizedRouteConfigs = append(sanitizedRouteConfigs, cfg)
 	}
 
 	return sanitizedRouteConfigs, anyRoutesReplaced

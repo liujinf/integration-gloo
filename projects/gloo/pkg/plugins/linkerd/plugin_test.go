@@ -7,9 +7,10 @@ import (
 	envoy_config_route_v3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes/wrappers"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	v1snap "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/gloosnapshot"
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/kubernetes"
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/static"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
@@ -19,11 +20,13 @@ import (
 )
 
 var _ = Describe("linkerd plugin", func() {
+
 	var (
 		params plugins.Params
-		plugin *Plugin
+		plugin plugins.RoutePlugin
 		out    *envoy_config_route_v3.Route
 	)
+
 	BeforeEach(func() {
 		out = new(envoy_config_route_v3.Route)
 
@@ -226,15 +229,7 @@ var _ = Describe("linkerd plugin", func() {
 	})
 
 	Context("through the plugin", func() {
-		It("can propetly initialiaze", func() {
-			err := plugin.Init(plugins.InitParams{
-				Settings: &v1.Settings{
-					Linkerd: true,
-				},
-			})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(plugin.enabled).To(BeTrue())
-		})
+
 		It("works for a single", func() {
 			upstreamRefs := []*core.ResourceRef{
 				{Name: "one", Namespace: "one"},
@@ -258,7 +253,7 @@ var _ = Describe("linkerd plugin", func() {
 				},
 			}
 			upstreams := createUpstreamList(upstreamRefs, kubeSpecs)
-			params.Snapshot = &v1.ApiSnapshot{
+			params.Snapshot = &v1snap.ApiSnapshot{
 				Upstreams: upstreams,
 			}
 			in := &v1.Route{
@@ -275,13 +270,13 @@ var _ = Describe("linkerd plugin", func() {
 				},
 			}
 			outCopy := proto.Clone(out)
-			err := plugin.Init(plugins.InitParams{
+			plugin.Init(plugins.InitParams{
 				Settings: &v1.Settings{
 					Linkerd: true,
 				},
 			})
-			Expect(err).NotTo(HaveOccurred())
-			err = plugin.ProcessRoute(plugins.RouteParams{VirtualHostParams: plugins.VirtualHostParams{Params: params}}, in, out)
+
+			err := plugin.ProcessRoute(plugins.RouteParams{VirtualHostParams: plugins.VirtualHostParams{Params: params}}, in, out)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(out).NotTo(BeEquivalentTo(outCopy))
 			Expect(out.RequestHeadersToAdd).To(ContainElement(createHeaderForUpstream(kubeSpecs[0])))

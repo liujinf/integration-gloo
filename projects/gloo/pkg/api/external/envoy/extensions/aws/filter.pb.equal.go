@@ -68,6 +68,30 @@ func (m *AWSLambdaPerRoute) Equal(that interface{}) bool {
 		}
 	}
 
+	if m.GetUnwrapAsAlb() != target.GetUnwrapAsAlb() {
+		return false
+	}
+
+	if h, ok := interface{}(m.GetTransformerConfig()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetTransformerConfig()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetTransformerConfig(), target.GetTransformerConfig()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetRequestTransformerConfig()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetRequestTransformerConfig()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetRequestTransformerConfig(), target.GetRequestTransformerConfig()) {
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -116,6 +140,10 @@ func (m *AWSLambdaProtocolExtension) Equal(that interface{}) bool {
 		return false
 	}
 
+	if m.GetDisableRoleChaining() != target.GetDisableRoleChaining() {
+		return false
+	}
+
 	return true
 }
 
@@ -138,6 +166,20 @@ func (m *AWSLambdaConfig) Equal(that interface{}) bool {
 		return m == nil
 	} else if m == nil {
 		return false
+	}
+
+	if m.GetPropagateOriginalRouting() != target.GetPropagateOriginalRouting() {
+		return false
+	}
+
+	if h, ok := interface{}(m.GetCredentialRefreshDelay()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetCredentialRefreshDelay()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetCredentialRefreshDelay(), target.GetCredentialRefreshDelay()) {
+			return false
+		}
 	}
 
 	switch m.CredentialsFetcher.(type) {
@@ -177,6 +219,30 @@ func (m *AWSLambdaConfig) Equal(that interface{}) bool {
 		if m.CredentialsFetcher != target.CredentialsFetcher {
 			return false
 		}
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ApiGatewayTransformation) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ApiGatewayTransformation)
+	if !ok {
+		that2, ok := that.(ApiGatewayTransformation)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
 	}
 
 	return true

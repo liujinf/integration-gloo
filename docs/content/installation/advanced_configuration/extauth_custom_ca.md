@@ -38,184 +38,44 @@ Now we are ready to either [install Gloo Edge Enterprise](#install-gloo-edge-ent
 
 ## Install Gloo Edge Enterprise
 
-To add the customization of a trusted certificate authority to the Gloo Edge Enterprise installation, we are going to need to use Helm for the installation and `kustomize` to perform a last mile helm chart customization, as outlined [in this guide]({{< versioned_link_path fromRoot="/installation/gateway/kubernetes/helm_advanced/" >}}). Essentially, we are going to have Helm render an installation manifest, and then tailor the manifest using kustomize to add the necessary configuration.
+To add the customization of a trusted certificate authority to the Gloo Edge Enterprise installation, we are going to need to use Helm for the installation and customization.
 
 ```bash
 # Add the Gloo Edge Enterprise repo to Helm if you haven't already
 helm repo add glooe https://storage.googleapis.com/gloo-ee-helm
 helm repo update
 
-# Grab the current Gloo Edge Enterprise version
-version=$(helm search repo glooe -ojson | jq .[0].version -r)
-
-# Create the patch
-cat > custom-ca-patch.yaml <<EOF
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: extauth
-spec:
-  template:
-    spec:
-      volumes:
-      - name: certs
-        emptyDir: {}
-      - name: ca-certs
-        secret:
-          secretName: trusted-ca
-          items:
-          - key: tls.crt
-            path: ca.crt
-      initContainers:
-      - name: add-ca-cert
-        image: quay.io/solo-io/extauth-ee:$version
-        command:
-          - sh
-        args:
-          - "-c"
-          - "cp -r /etc/ssl/certs/* /certs; cat /etc/ssl/certs/ca-certificates.crt /ca-certs/ca.crt > /certs/ca-certificates.crt"
-        volumeMounts:
-          - name: certs
-            mountPath: /certs
-          - name: ca-certs
-            mountPath: /ca-certs
+# Create the helm values file (or merge into existing)
+cat > gloo-edge-bring-cert-values.yaml <<EOF
+global:
+  extensions:
+    extAuth:
+      deployment:
+        extraVolume:
+        - name: ca-certs-custom
+          secret:
+            secretName: trusted-ca
+        extraVolumeMount:
+        - name: ca-certs-custom
+          mountPath: /etc/ssl/certs/ca-certs-custom.crt
+          subPath: tls.crt
+          readOnly: true
 EOF
 ```
 
-Now we'll create a helper script to let kustomize do the post-render work from Helm:
+Finally, we'll install Gloo Edge Enterprise with Helm. Be sure to update the value for the license key.
+Include the `--install` flag to upgrade the existing installation or install a new release if one does not already exist.
 
 ```bash
-cat > kustomize.sh <<EOF
-#!/bin/sh
-cat > base.yaml
-# you can also use "kustomize build ." if you have it installed.
-exec kubectl kustomize
-EOF
-chmod +x ./kustomize.sh
-```
-
-And create the `kustomization.yaml` that includes our patch:
-
-```bash
-cat > kustomization.yaml <<EOF
-resources:
-- base.yaml
-patchesStrategicMerge:
-- custom-ca-patch.yaml
-EOF
-```
-
-Finally, we'll install Gloo Edge Enterprise with Helm using kustomize to add our patch in. Be sure to update the value for the license key.
-
-```bash
-helm install gloo glooe/gloo-ee --namespace gloo-system \
+helm upgrade --install gloo glooe/gloo-ee --namespace gloo-system \
   --set-string license_key=LICENSE_KEY \
-  --post-renderer ./kustomize.sh
+  -f gloo-edge-bring-cert-values.yaml
 ```
 
 Once the installation is complete, we can validate our change with the following command:
 
 ```bash
-kubectl describe pods -n gloo-system -l gloo=extauth
-```
-
-You should see the init container `add-ca-cert` has completed its work.
-
-```bash
-  State:          Terminated
-    Reason:       Completed
-    Exit Code:    0
-```
-
-You've successfully added a custom certificate authority for external authentication!
-
-## Update Gloo Edge Enterprise
-
-To update an existing Gloo Edge Enterprise installation to support an additional trusted root certificate authority, we are going to patch the deployment for the external authentication server. You can do this by using `kubectl patch`. We are going to add three values for the volume, volumeMount, and initialization container.
-
-```bash
-# Get the current image of the extauth pod
-image=$(kubectl get deploy/extauth -n gloo-system -ojson | jq .spec.template.spec.containers[0].image -r)
-
-# Patch the deployment with an initialization pod
-cat  <<EOF | xargs -0 kubectl patch deployment -n gloo-system extauth --type='json' -p
-[
-    {
-        "op": "add",
-        "path": "/spec/template/spec/containers/0/volumeMounts",
-        "value": [
-            {
-                "name": "certs",
-                "mountPath": "/etc/ssl/certs/"
-            }
-        ]
-    },
-    {
-        "op": "add",
-        "path": "/spec/template/spec/volumes",
-        "value": [
-            {
-                "name": "certs",
-                "emptyDir": {}
-            },
-            {
-                "name": "ca-certs",
-                "secret": {
-                    "secretName": "trusted-ca",
-                    "items": [
-                        {
-                            "key": "tls.crt",
-                            "path": "ca.crt"
-                        }
-                    ]
-                }
-            }
-        ]
-    },
-    {
-        "op": "add",
-        "path": "/spec/template/spec/initContainers",
-        "value": [
-            {
-                "name": "add-ca-cert",
-                "image": "$image",
-                "command": [
-                    "sh"
-                ],
-                "args": [
-                    "-c",
-                    "cp -r /etc/ssl/certs/* /certs; cat /etc/ssl/certs/ca-certificates.crt /ca-certs/ca.crt > /certs/ca-certificates.crt"
-                ],
-                "volumeMounts": [
-                    {
-                        "name": "certs",
-                        "mountPath": "/certs"
-                    },
-                    {
-                        "name": "ca-certs",
-                        "mountPath": "/ca-certs"
-                    }
-                ]
-            }
-        ]
-    }
-]
-EOF
-
-```
-
-This will force a recreation of the external authentication server pod(s). We can validate our trusted certificate authority was added by running the following:
-
-```bash
-kubectl describe pods -n gloo-system -l gloo=extauth
-```
-
-You should see the init container `add-ca-cert` has completed its work.
-
-```bash
-  State:          Terminated
-    Reason:       Completed
-    Exit Code:    0
+kubectl exec -n gloo-system deploy/extauth -- cat /etc/ssl/certs/ca-certs-custom.crt
 ```
 
 You've successfully added a custom certificate authority for external authentication!

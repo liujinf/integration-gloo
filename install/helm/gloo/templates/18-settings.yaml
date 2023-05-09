@@ -10,6 +10,10 @@ metadata:
   name: default
   namespace: {{ .Release.Namespace }}
 spec:
+{{- if .Values.settings.devMode }}
+  devMode:
+    {{ .Values.settings.devMode}}
+{{- end }}
   gloo:
 {{- if .Values.global.glooMtls.enabled }}
     xdsBindAddr: "127.0.0.1:9999"
@@ -18,6 +22,7 @@ spec:
     xdsBindAddr: "0.0.0.0:{{ .Values.gloo.deployment.xdsPort }}"
     restXdsBindAddr: "0.0.0.0:{{ .Values.gloo.deployment.restXdsPort }}"
 {{- end }}
+    proxyDebugBindAddr: "0.0.0.0:{{ .Values.gloo.deployment.proxyDebugPort }}"
     enableRestEds: {{ .Values.settings.enableRestEds | default false }}
 {{- /* .Values.settings.replaceInvalidRoutes for backwards compatibility */}}
 {{- if or (.Values.settings.invalidConfigPolicy) (.Values.settings.replaceInvalidRoutes) }}
@@ -32,8 +37,13 @@ spec:
 {{- if .Values.settings.regexMaxProgramSize }}
     regexMaxProgramSize: {{ .Values.settings.regexMaxProgramSize }}
 {{- end }}
-{{- if .Values.settings.aws.enableServiceAccountCredentials }}
+{{- if .Values.settings.circuitBreakers }}
+    circuitBreakers:
+{{ toYaml .Values.settings.circuitBreakers | indent 6}}
+{{- end }}
+{{- if .Values.settings.aws }}
     awsOptions:
+{{- if .Values.settings.aws.enableServiceAccountCredentials }}
       serviceAccountCredentials:
         cluster: aws_sts_cluster
 {{- if not .Values.settings.aws.stsCredentialsRegion }}
@@ -42,8 +52,18 @@ spec:
         uri: sts.{{ .Values.settings.aws.stsCredentialsRegion }}.amazonaws.com
 {{- end }}
 {{- else if .Values.settings.aws.enableCredentialsDiscovery }}
-    awsOptions:
       enableCredentialsDiscovey: true
+{{- end }}
+
+ {{- if  .Values.settings.aws.credential_refresh_delay }}
+      credentialRefreshDelay: {{  .Values.settings.aws.credential_refresh_delay }}
+{{- end }}
+{{- if  .Values.settings.aws.propagateOriginalRouting }}
+      propagateOriginalRouting: {{ .Values.settings.aws.propagateOriginalRouting }}
+{{- end }}
+  {{- if .Values.settings.aws.fallbackToFirstFunction }}
+      fallbackToFirstFunction: {{ .Values.settings.aws.fallbackToFirstFunction }}
+  {{- end }}
 {{- end }}
 
   {{- if .Values.settings.integrations.consul }}
@@ -51,7 +71,7 @@ spec:
   {{- toYaml .Values.settings.integrations.consul | nindent 4 }}
   {{- end }}
   {{- if .Values.settings.integrations.consulUpstreamDiscovery }}
-  consulUpstreamDiscovery:
+  consulDiscovery:
   {{- toYaml .Values.settings.integrations.consulUpstreamDiscovery | nindent 4 }}
   {{- end }}
 
@@ -78,25 +98,41 @@ spec:
 {{- end }}
 
   gateway:
+    isolateVirtualHostsBySslConfig: {{ .Values.gateway.isolateVirtualHostsBySslConfig }}
     readGatewaysFromAllNamespaces: {{ .Values.gateway.readGatewaysFromAllNamespaces }}
+{{- if or .Values.gateway.persistProxySpec (not .Values.gateway.enabled) }}
+    persistProxySpec: true
+{{- end}}
 {{- if .Values.gateway.compressedProxySpec}}
     compressedProxySpec: {{ .Values.gateway.compressedProxySpec}}
 {{- end}}
+    enableGatewayController: {{ .Values.gateway.enabled }}
 {{- if .Values.gateway.validation.enabled }}
     validation:
       proxyValidationServerAddr: "gloo:{{ .Values.gloo.deployment.validationPort }}"
 {{- /* need to do this weird if/else because Helm cannot differentiate between 'false' and 'unset' */}}
       alwaysAccept: {{ .Values.gateway.validation.alwaysAcceptResources }}
       allowWarnings: {{ .Values.gateway.validation.allowWarnings }}
+      serverEnabled: {{ .Values.gateway.validation.serverEnabled }}
       disableTransformationValidation: {{ .Values.gateway.validation.disableTransformationValidation }}
       warnRouteShortCircuiting: {{ .Values.gateway.validation.warnRouteShortCircuiting }}
       validationServerGrpcMaxSizeBytes: {{ .Values.gateway.validation.validationServerGrpcMaxSizeBytes }}
 {{- end }}
 
-{{- if ne .Values.discovery.fdsMode "" }}
+{{- if .Values.discovery }}
   discovery:
+{{- if ne .Values.discovery.fdsMode "" }}
     fdsMode: {{.Values.discovery.fdsMode}}
 {{- end }}
+{{- if .Values.discovery.udsOptions }}
+    udsOptions:
+    {{- toYaml .Values.discovery.udsOptions | nindent 6 }}
+{{- end }} {{/* if .Values.discovery.udsOptions */}}
+{{- if .Values.discovery.fdsOptions }}
+    fdsOptions:
+    {{- toYaml .Values.discovery.fdsOptions | nindent 6 }}
+{{- end }} {{/* if .Values.discovery.fdsOptions */}}
+{{- end }} {{/* if .Values.discovery */}}
 
 {{- if .Values.settings.extensions }}
   extensions:
@@ -104,8 +140,13 @@ spec:
 {{- end }}
 
 {{- if .Values.settings.rateLimit }}
-  rateLimit:
+  ratelimit:
 {{- toYaml .Values.settings.rateLimit | nindent 4 }}
+{{- end }}
+
+{{- if .Values.settings.ratelimitServer }}
+  ratelimitServer:
+{{- toYaml .Values.settings.ratelimitServer | nindent 4 }}
 {{- end }}
 
 {{/* extauth have specified yaml in Enterprise (as opposed to generic yaml insertion for third party configs here) */}}
@@ -137,10 +178,10 @@ spec:
 {{- end }} {{/* if .Values.settings.create  */}}
 {{- end }} {{/* define "settings.settingsSpec" */}}
 
+
 {{/* Render template with yaml overrides */}}
 {{- $kubeResourceOverride := dict -}}
 {{- if .Values.settings -}}
 {{- $kubeResourceOverride = .Values.settings.kubeResourceOverride  -}}
 {{- end -}}
 {{- include "gloo.util.merge" (list . $kubeResourceOverride "settings.settingsSpec") -}}
-

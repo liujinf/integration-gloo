@@ -4,16 +4,14 @@ weight: 50
 description: Data Loss Prevention (DLP) is a method of ensuring that sensitive data isn't logged or leaked.
 ---
 
-{{% notice note %}}
-DLP is a feature of **Gloo Edge Enterprise v1.0.0+**. Gloo Edge Enterprise release candidate v1.0.0-rc1 was the first version to
-support this feature. v1.0.0-rc2 contained some minor fixes to the Gloo Edge provided regular expressions.
-This guide is written for v1.0.0-rc4+.
-{{% /notice %}}
-
 ### Understanding DLP
 
 Data Loss Prevention (DLP) is a method of ensuring that sensitive data isn't logged or leaked. This is done by doing
-a series of regex replacements on the response body.
+a series of regex replacements on the response body and content that is logged by Envoy ([see Access Logging]({{% versioned_link_path fromRoot="/guides/security/access_logging/" %}})).
+
+{{% notice info %}}
+Valid regex patterns are those in the [RE2 syntax](https://github.com/google/re2/wiki/Syntax). Note that some features such as lookaheads are not supported by RE2.
+{{% /notice %}}
 
 For example, we can use Gloo Edge to transform this response:
 ```json
@@ -32,23 +30,27 @@ into this response:
 }
 ```
 
-DLP is configured as a list of `Action`s, applied in order, on an HTTP listener, virtual service, or route. If
+DLP is configured as an ordered list of `Action`s on an HTTP listener, virtual service, or route. If
 configured on the listener, an additional matcher is paired with a list of `Action`s, and the first DLP rule that
 matches a request will be applied.
 
-DLP is one of the first filters run by Envoy. Gloo Edge's current filter order follows:
+The DLP filter will be run by Envoy after any other filters which might add data to be masked into the dynamic metadata. Gloo Edge's current filter order follows:
 
 1. Fault Stage (Fault injection)
-1. CORS/DLP Stage (order here is not guaranteed to be idempotent)
-1. WAF Stage
+1. DLP
+1. CORS
 1. Rest of the filters ... (not all in the same stage)
 
 ### DLP for access logs
 
-By default, DLP will only run regex replaces on the response body. If 
+By default, DLP will only run regex replacements on the response body. If 
 [access logging]({{% versioned_link_path fromRoot="/guides/security/access_logging/" %}}) is configured, the DLP actions
 can also be applied to the headers and dynamic metadata that is logged by the configured access loggers. To do so, the `enabledFor`
 DLP configuration option must be set to `ACCESS_LOGS` or `ALL` (to mask access logs AND the response bodies).
+
+{{% notice info %}}
+WAF access logs will only be masked when logged to Dynamic metadata. WAF logs written to Filter State will not be masked.
+{{% /notice %}}
 
 ### Prerequisites
 
@@ -63,7 +65,9 @@ First let's begin by configuring a simple static upstream to an echo site.
 
 {{< tabs >}}
 {{< tab name="kubectl" codelang="yaml">}}
+kubectl apply -f - <<EOF
 {{< readfile file="guides/security/data_loss_prevention/us-echo-test.yaml">}}
+EOF
 {{< /tab >}}
 {{< tab name="glooctl" codelang="shell script">}}
 glooctl create upstream static --static-hosts echo.jsontest.com:80 --name json-upstream
@@ -90,7 +94,8 @@ The `curl` should return:
 
 Now let's mask the SSN and credit card, apply the following virtual service:
 
-{{< highlight yaml "hl_lines=18-22" >}}
+{{< highlight yaml "hl_lines=19-23" >}}
+kubectl apply -f - <<EOF
 apiVersion: gateway.solo.io/v1
 kind: VirtualService
 metadata:
@@ -113,6 +118,7 @@ spec:
         actions:
         - actionType: SSN
         - actionType: ALL_CREDIT_CARDS
+EOF
 {{< /highlight >}}
 
 Run the same `curl` as before:
@@ -148,12 +154,13 @@ the predefined regular expressions.
 Let's start by creating our typical petstore microservice:
 
 ```shell
-kubectl apply -f https://raw.githubusercontent.com/solo-io/gloo/v1.2.9/example/petstore/petstore.yaml
+kubectl apply -f https://raw.githubusercontent.com/solo-io/gloo/v1.11.x/example/petstore/petstore.yaml
 ```
 
 Apply the following virtual service to route to the Gloo Edge discovered petstore upstream:
 
 ```yaml
+kubectl apply -f - <<EOF
 apiVersion: gateway.solo.io/v1
 kind: VirtualService
 metadata:
@@ -169,6 +176,7 @@ spec:
           upstream:
             name: default-petstore-8080
             namespace: gloo-system
+EOF
 ```
 
 Query the petstore microservice for a list of pets:
@@ -186,7 +194,8 @@ You should obtain the following response:
 Names are often used as personally identifying information, or **PII**. Let's write our own regex to mask the
 names returned by the petstore service:
 
-{{< highlight yaml "hl_lines=16-26" >}}
+{{< highlight yaml "hl_lines=17-27" >}}
+kubectl apply -f - <<EOF
 apiVersion: gateway.solo.io/v1
 kind: VirtualService
 metadata:
@@ -210,8 +219,10 @@ spec:
             name: test   # only used for logging
             percent:
               value: 60  # % of regex match to mask
-            regex:
-            - '(?!"name":"[\s]*)[^"]+(?=",)'
+            regexActions:
+            - regex: '"name":[^"]*"([^"]*)"'
+              subgroup: 1
+EOF
 {{< /highlight >}}
 
 Query for pets again:
@@ -225,6 +236,123 @@ You should get a masked response:
 ```json
 [{"id":1,"name":"XXg","status":"available"},{"id":2,"name":"XXt","status":"pending"}]
 ```
+
+### Key/value (header masking) example
+
+In this example, you define a key/value DLP action, which you can use to mask the value associated with a specified request header.
+
+{{% notice info %}}
+Predefined and Custom actions will only match based on header value in access logs. To match against a header name, use a key/value action.
+{{% /notice %}}
+
+
+1. Get started by creating the petstore microservice.
+   ```shell
+   kubectl apply -f https://raw.githubusercontent.com/solo-io/gloo/v1.11.x/example/petstore/petstore.yaml
+   ```
+
+2. Apply the following virtual service to route to the Gloo Edge discovered upstream for petstore.
+   ```yaml
+   apiVersion: gateway.solo.io/v1
+   kind: VirtualService
+   metadata:
+     name: vs
+     namespace: gloo-system
+   spec:
+     virtualHost:
+       domains:
+       - '*'
+       routes:
+       - routeAction:
+           single:
+             upstream:
+               name: default-petstore-8080
+               namespace: gloo-system
+   ```
+
+3. Apply the following gateway definition, which configures the `gateway-proxy` deployment to log the value of the `test-header` request header.
+   ```yaml
+   apiVersion: gateway.solo.io/v1
+   kind: Gateway
+   metadata:
+     name: gateway-proxy
+     namespace: gloo-system
+   spec:
+     bindAddress: '::'
+     bindPort: 8080
+     proxyNames:
+     - gateway-proxy
+     useProxyProto: false
+     options:
+       accessLoggingService:
+         accessLog:
+         - fileSink:
+             stringFormat: "test-header: %REQ(test-header)%\n"
+             path: /dev/stdout
+   ```
+
+4. Query the petstore microservice. The `test-value` value is specified for the `test-header` request header.
+   ```shell
+   curl $(glooctl proxy url)/api/pets -H test-header:test-value
+   ```
+
+5. Get the access logs from the gateway-proxy deployment.
+   ```shell
+   kubectl logs deployment/gateway-proxy -n gloo-system
+   ```
+   Verify that you see the following log entry:
+   ```
+   test-header: test-value 
+   ```
+
+6. To mask the value of the `test-header` request header, update the virtual service that you created in step 2 to use a DLP key/value matcher.
+   {{< highlight shell "hl_lines=16-26" >}}
+   apiVersion: gateway.solo.io/v1
+   kind: VirtualService
+   metadata:
+     name: vs
+     namespace: gloo-system
+   spec:
+     virtualHost:
+       domains:
+       - '*'
+       routes:
+       - routeAction:
+           single:
+             upstream:
+               name: default-petstore-8080
+               namespace: gloo-system
+       options:
+         dlp:
+           enabledFor: ALL
+           actions:
+           - keyValueAction:
+               maskChar: "*"
+               name: test-header-mask   # only used for logging
+               keyToMask: test-header
+               percent:
+                 value: 100  # % of regex match to mask
+             actionType: KEYVALUE
+   {{< /highlight >}}
+
+7. Send another request to the petstore service.
+   ```shell
+   curl $(glooctl proxy url)/api/pets -H test-header:test-value
+   ```
+
+8. Check the gateway-proxy access logs again.
+   ```shell
+   kubectl logs deployment/gateway-proxy -n gloo-system
+   ```
+   Verify that you see the following log entry, in which the value is masked:
+   ```
+   test-header: ****-*****
+   ```
+
+Some notes on key/value actions:
+ - You cannot use key/value actions to mask pseudo headers.
+ - Key/value actions do not mask data in response bodies. They mask only the value of request headers, response headers, and dynamic metadata in access logs.
+ - To apply key/value actions, you must set `dlp.enabledFor` to `ALL` or `ACCESS_LOGS`.
 
 ### Summary
 

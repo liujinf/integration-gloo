@@ -4,23 +4,27 @@ import (
 	"context"
 	"net/http"
 
+	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoy_config_listener_v3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	envoy_config_route_v3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"github.com/hashicorp/go-multierror"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/rotisserie/eris"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	v1snap "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/gloosnapshot"
 	"github.com/solo-io/gloo/projects/gloo/pkg/translator"
 	"github.com/solo-io/gloo/projects/gloo/pkg/utils"
 	validationutils "github.com/solo-io/gloo/projects/gloo/pkg/utils/validation"
 	"github.com/solo-io/gloo/projects/gloo/pkg/xds"
 	envoycache "github.com/solo-io/solo-kit/pkg/api/v1/control-plane/cache"
 	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/resource"
+	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/types"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 	"github.com/solo-io/solo-kit/pkg/api/v2/reporter"
+	"github.com/solo-io/solo-kit/test/matchers"
 )
 
 var _ = Describe("RouteReplacingSanitizer", func() {
@@ -142,6 +146,10 @@ var _ = Describe("RouteReplacingSanitizer", func() {
 			}},
 		}
 
+		cluster = &envoy_config_cluster_v3.Cluster{
+			Name: "my_upstream",
+		}
+
 		erroredRouteName = "route-identifier-1"
 
 		erroredRoute = &envoy_config_route_v3.Route{
@@ -216,7 +224,9 @@ var _ = Describe("RouteReplacingSanitizer", func() {
 
 		xdsSnapshot := xds.NewSnapshotFromResources(
 			envoycache.NewResources("", nil),
-			envoycache.NewResources("", nil),
+			envoycache.NewResources("clusters", []envoycache.Resource{
+				resource.NewEnvoyResource(cluster),
+			}),
 			envoycache.NewResources("routes", []envoycache.Resource{
 				resource.NewEnvoyResource(routeCfg),
 			}),
@@ -235,22 +245,21 @@ var _ = Describe("RouteReplacingSanitizer", func() {
 			},
 		}
 
-		glooSnapshot := &v1.ApiSnapshot{
+		glooSnapshot := &v1snap.ApiSnapshot{
 			Upstreams: v1.UpstreamList{us},
 		}
 
-		snap, err := sanitizer.SanitizeSnapshot(context.TODO(), glooSnapshot, xdsSnapshot, reports)
-		Expect(err).NotTo(HaveOccurred())
+		snap := sanitizer.SanitizeSnapshot(context.TODO(), glooSnapshot, xdsSnapshot, reports)
 
-		routeCfgs := snap.GetResources(resource.RouteTypeV3)
-		listeners := snap.GetResources(resource.ListenerTypeV3)
-		clusters := snap.GetResources(resource.ClusterTypeV3)
+		routeCfgs := snap.GetResources(types.RouteTypeV3)
+		listeners := snap.GetResources(types.ListenerTypeV3)
+		clusters := snap.GetResources(types.ClusterTypeV3)
 
 		sanitizedRoutes := routeCfgs.Items[routeCfg.GetName()]
 		listenersWithFallback := listeners.Items[fallbackListenerName]
 		clustersWithFallback := clusters.Items[fallbackClusterName]
 
-		Expect(sanitizedRoutes.ResourceProto()).To(Equal(expectedRoutes))
+		Expect(sanitizedRoutes.ResourceProto()).To(matchers.MatchProto(expectedRoutes))
 		Expect(listenersWithFallback.ResourceProto()).To(Equal(sanitizer.fallbackListener))
 		Expect(clustersWithFallback.ResourceProto()).To(Equal(sanitizer.fallbackCluster))
 	})
@@ -303,22 +312,21 @@ var _ = Describe("RouteReplacingSanitizer", func() {
 		sanitizer, err := NewRouteReplacingSanitizer(invalidCfgPolicy)
 		Expect(err).NotTo(HaveOccurred())
 
-		glooSnapshot := &v1.ApiSnapshot{
+		glooSnapshot := &v1snap.ApiSnapshot{
 			Upstreams: v1.UpstreamList{us},
 		}
 
-		snap, err := sanitizer.SanitizeSnapshot(context.TODO(), glooSnapshot, xdsSnapshot, reports)
-		Expect(err).NotTo(HaveOccurred())
+		snap := sanitizer.SanitizeSnapshot(context.TODO(), glooSnapshot, xdsSnapshot, reports)
 
-		routeCfgs := snap.GetResources(resource.RouteTypeV3)
-		listeners := snap.GetResources(resource.ListenerTypeV3)
-		clusters := snap.GetResources(resource.ClusterTypeV3)
+		routeCfgs := snap.GetResources(types.RouteTypeV3)
+		listeners := snap.GetResources(types.ListenerTypeV3)
+		clusters := snap.GetResources(types.ClusterTypeV3)
 
 		sanitizedRoutes := routeCfgs.Items[routeCfg.GetName()]
 		listenersWithFallback := listeners.Items[fallbackListenerName]
 		clustersWithFallback := clusters.Items[fallbackClusterName]
 
-		Expect(sanitizedRoutes.ResourceProto()).To(Equal(expectedRoutes))
+		Expect(sanitizedRoutes.ResourceProto()).To(matchers.MatchProto(expectedRoutes))
 		Expect(listenersWithFallback.ResourceProto()).To(Equal(sanitizer.fallbackListener))
 		Expect(clustersWithFallback.ResourceProto()).To(Equal(sanitizer.fallbackCluster))
 

@@ -60,36 +60,35 @@ Copy this command for later use.
 
 ## Install Datadog using Helm
 
-We will be using Helm to install Datadog on your Kubernetes cluster. We will need to create a file to override the default values in the Helm chart.
+You can use Helm to install Datadog on your Kubernetes cluster. As part of the installation, you create a file to override the default values in the Helm chart.
 
-### Prepare the datadog-values.yaml file
+### Prepare the Datadog overrides file
 
-First things first, we are going to download the `values.yaml` file from the Datadog GitHub repository and making a couple edits.
+Use the Datadog `values.yaml` configuration file as a starting point for your overrides file. For more information, see the [Datadog docs](https://docs.datadoghq.com/containers/kubernetes/installation/?tab=helm).
 
-```console
-wget https://raw.githubusercontent.com/helm/charts/master/stable/datadog/values.yaml -O datadog-values.yaml
-```
-
-Once you have the file, we are going to update two settings. They are both under `datadog.logs`. Update the yaml as follows:
+Update two `datadog.logs` settings:
+* `enabled: true`: Enables log collection by Datadog.
+* `containerCollectAll: true`: Enables log collection across all containers.
 
 ```yaml
+cat << EOF >  datadog-values.yaml
+datadog:
   logs:
     ## @param enabled - boolean - optional - default: false
     ## Enables this to activate Datadog Agent log collection.
-    ## ref: https://docs.datadoghq.com/agent/basic_agent_usage/kubernetes/#log-collection-setup
+    ## ref: https://docs.datadoghq.com/containers/kubernetes/log/
     #
     enabled: true
 
     ## @param containerCollectAll - boolean - optional - default: false
     ## Enable this to allow log collection for all containers.
-    ## ref: https://docs.datadoghq.com/agent/basic_agent_usage/kubernetes/#log-collection-setup
+    ## ref: https://docs.datadoghq.com/containers/kubernetes/log/
     #
     containerCollectAll: true
+EOF
 ```
 
-The first setting will enable log collection by Datadog and the second enables log collection across all containers.
-
-Now that the `datadog-values.yaml` file is ready, we will use Helm to deploy Datadog to our Kubernetes cluster.
+Now that the `datadog-values.yaml` file is ready, you can use Helm to deploy Datadog to your Kubernetes cluster.
 
 ### Install Datadog with Helm
 
@@ -141,6 +140,11 @@ kubectl edit deployments -n gloo-system gateway-proxy
 
 Then update the `spec.template.metadata` section of the yaml with these additional annotations.  Be sure to add the annotations in the `spec.template.metadata.annotations` section, not the `metadata.annotations` section.  Adding them to the wrong section will cause the annotations not to be propagated through to the `gateway-proxy` pod.
 
+{{< notice note >}}
+The following code snippet uses the default name for the gateway in the Datadog annotations (`gateway-proxy`). If you have a multi-gateway deployment or changed the default name of the gateway, make sure to update the annotation to reflect this change. For example, if you changed the name of the gateway to `gloo`, then the Datadog annotations must follow the `ad.datadoghq.com/gloo.<datadog_config>` syntax. 
+{{< /notice >}}
+
+
 ```yaml
 spec:
   template:
@@ -156,7 +160,7 @@ spec:
 These annotations can also be added declaratively via helm, for example if using Gloo Edge Enterprise, these annotations can be added as a value for `gloo.gatewayProxies.gatewayProxy.podTemplate.extraAnnotations`.
 
 {{< notice note >}}
-If you upgrade the cluster using Helm version 3, these annotations should stay in place. Helm 3 uses a three-way merge when performing an update. Helm version 2 will also attempt a merge, but may have issues with changes made using kubectl edit. You should update the values used by Helm to include these annotations. Note that Helm 2 is not supported in Gloo Edge v1.8.0 and later.
+If you upgrade the cluster using Helm version 3, these annotations should stay in place. Helm 3 uses a three-way merge when performing an update. Helm version 2 will also attempt a merge, but may have issues with changes made using kubectl edit. You should update the values used by Helm to include these annotations. Note that Helm 2 is not supported in Gloo Edge.
 {{< /notice >}}
 
 For more information about merging strategies, see the [Helm documentation](https://helm.sh/docs/faq/changes_since_helm2/#improved-upgrade-strategy-3-way-strategic-merge-patches).
@@ -194,6 +198,8 @@ And update it to the following:
 ```
 
 Then save the change. The Envoy pod will update within a few seconds with the new configuration settings. Datadog should now be able to collect metrics from any Envoy pods using the `/metrics` path.
+
+If you'd prefer to manage the `route.prefix_rewrite` setting from Helm rather than directly editing the ConfigMap, then use the value `gatewayProxies.gatewayProxy.stats.routePrefixRewrite` as documented [here]({{% versioned_link_path fromRoot="/reference/helm_chart_values/" %}}).
 
 ---
 

@@ -13,7 +13,7 @@ Gloo Edge Federation is an enterprise feature of Gloo Edge. You will need at lea
 
 You should also have `glooctl` and `kubectl` installed. The `glooctl` version should be the most recent release, as the federation features were added in version 1.5. 
 
-You will also need a license key to install Gloo Edge Federation. The key can be procured by visiting the [Solo.io website](https://solo.io).
+You also need a license key to install Gloo Edge Federation. To request a license, [contact Sales](https://www.solo.io/company/contact/).
 
 ## Installation
 
@@ -48,11 +48,8 @@ helm repo add gloo-fed https://storage.googleapis.com/gloo-fed-helm
 # Update your repos 
 helm repo update
 
-# Create the gloo-system namespace
-kubectl create namespace gloo-system
-
 # Install using helm
-helm install -n gloo-system gloo-fed gloo-fed/gloo-fed --set license_key=<LICENSE_KEY>
+helm install -n gloo-system --create-namespace gloo-fed gloo-fed/gloo-fed --set license_key=<LICENSE_KEY>
 ```
 
 Make sure to change the placeholder `<LICENSE_KEY>` to the license key you have procured for Gloo Edge Federation.
@@ -135,3 +132,5 @@ glooctl uninstall --all
 ## Next Steps
 
 As a next step, we recommend [registering the Kubernetes clusters]({{% versioned_link_path fromRoot="/guides/gloo_federation/cluster_registration/" %}}) running Gloo Edge instances with Gloo Edge Federation. Then you can move onto creating [federated configurations]({{% versioned_link_path fromRoot="/guides/gloo_federation/federated_configuration/" %}}) or [service failover]({{% versioned_link_path fromRoot="/guides/gloo_federation/service_failover/" %}}). You can also read more about Gloo Edge Federation in the [concepts area]({{% versioned_link_path fromRoot="/introduction/gloo_federation/" %}}) of the docs.
+
+{{< readfile file="static/content/upgrade-note.md" markdown="true">}}

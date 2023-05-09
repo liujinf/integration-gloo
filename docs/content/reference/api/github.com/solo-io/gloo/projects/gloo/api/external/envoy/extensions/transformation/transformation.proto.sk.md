@@ -284,6 +284,7 @@ Defines a transformation template.
 "extractors": map<string, .envoy.api.v2.filter.http.Extraction>
 "headers": map<string, .envoy.api.v2.filter.http.InjaTemplate>
 "headersToAppend": []envoy.api.v2.filter.http.TransformationTemplate.HeaderToAppend
+"headersToRemove": []string
 "body": .envoy.api.v2.filter.http.InjaTemplate
 "passthrough": .envoy.api.v2.filter.http.Passthrough
 "mergeExtractorsToBody": .envoy.api.v2.filter.http.MergeExtractorsToBody
@@ -299,6 +300,7 @@ Defines a transformation template.
 | `extractors` | `map<string, .envoy.api.v2.filter.http.Extraction>` | Use this attribute to extract information from the request. It consists of a map of strings to extractors. The extractor will defines which information will be extracted, while the string key will provide the extractor with a name. You can reference extractors by their name in templates, e.g. "{{ my-extractor }}" will render to the value of the "my-extractor" extractor. |
 | `headers` | `map<string, .envoy.api.v2.filter.http.InjaTemplate>` | Use this attribute to transform request/response headers. It consists of a map of strings to templates. The string key determines the name of the resulting header, the rendered template will determine the value. Any existing headers with the same header name will be replaced by the transformed header. If a header name is included in `headers` and `headers_to_append`, it will first be replaced the template in `headers`, then additional header values will be appended by the templates defined in `headers_to_append`. For example, the following header transformation configuration: ```yaml headers: x-header-one: {"text": "first {{inja}} template"} x-header-one: {"text": "second {{inja}} template"} headersToAppend: - key: x-header-one value: {"text": "first appended {{inja}} template"} - key: x-header-one value: {"text": "second appended {{inja}} template"} ``` will result in the following headers on the HTTP message: ``` x-header-one: first inja template x-header-one: first appended inja template x-header-one: second appended inja template ```. |
 | `headersToAppend` | [[]envoy.api.v2.filter.http.TransformationTemplate.HeaderToAppend](../transformation.proto.sk/#headertoappend) | Use this attribute to transform request/response headers. It consists of an array of string/template objects. Use this attribute to define multiple templates for a single header. Header template(s) defined here will be appended to any existing headers with the same header name, not replace existing ones. See `headers` documentation to see an example of usage. |
+| `headersToRemove` | `[]string` | Attribute to remove headers from requests. If a header is present multiple times, all instances of the header will be removed. |
 | `body` | [.envoy.api.v2.filter.http.InjaTemplate](../transformation.proto.sk/#injatemplate) | Apply a template to the body. Only one of `body`, `passthrough`, or `mergeExtractorsToBody` can be set. |
 | `passthrough` | [.envoy.api.v2.filter.http.Passthrough](../transformation.proto.sk/#passthrough) | This will cause the transformation filter not to buffer the body. Use this setting if the response body is large and you don't need to transform nor extract information from it. Only one of `passthrough`, `body`, or `mergeExtractorsToBody` can be set. |
 | `mergeExtractorsToBody` | [.envoy.api.v2.filter.http.MergeExtractorsToBody](../transformation.proto.sk/#mergeextractorstobody) | Merge all defined extractors to the request/response body. If you want to nest elements inside the body, use dot separator in the extractor name. Only one of `mergeExtractorsToBody`, `body`, or `passthrough` can be set. |
@@ -374,14 +376,23 @@ Determines how the body will be parsed.
 Defines an [Inja template](https://github.com/pantor/inja) that will be
 rendered by Gloo. In addition to the core template functions, the Gloo
 transformation filter defines the following custom functions:
-- header(header_name): returns the value of the header with the given name
+- header(header_name): returns the value of the header with the given name.
 - extraction(extractor_name): returns the value of the extractor with the
-given name
+given name.
 - env(env_var_name): returns the value of the environment variable with the
-given name
-- body(): returns the request/response body
+given name.
+- body(): returns the request/response body.
 - context(): returns the base JSON context (allowing for example to range on
-a JSON body that is an array)
+a JSON body that is an array).
+- request_header(header_name): returns the value of the request header with
+the given name. Use this option when you want to include request header values in response
+transformations.
+- base64_encode(string): encodes the input string to base64.
+- base64_decode(string): decodes the input string from base64.
+- substring(string, start_pos, substring_len): returns a substring of the
+input string, starting at `start_pos` and extending for `substring_len`
+characters. If no `substring_len` is provided or `substring_len` is <= 0, the
+substring extends to the end of the input string.
 
 ```yaml
 "text": string
@@ -431,11 +442,13 @@ a JSON body that is an array)
 
 
 ```yaml
+"addRequestMetadata": bool
 
 ```
 
 | Field | Type | Description |
 | ----- | ---- | ----------- | 
+| `addRequestMetadata` | `bool` | When transforming a request, setting this to true will additionally add "queryString", "queryStringParameters", "multiValueQueryStringParameters", "httpMethod", "path", and "multiValueHeaders" to the body. |
 
 
 

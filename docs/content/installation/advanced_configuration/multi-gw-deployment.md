@@ -4,6 +4,9 @@ weight: 80
 description: Deploying more gateways and gateway-proxies
 ---
 Create multiple Envoy gateway proxies with Gloo Edge to segregate and customize traffic controls in an environment with multiple types of traffic, such as public internet and a private intranet.
+
+Note that beginning with version 1.10, Gloo Edge offers an alternative to deploying multiple gateways called [Hybrid Gateways]({{< versioned_link_path fromRoot="/guides/traffic_management/listener_configuration/hybrid_gateway/" >}}). With a hybrid gateway, you can define multiple HTTP or TCP gateways in a single gateway with distinct matching criteria. Hybrid gateways work best in situations where the matching criteria are based on client IP address or SSL config. If so, you can get the benefits of multiple gateways with fewer moving parts and simpler configuration.
+
 ## Multiple gateway architecture and terminology
 
 Gloo Edge offers a flexible architecture by providing custom resource definitions (CRDs) that you can use to configure _proxies_ and _gateways_. These two terms describe the physical and logical architecture of a gateway system.
@@ -83,6 +86,7 @@ gloo:
                 name: https
                 targetPort: 8443
             type: LoadBalancer
+      tcpKeepaliveTimeSeconds: 5s # send keep-alive probes after 5s to keep connection up
       gatewaySettings:
         customHttpsGateway: # using the default HTTPS Gateway
           virtualServiceSelector:
@@ -96,6 +100,7 @@ gloo:
         httpsPort: 443
         httpNodePort: 32080 # random port to be fixed in your private network
         type: NodePort
+      tcpKeepaliveTimeSeconds: 5s # send keep-alive probes after 5s to keep connection up
       gatewaySettings:
         customHttpGateway: # using the default HTTP Gateway
           virtualServiceSelector:
@@ -115,18 +120,18 @@ NAME                                    AGE
 gateway.gateway.solo.io/corp-gw         3m7s
 gateway.gateway.solo.io/public-gw-ssl   3m7s
 
-NAME                                                  READY   UP-TO-DATE   AVAILABLE   AGE
-deployment.apps/discovery                             1/1     1            1           3m8s
-deployment.apps/gateway                               1/1     1            1           3m8s
-deployment.apps/gloo                                  1/1     1            1           3m8s
-deployment.apps/gloo-fed                              1/1     1            1           3m8s
-deployment.apps/gloo-fed-console                      1/1     1            1           3m7s
-deployment.apps/glooe-grafana                         1/1     1            1           3m7s
-deployment.apps/glooe-prometheus-kube-state-metrics   1/1     1            1           3m8s
-deployment.apps/glooe-prometheus-server               1/1     1            1           3m8s
-deployment.apps/observability                         1/1     1            1           3m8s
-deployment.apps/corp-gw                               1/1     1            1           3m8s
-deployment.apps/public-gw                             2/2     2            2           3m8s
+NAME                                                     READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/discovery                                1/1     1            1           3m8s
+deployment.apps/gateway                                  1/1     1            1           3m8s
+deployment.apps/gloo                                     1/1     1            1           3m8s
+deployment.apps/gloo-fed                                 1/1     1            1           3m8s
+deployment.apps/gloo-fed-console                         1/1     1            1           3m7s
+deployment.apps/glooe-grafana                            1/1     1            1           3m7s
+deployment.apps/glooe-prometheus-kube-state-metrics-v2   1/1     1            1           3m8s
+deployment.apps/glooe-prometheus-server                  1/1     1            1           3m8s
+deployment.apps/observability                            1/1     1            1           3m8s
+deployment.apps/corp-gw                                  1/1     1            1           3m8s
+deployment.apps/public-gw                                2/2     2            2           3m8s
 ```
 
 

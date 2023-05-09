@@ -7,15 +7,16 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/solo-io/gloo/projects/gloo/pkg/translator"
+	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/enterprise/options/graphql/v1beta1"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/solo-io/go-utils/contextutils"
+	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
 	"go.uber.org/zap"
 
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	plugins "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options"
-	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
+	"github.com/solo-io/gloo/projects/gloo/pkg/translator"
 )
 
 var errorUndetectableUpstream = errors.New("upstream type cannot be detected")
@@ -36,25 +37,26 @@ type updaterUpdater struct {
 
 type Updater struct {
 	functionalPlugins []FunctionDiscoveryFactory
-	activeupstreams   map[string]*updaterUpdater
+	activeUpstreams   map[string]*updaterUpdater
 	ctx               context.Context
 	resolver          Resolver
 	logger            *zap.SugaredLogger
 
 	upstreamWriter UpstreamWriterClient
+	graphqlClient  v1beta1.GraphQLApiClient
 
 	maxInParallelSemaphore chan struct{}
 
 	secrets atomic.Value
 }
 
-func getConcurrencyChan(maxoncurrency uint) chan struct{} {
-	if maxoncurrency == 0 {
+func getConcurrencyChan(maxOnCurrency uint) chan struct{} {
+	if maxOnCurrency == 0 {
 		return nil
 	}
-	ret := make(chan struct{}, maxoncurrency)
+	ret := make(chan struct{}, maxOnCurrency)
 	go func() {
-		for i := uint(0); i < maxoncurrency; i++ {
+		for i := uint(0); i < maxOnCurrency; i++ {
 			ret <- struct{}{}
 		}
 	}()
@@ -62,16 +64,17 @@ func getConcurrencyChan(maxoncurrency uint) chan struct{} {
 
 }
 
-func NewUpdater(ctx context.Context, resolver Resolver, upstreamclient UpstreamWriterClient, maxconncurrency uint, functionalPlugins []FunctionDiscoveryFactory) *Updater {
+func NewUpdater(ctx context.Context, resolver Resolver, graphqlClient v1beta1.GraphQLApiClient, upstreamclient UpstreamWriterClient, maxconncurrency uint, functionalPlugins []FunctionDiscoveryFactory) *Updater {
 	ctx = contextutils.WithLogger(ctx, "function-discovery-updater")
 	return &Updater{
 		logger:                 contextutils.LoggerFrom(ctx),
 		ctx:                    ctx,
 		resolver:               resolver,
 		functionalPlugins:      functionalPlugins,
-		activeupstreams:        make(map[string]*updaterUpdater),
+		activeUpstreams:        make(map[string]*updaterUpdater),
 		maxInParallelSemaphore: getConcurrencyChan(maxconncurrency),
 		upstreamWriter:         upstreamclient,
+		graphqlClient:          graphqlClient,
 	}
 }
 
@@ -80,10 +83,10 @@ type detectResult struct {
 	fp   UpstreamFunctionDiscovery
 }
 
-func (u *Updater) SetSecrets(secretlist v1.SecretList) {
+func (u *Updater) SetSecrets(secretList v1.SecretList) {
 	// set secrets should send a secrets update to all the upstreams.
-	// reload all upstreams for now, figureout something better later?
-	u.secrets.Store(secretlist)
+	// reload all upstreams for now, figure out something better later?
+	u.secrets.Store(secretList)
 }
 
 func (u *Updater) GetSecrets() v1.SecretList {
@@ -97,7 +100,9 @@ func (u *Updater) GetSecrets() v1.SecretList {
 func (u *Updater) createDiscoveries(upstream *v1.Upstream) []UpstreamFunctionDiscovery {
 	var ret []UpstreamFunctionDiscovery
 	for _, e := range u.functionalPlugins {
-		ret = append(ret, e.NewFunctionDiscovery(upstream))
+		ret = append(ret, e.NewFunctionDiscovery(upstream, AdditionalClients{
+			GraphqlClient: u.graphqlClient,
+		}))
 	}
 	return ret
 }
@@ -111,7 +116,7 @@ func (u *Updater) UpstreamUpdated(upstream *v1.Upstream) {
 func (u *Updater) UpstreamAdded(upstream *v1.Upstream) {
 	// upstream already tracked. ignore.
 	key := translator.UpstreamToClusterName(upstream.GetMetadata().Ref())
-	if _, ok := u.activeupstreams[key]; ok {
+	if _, ok := u.activeUpstreams[key]; ok {
 		return
 	}
 	ctx, cancel := context.WithCancel(u.ctx)
@@ -122,33 +127,40 @@ func (u *Updater) UpstreamAdded(upstream *v1.Upstream) {
 		functionalPlugins: u.createDiscoveries(upstream),
 		parent:            u,
 	}
-	u.activeupstreams[key] = updater
+	u.activeUpstreams[key] = updater
 	go func() {
-		updater.Run()
-		cancel()
-		// TODO(yuval-k): consider removing upstream from map.
-		// need to be careful here as there might be a race if an update happens in the same time.
+		err := updater.Run()
+		if err != nil {
+			u.logger.Warnf("unable to discover upstream %s in namespace %s, err: %s",
+				upstream.GetMetadata().GetName(),
+				upstream.GetMetadata().GetNamespace(),
+				err,
+			)
+		}
 	}()
+
+	// TODO(yuval-k): consider removing upstream from map.
+	// need to be careful here as there might be a race if an update happens in the same time.
 }
 
 func (u *Updater) UpstreamRemoved(upstream *v1.Upstream) {
 	key := translator.UpstreamToClusterName(upstream.GetMetadata().Ref())
-	if upstreamState, ok := u.activeupstreams[key]; ok {
+	if upstreamState, ok := u.activeUpstreams[key]; ok {
 		upstreamState.cancel()
-		delete(u.activeupstreams, key)
+		delete(u.activeUpstreams, key)
 	}
 }
 
 func (u *updaterUpdater) saveUpstream(mutator UpstreamMutator) error {
 	logger := contextutils.LoggerFrom(u.ctx)
 	logger.Debugw("Updating upstream with functions", "upstream", u.upstream.GetMetadata().GetName())
-	newupstream := proto.Clone(u.upstream).(*v1.Upstream)
-	err := mutator(newupstream)
+	newUpstream := proto.Clone(u.upstream).(*v1.Upstream)
+	err := mutator(newUpstream)
 	if err != nil {
 		return err
 	}
 
-	if u.upstream.Equal(newupstream) {
+	if u.upstream.Equal(newUpstream) {
 		// nothing to update!
 		return nil
 	}
@@ -158,33 +170,33 @@ func (u *updaterUpdater) saveUpstream(mutator UpstreamMutator) error {
 	wo.OverwriteExisting = true
 
 	/* upstream, err = */
-	newupstream, err = u.parent.upstreamWriter.Write(newupstream, wo)
+	newUpstream, err = u.parent.upstreamWriter.Write(newUpstream, wo)
 	if err != nil {
 		logger.Warnw("error updating upstream on first try", "upstream", u.upstream.GetMetadata().GetName(), "error", err)
-		newupstream, err = u.parent.upstreamWriter.Read(u.upstream.GetMetadata().GetNamespace(), u.upstream.GetMetadata().GetName(), clients.ReadOpts{Ctx: u.ctx})
+		newUpstream, err = u.parent.upstreamWriter.Read(u.upstream.GetMetadata().GetNamespace(), u.upstream.GetMetadata().GetName(), clients.ReadOpts{Ctx: u.ctx})
 		if err != nil {
 			logger.Warnw("can't read updated upstream for second try", "upstream", u.upstream.GetMetadata().GetName(), "error", err)
 			return err
 		}
 	} else {
-		u.upstream = newupstream
+		mutator(u.upstream)
 		return nil
 	}
 	// try again with the new one
-	err = mutator(newupstream)
+	err = mutator(newUpstream)
 	if err != nil {
 		return err
 	}
-	if u.upstream.Equal(newupstream) {
+	if u.upstream.Equal(newUpstream) {
 		// nothing to update!
 		return nil
 	}
 
-	newupstream, err = u.parent.upstreamWriter.Write(newupstream, wo)
+	newUpstream, err = u.parent.upstreamWriter.Write(newUpstream, wo)
 	if err != nil {
 		logger.Warnw("error updating upstream on second try", "upstream", u.upstream.GetMetadata().GetName(), "error", err)
 	} else {
-		u.upstream = newupstream
+		mutator(u.upstream)
 	}
 	// TODO: if write failed, we are retrying. we should consider verifying that the error is indeed due to resource conflict,
 
@@ -203,51 +215,68 @@ func (u *updaterUpdater) detectSingle(fp UpstreamFunctionDiscovery, url url.URL,
 		}
 	}
 
-	contextutils.NewExponentioalBackoff(contextutils.ExponentioalBackoff{}).Backoff(u.ctx, func(ctx context.Context) error {
+	err := contextutils.NewExponentialBackoff(contextutils.ExponentialBackoff{
+		MaxRetries: 1,
+	}).Backoff(u.ctx, func(ctx context.Context) error {
 		spec, err := fp.DetectType(ctx, &url)
 		if err != nil {
 			return err
 		}
-		if spec != nil {
-			// success
-			result <- detectResult{
-				spec: spec,
-				fp:   fp,
-			}
+		// success
+		result <- detectResult{
+			spec: spec,
+			fp:   fp,
 		}
 		return nil
 	})
+	if err != nil {
+		result <- detectResult{
+			spec: nil,
+			fp:   fp,
+		}
+	}
 }
 
-func (u *updaterUpdater) detectType(url_ url.URL) (*detectResult, error) {
+func (u *updaterUpdater) detectType(url_ url.URL) ([]*detectResult, error) {
 	// TODO add global timeout?
 	ctx, cancel := context.WithCancel(u.ctx)
-	defer cancel()
 
-	result := make(chan detectResult, 1)
+	result := make(chan detectResult)
 
 	// run all detections in parallel
-	var waitgroup sync.WaitGroup
+	var waitGroup sync.WaitGroup
 	for _, fp := range u.functionalPlugins {
-		waitgroup.Add(1)
+		waitGroup.Add(1)
 		go func(functionalPlugin UpstreamFunctionDiscovery, url url.URL) {
-			defer waitgroup.Done()
+			defer waitGroup.Done()
 			u.detectSingle(functionalPlugin, url, result)
 		}(fp, url_)
 	}
 	go func() {
-		waitgroup.Wait()
+		waitGroup.Wait()
+		defer cancel()
 		close(result)
 	}()
-
-	select {
-	case res, ok := <-result:
-		if ok {
-			return &res, nil
+	var numResultsReceived int
+	var results []*detectResult
+	for {
+		select {
+		case res, ok := <-result:
+			numResultsReceived++
+			if ok && res.spec != nil {
+				results = append(results, &res)
+			} else if !ok {
+				return results, nil
+			}
+			if numResultsReceived == len(u.functionalPlugins) {
+				if len(results) == 0 {
+					return nil, errorUndetectableUpstream
+				}
+				return results, nil
+			}
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
-		return nil, errorUndetectableUpstream
-	case <-ctx.Done():
-		return nil, ctx.Err()
 	}
 
 }
@@ -259,22 +288,19 @@ func (u *updaterUpdater) dependencies() Dependencies {
 }
 
 func (u *updaterUpdater) Run() error {
-	// see if anyone likes this upstream:
-	var discoveryForUpstream UpstreamFunctionDiscovery
+	// more than one discovery can operate on an upstream, e.g. Swagger discovery and openapi spec -> graphql schema discovery
+	// this is a (temporary?) work around
+	var discoveriesForUpstream []UpstreamFunctionDiscovery
 	for _, fp := range u.functionalPlugins {
 		if fp.IsFunctional() {
-			discoveryForUpstream = fp
-			break
+			discoveriesForUpstream = append(discoveriesForUpstream, fp)
 		}
 	}
-
 	upstreamSave := func(m UpstreamMutator) error {
 		return u.saveUpstream(m)
 	}
-
 	resolvedUrl, resolvedErr := u.parent.resolver.Resolve(u.upstream)
-
-	if discoveryForUpstream == nil {
+	if len(discoveriesForUpstream) == 0 {
 		// TODO: this is probably not going to work unless the upstream type will also have the method required
 		_, ok := u.upstream.GetUpstreamType().(v1.ServiceSpecSetter)
 		if !ok {
@@ -295,16 +321,53 @@ func (u *updaterUpdater) Run() error {
 			}
 			return err
 		}
-		discoveryForUpstream = res.fp
-		upstreamSave(func(upstream *v1.Upstream) error {
-			servicespecupstream, ok := upstream.GetUpstreamType().(v1.ServiceSpecSetter)
-			if !ok {
-				return errors.New("can't set spec")
-			}
-			servicespecupstream.SetServiceSpec(res.spec)
-			return nil
-		})
+		for _, r := range res {
+			discoveriesForUpstream = append(discoveriesForUpstream, r.fp)
+			upstreamSave(func(upstream *v1.Upstream) error {
+				serviceSpecUpstream, ok := upstream.GetUpstreamType().(v1.ServiceSpecSetter)
+				if !ok {
+					return errors.New("can't set spec")
+				}
+				existingUs, ok := upstream.GetUpstreamType().(v1.ServiceSpecGetter)
+				// Check to see if the upstream already has a service spec and if we are trying to apply the new grpc API over the old one
+				// This is currently specific to the case where we are upgrading to 1.14
+				// In the future we might want general case handling of not changing the type on previously discovered upstreams
+				if ok {
+					if existingUs.GetServiceSpec() != nil {
+						if _, ok := existingUs.GetServiceSpec().GetPluginType().(*plugins.ServiceSpec_Grpc); ok {
+							if _, ok = r.spec.GetPluginType().(*plugins.ServiceSpec_GrpcJsonTranscoder); ok {
+								//TODO error should have migration instructions
+								return errors.New("Upstream using deprecated GRPC API found, will not update")
+							}
+						}
+					}
+				}
+				serviceSpecUpstream.SetServiceSpec(r.spec)
+				return nil
+			})
+		}
 	}
-
-	return discoveryForUpstream.DetectFunctions(u.ctx, resolvedUrl, u.dependencies, upstreamSave)
+	logger := contextutils.LoggerFrom(u.ctx)
+	for _, discoveryForUpstream := range discoveriesForUpstream {
+		go func(d UpstreamFunctionDiscovery) {
+			for {
+				select {
+				case <-u.ctx.Done():
+					logger.Debugf("context done, stopping upstream discovery %T for upstream %s.%s",
+						d,
+						u.upstream.GetMetadata().GetName(),
+						u.upstream.GetMetadata().GetNamespace())
+					return
+				default:
+					// continue to detect functions, as you were
+				}
+				err := d.DetectFunctions(u.ctx, resolvedUrl, u.dependencies, upstreamSave)
+				if err != nil {
+					logger.Errorf("Error doing discovery %T: %s", d, err.Error())
+					return
+				}
+			}
+		}(discoveryForUpstream)
+	}
+	return nil
 }

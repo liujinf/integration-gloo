@@ -12,6 +12,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	transformationapi "github.com/solo-io/gloo/projects/gloo/pkg/api/external/envoy/extensions/transformation"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/azure"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins/pluginutils"
@@ -23,13 +24,16 @@ import (
 	"github.com/solo-io/solo-kit/pkg/errors"
 )
 
-const (
-	masterKeyName = "_master"
+var (
+	_ plugins.Plugin         = new(plugin)
+	_ plugins.RoutePlugin    = new(plugin)
+	_ plugins.UpstreamPlugin = new(plugin)
 )
 
-var _ plugins.Plugin = new(plugin)
-var _ plugins.RoutePlugin = new(plugin)
-var _ plugins.UpstreamPlugin = new(plugin)
+const (
+	ExtensionName = "azure"
+	masterKeyName = "_master"
+)
 
 type plugin struct {
 	settings          *v1.Settings
@@ -42,11 +46,15 @@ func NewPlugin() plugins.Plugin {
 	return &plugin{}
 }
 
-func (p *plugin) Init(params plugins.InitParams) error {
+func (p *plugin) Name() string {
+	return ExtensionName
+}
+
+func (p *plugin) Init(params plugins.InitParams) {
 	p.settings = params.Settings
 	p.ctx = params.Ctx
 	p.recordedUpstreams = make(map[string]*azure.UpstreamSpec)
-	return nil
+	p.apiKeys = make(map[string]string)
 }
 
 func (p *plugin) ProcessUpstream(params plugins.Params, in *v1.Upstream, out *envoy_config_cluster_v3.Cluster) error {
@@ -77,9 +85,13 @@ func (p *plugin) ProcessUpstream(params plugins.Params, in *v1.Upstream, out *en
 		// TODO(yuval-k): Add verification context
 		Sni: hostname,
 	}
+	typedConfig, err := utils.MessageToAny(tlsContext)
+	if err != nil {
+		return err
+	}
 	out.TransportSocket = &envoy_config_core_v3.TransportSocket{
 		Name:       wellknown.TransportSocketTls,
-		ConfigType: &envoy_config_core_v3.TransportSocket_TypedConfig{TypedConfig: utils.MustMessageToAny(tlsContext)},
+		ConfigType: &envoy_config_core_v3.TransportSocket_TypedConfig{TypedConfig: typedConfig},
 	}
 
 	if azureUpstream.GetSecretRef().GetName() != "" {

@@ -26,7 +26,7 @@ gloo:
 ```
 
 ### OpenAPI schema validation on CRDs
-Since Gloo v1.8, CRDs are given OpenAPI schemas. This way, the kube `api-server` (validation webhook) will refuse _Custom Resources_ with invalid definitions.
+CRDs are given OpenAPI schemas. This way, the kube `api-server` (validation webhook) will refuse _Custom Resources_ with invalid definitions.
 
 ### More validation hooks
 In addition to the CRD schemas, Gloo can perform a deeper inspection of the _Custom Resources_.
@@ -40,68 +40,8 @@ gloo:
       allowWarnings: false # reject if warning status or rejected status
       alwaysAcceptResources: false # reject invalid resources
       warnRouteShortCircuiting: true
+      failurePolicy: Fail # failure policy mode for the validation webhook (default is "Ignore")
 ```
-
-### xDS Relay
-
-{{% notice warning %}}
-This feature is not supported for the following non-default installation modes of Gloo Edge: REST Endpoint Discovery (EDS), Gloo Edge mTLS mode, Gloo Edge with Istio mTLS mode
-{{% /notice %}}
-
-To protect against control plane downtime, you can install Gloo Edge alongside the `xds-relay` Helm chart. This Helm chart installs a deployment of `xds-relay` pods that serve as intermediaries between Envoy proxies and the xDS server of Gloo Edge.
-
-The presence of `xds-relay` intermediary pods serve two purposes. First, it separates the lifecycle of Gloo Edge from the xDS cache proxies. For example, a failure during a Helm upgrade will not cause the loss of the last valid xDS state. Second, it allows you to scale `xds-relay` to as many replicas as needed, since Gloo Edge uses only one replica. Without `xds-relay`, a failure of the single Gloo Edge replica causes any new Envoy proxies to be created without a valid configuration.
-
-
-To enable:
-
-Install the xds-relay Helm chart, which supports version 2 and 3 of the Envoy API:
-  - `helm repo add xds-relay https://storage.googleapis.com/xds-relay-helm`
-  - `helm install xdsrelay xds-relay/xds-relay`
-
-If needed, change the default values for the xds-relay chart:
-```yaml
-deployment:
-  replicas: 3
-  image:
-    pullPolicy: IfNotPresent
-    registry: gcr.io/gloo-edge
-    repository: xds-relay
-    tag: %version%
-# might want to set resources for prod deploy, e.g.:
-#  resources:
-#    requests:
-#      cpu: 125m
-#      memory: 256Mi
-service:
-  port: 9991
-bootstrap:
-  cache:
-    # zero means no limit
-    ttl: 0s
-    # zero means no limit
-    maxEntries: 0
-  originServer:
-    address: gloo.gloo-system.svc.cluster.local
-    port: 9977
-    streamTimeout: 5s
-  logging:
-    level: INFO
-# might want to add extra, non-default identifiers
-#extraLabels:
-#  k: v
-#extraTemplateAnnotations:
-#  k: v
-```
-
-- Install Gloo Edge with the following helm values for each proxy (envoy) to point them towards xds-relay:
-```yaml
-gatewayProxies:
-  gatewayProxy: # do the following for each gateway proxy
-    xdsServiceAddress: xds-relay.default.svc.cluster.local
-    xdsServicePort: 9991
-```
-
 
 ## Performance tips
 
@@ -164,7 +104,7 @@ You can also patch the `default` *Settings* CR with this value and delete the `d
 Optionally, you may choose to enable Envoy's gzip filter through Gloo Edge. More information on that can be found [here]({{% versioned_link_path fromRoot="/installation/advanced_configuration/gzip/" %}}).
 
 ### Set up an EDS warming timeout
-Set up the endpoints warming timeout to a non-zero value. More details [here]({{%versioned_link_path fromRoot="/operations/upgrading/1.3.0/#recommended-settings" %}}).
+Set up the endpoints warming timeout to a non-zero value. More details [here]({{%versioned_link_path fromRoot="/operations/upgrading/v1.3/#recommended-settings" %}}).
 
 
 ## Access Logging
@@ -183,17 +123,104 @@ Make sure you have the `%RESPONSE_FLAGS%` item in the log pattern.
 
 You can scale up the `gateway-proxies` Envoy instances by using a Deployment or a DeamonSet. The amount of requests that the `gateway-proxies` can process increases with the amount of CPU that the `gateway-proxies` have access to.
 
+#### Pod Disruption Budget
+
+To configure a Pod Disruption Budget (PDB) for the `gateway-proxy` deployment when you install Gloo Edge via Helm, set values for the `gatewayProxies.NAME.PodDisruptionBudget` fields in your values override file.
+
+For example, consider the following snippet of a values override files, which defines `minAvailable` as `2`.
+
+```yaml
+gatewayProxies:
+  gatewayProxy:
+    podDisruptionBudget:
+      minAvailable: 2
+```
+
+As a result, the following pod disruption budget policy is created:
+
+```yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway-proxy-pdb
+  namespace: gloo-system
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      gateway-proxy-id: gateway-proxy
+```
+
+[You can read more about pod disruption budgets in the Kubernetes documentation](https://kubernetes.io/docs/concepts/workloads/pods/disruptions/#pod-disruption-budgets)
+
+#### Affinity/Anti-Affinity
+
+To configure affinity and anti-affinity rules for the `gateway-proxy` deployment when you install Gloo Edge via Helm, set values for the `gatewayProxies.NAME.affinity` and `gatewayProxies.NAME.antiAffinity` fields, respectively, in your values override file.
+
+For example, the following snippet of a values override file sets affinity rules on the `gateway-proxy` deployment:
+
+```yaml
+gatewayProxies:
+  gatewayProxy:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: kubernetes.io/e2e-az-name
+              operator: In
+              values:
+              - e2e-az1
+              - e2e-az2
+```
+
+[You can read more about affinity and anti-affinity in the Kubernetes documentation](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#affinity-and-anti-affinity).
 ### Ext-Auth
 
 You can also scale up the ExtAuth service. Typically, one to two instances are sufficient.
 
+If you have multiple instances of the ExtAuth server, you might want to use the same JWT signing key in the OIDC policy for each instance. To reuse the JWT signing key, you must update your Helm configuration file with the following global extension.
+
+```yaml
+global:
+  extensions:
+    extAuth:
+      signingKey:
+        key: abcdef
+```
+
+#### Pod Disruption Budgets and Affinity/Anti-Affinity rules
+
+To configure a pod disruption budget for the ExtAuth service when you install Gloo Edge via Helm, set the `global.extensions.extAuth.deployment.podDisruptionBudget` field in your values override file.
+
+By default, the following `podAffinity` rule is configured for the ExtAuth service:
+
+```yaml
+global:
+  extensions:
+    extAuth:
+      affinity:
+        podAffinity: 
+          preferredDuringSchedulingIgnoredDuringExecution: 
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  gloo: gateway-proxy
+              topologyKey: kubernetes.io/hostname
+```
+
+ The default ExtAuth service affinity settings can be overwritten during installation by setting `global.extensions.extAuth.affinity` in your Helm configuration file. Additionally, anti-affinity rules for the ExtAuth service can be configured by setting `global.extensions.extAuth.antiAffinity`.
+
+### Rate Limit
+
+To configure a pod disruption budget for the `rate-limit` deployment when you install Gloo Edge via Helm, set the `global.extensions.rateLimit.deployment.podDisruptionBudget` field in your values override file.
+
+Affinity settings for the `rate-limit` deployment can be overwritten during installation by setting `global.extensions.rateLimit.affinity` in your Helm configuration file. Additionally, anti-affinity rules for the `rate-limit` deployment can be configured by setting `global.extensions.rateLimit.antiAffinity`.
+
 ## Horizontally scaling the control plane
 
 *DO NOT* scale the control plane components, such as the Gateway deployment, the Gloo deployment or the Discovery deployment. Scaling these components provides no benefit and can lead to race conditions.
-
-{{% notice note %}}
-If you are using the xDS-Relay architecture, you can scale the `xds-relay` deployment up.
-{{% /notice %}}
 
 
 ## Enhancing the data-plane reliability
@@ -261,18 +288,18 @@ Some metrics that may be useful to monitor (listed in Prometheus format):
 A common issue in production (or environments with high traffic) is to have sizing issues. This will result in an abnormal number of restarts like this:
 ```shell
 $ kubectl get all -n gloo-system
-NAME                                                       READY   STATUS             RESTARTS   AGE
-pod/discovery-9d4c7fb4c-5wq5m                              1/1     Running            13         35d
-pod/extauth-77bb4fc79b-dsl6q                               1/1     Running            0          35d
-pod/gateway-f774b4d5b-jfhwn                                1/1     Running            0          35d
-pod/gateway-proxy-7656d9df87-qtn2s                         1/1     Running            0          35d
-pod/gloo-db4fb8c4-lfcrp                                    1/1     Running            13         35d
-pod/glooe-grafana-78c6f96db-wgl5k                          1/1     Running            0          41d
-pod/glooe-prometheus-kube-state-metrics-5dd77b76fc-s8prb   1/1     Running            0          41d
-pod/glooe-prometheus-server-59dcf7bc5b-jt654               1/2     CrashLoopBackOff   10692      41d
-pod/observability-656d47787-2fskq                          0/1     CrashLoopBackOff   9558       33d
-pod/rate-limit-7d6cf64fbf-ldgbp                            1/1     Running            0          35d
-pod/redis-55d6dbb6b7-ql89p                                 1/1     Running            0          41d
+NAME                                                          READY   STATUS             RESTARTS   AGE
+pod/discovery-9d4c7fb4c-5wq5m                                 1/1     Running            13         35d
+pod/extauth-77bb4fc79b-dsl6q                                  1/1     Running            0          35d
+pod/gateway-f774b4d5b-jfhwn                                   1/1     Running            0          35d
+pod/gateway-proxy-7656d9df87-qtn2s                            1/1     Running            0          35d
+pod/gloo-db4fb8c4-lfcrp                                       1/1     Running            13         35d
+pod/glooe-grafana-78c6f96db-wgl5k                             1/1     Running            0          41d
+pod/glooe-prometheus-kube-state-metrics-v2-5dd77b76fc-s8prb   1/1     Running            0          41d
+pod/glooe-prometheus-server-59dcf7bc5b-jt654                  1/2     CrashLoopBackOff   10692      41d
+pod/observability-656d47787-2fskq                             0/1     CrashLoopBackOff   9558       33d
+pod/rate-limit-7d6cf64fbf-ldgbp                               1/1     Running            0          35d
+pod/redis-55d6dbb6b7-ql89p                                    1/1     Running            0          41d
 ```
 
 Looking at the cause of these restarts, we can see that the PV is exhausted:

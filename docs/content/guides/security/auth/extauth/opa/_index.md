@@ -4,10 +4,6 @@ weight: 50
 description: Illustrating how to combine OpenID Connect with Open Policy Agent to achieve fine grained policy with Gloo Edge.
 ---
 
-{{% notice note %}}
-The OPA feature was introduced with **Gloo Edge Enterprise**, release 0.18.21. If you are using an earlier version, this tutorial will not work.
-{{% /notice %}}
-
 The [Open Policy Agent](https://www.openpolicyagent.org/) (OPA) is an open source, general-purpose policy engine that can be used to define and enforce versatile policies in a uniform way across your organization. Compared to an RBAC authorization system, OPA allows you to create more fine-grained policies. For more information, see [the official docs](https://www.openpolicyagent.org/docs/latest/comparison-to-other-systems/).
 
 Be sure to check the external auth [configuration overview]({{% versioned_link_path fromRoot="/guides/security/auth/extauth/#auth-configuration-overview" %}}) for detailed information about how authentication is configured on Virtual Services.
@@ -58,7 +54,7 @@ Gloo Edge's OPA integration will populate an `input` document which can be used 
 Let's deploy a sample application that we will route requests to during this guide:
 
 ```shell script
-kubectl apply -f https://raw.githubusercontent.com/solo-io/gloo/v1.2.9/example/petstore/petstore.yaml
+kubectl apply -f https://raw.githubusercontent.com/solo-io/gloo/v1.11.x/example/petstore/petstore.yaml
 ```
 
 ### Creating a Virtual Service
@@ -108,7 +104,7 @@ As we just saw, we were able to reach the upstream without having to provide any
 
 #### Define an OPA policy 
 
-Let's create a Policy to control which actions are allowed on our service:
+Let's create a policy to control which actions are allowed on our service. 
 
 ```shell
 cat <<EOF > policy.rego
@@ -134,6 +130,10 @@ This policy:
 - allows requests if:
   - the path starts with `/api/pets` AND the http method is `GET` **OR**
   - the path is exactly `/api/pets/2` AND the http method is either `GET` or `DELETE`
+
+{{% notice note %}}
+If you decide to modify the policy example and add in your own allow rules, make sure to also use the `package test` value in your policy. 
+{{% /notice %}}
 
 #### Create an OPA AuthConfig CRD
 Gloo Edge expects OPA policies to be stored in a Kubernetes ConfigMap, so let's go ahead and create a ConfigMap with the contents of the above policy file:
@@ -219,7 +219,7 @@ You can clean up the resources created in this guide by running:
 ```
 kubectl delete vs -n gloo-system petstore
 kubectl delete ac -n gloo-system opa
-kubectl delete -f https://raw.githubusercontent.com/solo-io/gloo/v1.2.9/example/petstore/petstore.yaml
+kubectl delete -f https://raw.githubusercontent.com/solo-io/gloo/v1.11.x/example/petstore/petstore.yaml
 rm policy.rego
 ```
 
@@ -325,7 +325,10 @@ config:
     - 'http://localhost:8080/callback'
     name: 'GlooApp'
     secret: secretvalue
-  
+  # Allow dex to store the static list of clients in memory
+  enablePasswordDB: true
+    storage:
+      type: memory 
   # A static list of passwords to login the end user. By identifying here, dex
   # won't look in its underlying storage for passwords.
   staticPasswords:
@@ -346,15 +349,15 @@ This configures Dex with two static users. Notice the **client secret** with val
 
 Using this configuration, we can deploy Dex to our cluster using Helm.
 
-If `help repo list` doesn't list the `stable` repo, invoke:
+If `help repo list` doesn't list the `dex` repo, invoke:
 
 ```shell
-helm repo add stable https://charts.helm.sh/stable
+helm repo add dex https://charts.dexidp.io
 ```
 
 And then install dex (helm 3 command follows):
 ```shell
-helm install dex --namespace gloo-system stable/dex -f dex-values.yaml
+helm install dex --namespace gloo-system dex/dex -f dex-values.yaml
 ```
 
 #### Make the client secret accessible to Gloo Edge
@@ -371,17 +374,15 @@ glooctl create secret oauth --client-secret secretvalue oauth
 {{< tab name="kubectl" codelang="yaml">}}
 apiVersion: v1
 kind: Secret
-type: Opaque
+type: extauth.solo.io/oauth
 metadata:
-  annotations:
-    resource_kind: '*v1.Secret'
   name: oauth
   namespace: gloo-system
 data:
   # The value is a base64 encoding of the following YAML:
   # client_secret: secretvalue
   # Gloo Edge expected OAuth client secrets in this format.
-  oauth: Y2xpZW50U2VjcmV0OiBzZWNyZXR2YWx1ZQo=
+  client-secret: Y2xpZW50U2VjcmV0OiBzZWNyZXR2YWx1ZQo=
 {{< /tab >}}
 {{< /tabs >}} 
 <br>
@@ -396,14 +397,13 @@ cat <<EOF > check-jwt.rego
 package test
 
 default allow = false
+[header, payload, signature] := io.jwt.decode(input.state.jwt)
 
 allow {
-    [header, payload, signature] = io.jwt.decode(input.state.jwt)
-    payload["email"] = "admin@example.com"
+    payload["email"] == "admin@example.com"
 }
 allow {
-    [header, payload, signature] = io.jwt.decode(input.state.jwt)
-    payload["email"] = "user@example.com"
+    payload["email"] == "user@example.com"
     not startswith(input.http_request.path, "/owners")
 }
 EOF
@@ -568,7 +568,7 @@ kubectl port-forward -n gloo-system deploy/extauth 9091
 
 Now, you can set the log level to debug with the following curl command:
 ```
-curl -XPUT localhost:9091/logging -d '{"level":"debug"}'
+curl -XPUT -H "Content-Type: application/json" localhost:9091/logging -d '{"level":"debug"}'
 ```
 
 With debug logging enabled, the extauth server logs will now contain the OPA input, evaluation trace, 
