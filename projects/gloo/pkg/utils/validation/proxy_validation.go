@@ -16,6 +16,59 @@ var (
 	RouteIdentifierTxt = "Route Name"
 )
 
+const (
+	ErrorLevels_WARNING string = "WARNING"
+	ErrorLevels_ERROR   string = "ERROR"
+)
+
+// ErrorLevelContext carries additional information to be passed in the
+// ErrorWithKnownLevel object
+type ErrorLevelContext struct {
+	// A given TCP listener can have multiple TCP hosts; HostNum provides the
+	// numerical index of the host on the listener associated with the error to
+	// be reported
+	HostNum *int
+}
+
+// Types implementing ErrorWithKnownLevel are able to report on the severity of
+// the error they describe by evaluating ErrorLevel()
+type ErrorWithKnownLevel interface {
+	error
+	// The severity of the error - should return either ErrorLevels_WARNING or
+	// ErrorLevels_ERROR
+	ErrorLevel() string
+	// Additional contextual information required to report the error/warning
+	GetContext() ErrorLevelContext
+	// The instance of the error itself
+	GetError() error
+}
+
+// TcpHostWarning implements ErrorWithKnownLevel; it is intended to allow
+// reporting certain errors as warnings and others as errors, and provides the
+// necessary context required for reporting errors as such
+type TcpHostWarning struct {
+	Err      error
+	ErrLevel string
+	Context  ErrorLevelContext
+}
+
+func (tcpHostWarning *TcpHostWarning) ErrorLevel() string {
+	return tcpHostWarning.ErrLevel
+}
+
+func (tcpHostWarning *TcpHostWarning) Error() string {
+	return fmt.Sprintf("TcpHost error: %v", tcpHostWarning.Err)
+}
+
+func (tcpHostWarning *TcpHostWarning) GetContext() ErrorLevelContext {
+	return tcpHostWarning.Context
+}
+
+// return the instance of the Error this object is wrapping
+func (tcpHostWarning *TcpHostWarning) GetError() error {
+	return tcpHostWarning.Err
+}
+
 func MakeReport(proxy *v1.Proxy) *validation.ProxyReport {
 	listeners := proxy.GetListeners()
 	listenerReports := make([]*validation.ListenerReport, len(listeners))
@@ -69,6 +122,7 @@ func MakeReport(proxy *v1.Proxy) *validation.ProxyReport {
 			}
 		case *v1.Listener_AggregateListener:
 			httpListenerReports := make(map[string]*validation.HttpListenerReport)
+			tcpListenerReports := make(map[string]*validation.TcpListenerReport)
 			httpResources := listenerType.AggregateListener.GetHttpResources()
 			for _, httpFilterChain := range listenerType.AggregateListener.GetHttpFilterChains() {
 				var virtualHosts []*v1.VirtualHost
@@ -76,16 +130,24 @@ func MakeReport(proxy *v1.Proxy) *validation.ProxyReport {
 					virtualHosts = append(virtualHosts, httpResources.GetVirtualHosts()[vhostRef])
 				}
 
-				httListenerReport := &validation.HttpListenerReport{
+				httpListenerReport := &validation.HttpListenerReport{
 					VirtualHostReports: makeVhostReports(virtualHosts),
 				}
-				httpListenerReports[utils.MatchedRouteConfigName(listener, httpFilterChain.GetMatcher())] = httListenerReport
+				httpListenerReports[utils.MatchedRouteConfigName(listener, httpFilterChain.GetMatcher())] = httpListenerReport
+			}
+
+			for _, tcpListener := range listenerType.AggregateListener.GetTcpListeners() {
+				tcpListenerReport := &validation.TcpListenerReport{
+					TcpHostReports: makeTcpHostReports(tcpListener.GetTcpListener().GetTcpHosts()),
+				}
+				tcpListenerReports[utils.MatchedRouteConfigName(listener, tcpListener.GetMatcher())] = tcpListenerReport
 			}
 
 			listenerReports[i] = &validation.ListenerReport{
 				ListenerTypeReport: &validation.ListenerReport_AggregateListenerReport{
 					AggregateListenerReport: &validation.AggregateListenerReport{
 						HttpListenerReports: httpListenerReports,
+						TcpListenerReports:  tcpListenerReports,
 					},
 				},
 			}
@@ -189,6 +251,21 @@ func GetTcpHostErr(tcpHost *validation.TcpHostReport) []error {
 	return errs
 }
 
+// Extract, format and return all warnings on this TcpHost instance as a list
+// of strings
+func GetTcpHostWarning(tcpHost *validation.TcpHostReport) []string {
+	var warnings []string
+	appendWarning := func(level, errType, reason string) {
+		warnings = append(warnings, fmt.Sprintf("%v Warning: %v. Reason: %v", level, errType, reason))
+	}
+
+	for _, warning := range tcpHost.GetWarnings() {
+		appendWarning("TcpHost", warning.GetType().String(), warning.GetReason())
+	}
+
+	return warnings
+}
+
 func GetProxyError(proxyRpt *validation.ProxyReport) error {
 	var errs []error
 	for _, listener := range proxyRpt.GetListenerReports() {
@@ -215,6 +292,9 @@ func GetProxyError(proxyRpt *validation.ProxyReport) error {
 		case *validation.ListenerReport_AggregateListenerReport:
 			for _, httpListenerReport := range listenerType.AggregateListenerReport.GetHttpListenerReports() {
 				errs = append(errs, getHttpListenerReportErrs(httpListenerReport)...)
+			}
+			for _, tcpListenerReport := range listenerType.AggregateListenerReport.GetTcpListenerReports() {
+				errs = append(errs, getTcpListenerReportErrs(tcpListenerReport)...)
 			}
 		}
 	}
@@ -274,6 +354,10 @@ func GetProxyWarning(proxyRpt *validation.ProxyReport) []string {
 				}
 			}
 		}
+		for _, tcpHostReport := range utils.GetTcpHostReportsFromListenerReport(listenerReport) {
+			warnings = append(warnings, GetTcpHostWarning(tcpHostReport)...)
+		}
+
 	}
 
 	return warnings
@@ -300,8 +384,8 @@ func AppendHTTPListenerError(httpListenerReport *validation.HttpListenerReport, 
 	})
 }
 
-func AppendTCPListenerError(httpListenerReport *validation.TcpListenerReport, errType validation.TcpListenerReport_Error_Type, reason string) {
-	httpListenerReport.Errors = append(httpListenerReport.GetErrors(), &validation.TcpListenerReport_Error{
+func AppendTCPListenerError(tcpListenerReport *validation.TcpListenerReport, errType validation.TcpListenerReport_Error_Type, reason string) {
+	tcpListenerReport.Errors = append(tcpListenerReport.GetErrors(), &validation.TcpListenerReport_Error{
 		Type:   errType,
 		Reason: reason,
 	})
@@ -316,6 +400,13 @@ func AppendRouteError(routeReport *validation.RouteReport, errType validation.Ro
 
 func AppendRouteWarning(routeReport *validation.RouteReport, errType validation.RouteReport_Warning_Type, reason string) {
 	routeReport.Warnings = append(routeReport.GetWarnings(), &validation.RouteReport_Warning{
+		Type:   errType,
+		Reason: reason,
+	})
+}
+
+func AppendTcpHostWarning(tcpHostReport *validation.TcpHostReport, errType validation.TcpHostReport_Warning_Type, reason string) {
+	tcpHostReport.Warnings = append(tcpHostReport.GetWarnings(), &validation.TcpHostReport_Warning{
 		Type:   errType,
 		Reason: reason,
 	})

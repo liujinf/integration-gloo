@@ -3,7 +3,6 @@ package upgrade_test
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -276,6 +275,17 @@ func installGloo(testHelper *helper.SoloTestHelper, fromRelease string, strictVa
 		"--version", fromRelease)
 
 	args = append(args, "-n", testHelper.InstallNamespace,
+		// As most CD tools wait for resources to be ready before marking the release as successful,
+		// we're emulating that here by passing these two flags.
+		// This way we ensure that we indirectly add support for CD tools
+		"--wait",
+		"--wait-for-jobs",
+		// We run our e2e tests on a kind cluster, but kind hasn’t implemented LoadBalancer support.
+		// This leads to the service being in a pending state.
+		// Since the --wait flag is set, this can cause the upgrade to fail
+		// as helm waits until the service is ready and eventually times out.
+		// So instead we use the service type as ClusterIP to work around this limitation.
+		"--set", "gatewayProxies.gatewayProxy.service.type=ClusterIP",
 		"--create-namespace",
 		"--values", helmValuesFile)
 	if strictValidation {
@@ -307,6 +317,17 @@ func upgradeGloo(testHelper *helper.SoloTestHelper, chartUri string, targetRelea
 	defer cleanupFunc()
 
 	var args = []string{"upgrade", testHelper.HelmChartName, chartUri,
+		// As most CD tools wait for resources to be ready before marking the release as successful,
+		// we're emulating that here by passing these two flags.
+		// This way we ensure that we indirectly add support for CD tools
+		"--wait",
+		"--wait-for-jobs",
+		// We run our e2e tests on a kind cluster, but kind hasn’t implemented LoadBalancer support.
+		// This leads to the service being in a pending state.
+		// Since the --wait flag is set, this can cause the upgrade to fail
+		// as helm waits until the service is ready and eventually times out.
+		// So instead we use the service type as ClusterIP to work around this limitation.
+		"--set", "gatewayProxies.gatewayProxy.service.type=ClusterIP",
 		"-n", testHelper.InstallNamespace,
 		"--values", valueOverrideFile}
 	if targetReleasedVersion != "" {
@@ -334,7 +355,7 @@ func uninstallGloo(testHelper *helper.SoloTestHelper, ctx context.Context, cance
 }
 
 func getHelmUpgradeValuesOverrideFile() (filename string, cleanup func()) {
-	values, err := ioutil.TempFile("", "values-*.yaml")
+	values, err := os.CreateTemp("", "values-*.yaml")
 	Expect(err).NotTo(HaveOccurred())
 
 	_, err = values.Write([]byte(`

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -214,10 +214,7 @@ func checkKnativeInstallation(ctx context.Context, kubeclient ...kubernetes.Inte
 	if len(kubeclient) > 0 {
 		kc = kubeclient[0]
 	} else {
-		kubecontext, err := contextoptions.KubecontextFrom(ctx)
-		if err != nil {
-			return false, nil, err
-		}
+		kubecontext := contextoptions.KubecontextFrom(ctx)
 		kc = helpers.MustKubeClientWithKubecontext(kubecontext)
 	}
 	namespaces, err := kc.CoreV1().Namespaces().List(ctx, v1.ListOptions{})
@@ -295,7 +292,7 @@ func getManifestForInstallation(url string) (string, error) {
 		return "", err
 	}
 
-	raw, err := ioutil.ReadAll(response.Body)
+	raw, err := io.ReadAll(response.Body)
 	if err != nil {
 		return "", err
 	}

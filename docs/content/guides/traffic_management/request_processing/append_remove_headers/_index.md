@@ -12,7 +12,7 @@ Header Manipulation is configured via the
 
 This struct can be added to {{< protobuf name="gloo.solo.io.RouteOptions" display="Route Options">}}, {{< protobuf name="gloo.solo.io.VirtualHostOptions" display="Virtual Host Options">}}, and {{< protobuf name="gloo.solo.io.WeightedDestinationOptions" display="Weighted Destination Options" >}}.
 
-The `headerManipulation` struct contains four optional fields `requestHeadersToAdd`, `requestHeadersToRemove`,  `responseHeadersToAdd`, and `responseHeadersToRemove`. The key and value for the header can be specified directly in the manifest, or in the case of `requestHeadersToAdd` it can be a reference to a secret of the type `gloo.solo.io/header` or `Opaque`.
+The `headerManipulation` struct contains four optional fields: `requestHeadersToAdd`, `requestHeadersToRemove`, `responseHeadersToAdd`, and `responseHeadersToRemove`. You can specify the key and value for the header directly in the manifest, or for `requestHeadersToAdd`, you can reference a secret of the type `gloo.solo.io/header` or `Opaque`.
 
 ```yaml
 headerManipulation:
@@ -34,8 +34,11 @@ headerManipulation:
   - headerSecretRef:
       name: SECRET_NAME
       namespace: SECRET_NAMESPACE
-    # The type of the secret must be gloo.solo.io/header or Opaque
-    # Each key/value pair in the secret will be added
+    # The type of the secret must be gloo.solo.io/header or Opaque.
+    # Each key/value pair in the secret is added to the header.
+    # NOTE: Referencing a secret in a different namespace than the
+    # upstream is not recommended. Instead, ensure secrets are in the
+    # same namespace as the upstream.
 
   # remove headers from request
   requestHeadersToRemove:
@@ -86,6 +89,10 @@ glooctl create secret header my-headers --headers x-header-1=one,x-header-2=two
 ```
 
 The secret will be created in the same namespace as the Gloo Edge installation by default. Inspecting the secret will show that the type is set to `gloo.solo.io/header`. Each key/value pair in the secret will be added as a header to the request.
+
+{{% notice note %}}
+Referencing a secret in a different namespace than the upstream is not recommended. Instead, ensure secrets are in the same namespace as the upstream. You can additionally set the `gloo.headerSecretRefNsMatchesUs` Helm field to true, which requires any secrets that are sent in headers to come from the same namespace as the destination upstream.
+{{% /notice %}}
 
 ## Example: Manipulating Headers on a Route
 
@@ -201,4 +208,138 @@ spec:
 status: {}
 {{< /highlight >}}
 
+## Inheritance of request headers {#inheritance}
 
+Headers can be inherited by children options, such as shown in the following example with delegated routes. For more information about inheritance, see [Inheritance rules]({{% versioned_link_path fromRoot="/introduction/traffic_filter/" %}}). For more information about delegation, see [Delegating with route tables]({{% versioned_link_path fromRoot="/guides/traffic_management/destination_types/delegation/" %}}).
+
+1. In your Virtual Service, set up a delegated route.
+   ```yaml
+   apiVersion: gateway.solo.io/v1
+   kind: VirtualService
+   metadata:
+     name: 'example'
+     namespace: 'gloo-system'
+   spec:
+     virtualHost:
+       domains:
+       - 'example.com'
+       routes:
+       - matchers:
+          - prefix: '/a' # delegate ownership of routes for `example.com/a`
+         delegateAction:
+           ref:
+             name: 'a-routes'
+             namespace: 'a'
+       - matchers:
+          - prefix: '/b' # delegate ownership of routes for `example.com/b`
+         delegateAction:
+           ref:
+             name: 'b-routes'
+             namespace: 'b'
+   ```
+2. Add headers that you want all child objects to inherit in the VirtualHost parent object in the same VirtualService as the previous step. In the following example, the `x-gateway-start-time` header is added to requests, and the `x-route-table: alphabet` header is added to responses.
+   ```yaml
+   ...
+   virtualHost:
+     options:
+       headerManipulation:
+         requestHeadersToAdd:
+           - header:
+               key: x-gateway-start-time
+               value: '%START_TIME%'
+         responseHeadersToAdd:
+           - header:
+               key: x-route-table
+               value: alphabet
+             append: false # overwrite the value of `x-route-table` if it already exists
+   ```
+3. In the RouteTable child object, define other headers. In the following example, the `x-route-table` header is added to requests, and the `x-route-table: a` header is added to responses.
+   ```yaml
+   apiVersion: gateway.solo.io/v1
+   kind: RouteTable
+   metadata:
+     name: 'a-routes'
+     namespace: 'a'
+   spec:
+     routes:
+       - matchers:
+           # the path matchers in this RouteTable must begin with the prefix `/a/`
+          - prefix: '/a/1'
+         routeAction:
+           single:
+             upstream:
+               name: 'foo-upstream'
+     options:
+       headerManipulation:
+         requestHeadersToAdd:
+           - header:
+               key: x-route-table
+               value: a
+         responseHeadersToAdd:
+           - header:
+               key: x-route-table
+               value: a
+   ```
+4. Now, requests that match the route `/a/1` get the following headers:
+   * The `x-gateway-start-time` request header is inherited from the parent VirtualHost option.
+   * The `x-route-table` request header is set in the child Route option.
+   * The `x-route-table` response header in the parent overwrites the child object's value of `a` instead to `alphabet`.
+
+Due to how header manipulations are processed, less specific headers overwrite more specific headers.
+
+From the [Envoy docs](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_conn_man/headers#custom-request-response-headers):
+> Headers are appended to requests/responses in the following order: weighted cluster level headers, route level headers, virtual host level headers and finally global level headers.
+
+In the previous example of the `x-route-table` response header, the virtual host level header overwrites the route level header because the virtual host level header is evaluated after the route level header.
+* If you set `append: true` or omit this field on the virtual host, then the route level response header (`a`) would get appended to the virtual host level header (`alphabet`).
+* If you set `append: false` on the route, the route does not affect the virtual host because the route is evaluated before the virtual host. In the example, the response header would stay `x-route-table: alphabet`.
+
+### Reversing the order of header manipulation evaluation
+
+You can reverse the order in which header manipulations are evaluated so that order of evaluation becomes: global level headers, virtual host level headers, route level headers, and finally weighted cluster level headers.
+With the order of evaluation being reversed, more specific header manipulations can override less specific ones.
+
+To reverse the order of evaluation, set the `mostSpecificHeaderMutationsWins` field to `true` in the [routeOptions]({{< versioned_link_path fromRoot="/reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/options.proto.sk/#routeconfigurationoptions" >}}) settings for a [Gateway]({{< versioned_link_path fromRoot="/reference/api/github.com/solo-io/gloo/projects/gateway/api/v1/gateway.proto.sk/" >}}).
+
+The route options that you set on the Gateway will apply to all routes that the Gateway serves.
+
+```yaml
+apiVersion: gateway.solo.io/v1
+kind: Gateway
+metadata: # collapsed for brevity
+spec:
+  routeOptions:
+    mostSpecificHeaderMutationsWins: true
+status: # collapsed for brevity
+```
+
+Following the VirtualService and RouteTable setup in the previous section, add the `append` setting to `false` on the RouteTable. This way, the header values added by the RouteTable override less specific headers instead of append to the values.
+{{< highlight yaml "hl_lines=25-25" >}}
+apiVersion: gateway.solo.io/v1
+kind: RouteTable
+metadata:
+  name: 'a-routes'
+  namespace: 'a'
+spec:
+  routes:
+    - matchers:
+        # the path matchers in this RouteTable must begin with the prefix `/a/`
+      - prefix: '/a/1'
+      routeAction:
+        single:
+          upstream:
+            name: 'foo-upstream'
+  options:
+    headerManipulation:
+      requestHeadersToAdd:
+        - header:
+            key: x-route-table
+            value: a
+      responseHeadersToAdd:
+        - header:
+            key: x-route-table
+            value: a
+          append: false
+{{< /highlight >}}
+
+With `mostSpecificHeaderMutationsWins` set to `true` and `append` set to `false`, now the `x-route-table` response header in the child RouteTable overwrites the parent object's value of `alphabet` instead to `a`.

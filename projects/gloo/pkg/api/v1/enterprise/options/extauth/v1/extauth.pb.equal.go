@@ -521,6 +521,40 @@ func (m *BasicAuth) Equal(that interface{}) bool {
 		}
 	}
 
+	if h, ok := interface{}(m.GetEncryption()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetEncryption()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetEncryption(), target.GetEncryption()) {
+			return false
+		}
+	}
+
+	switch m.UserSource.(type) {
+
+	case *BasicAuth_UserList_:
+		if _, ok := target.UserSource.(*BasicAuth_UserList_); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetUserList()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetUserList()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetUserList(), target.GetUserList()) {
+				return false
+			}
+		}
+
+	default:
+		// m is nil but target is not nil
+		if m.UserSource != target.UserSource {
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -1223,6 +1257,42 @@ func (m *EndSessionProperties) Equal(that interface{}) bool {
 }
 
 // Equal function
+func (m *ClaimToHeader) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ClaimToHeader)
+	if !ok {
+		that2, ok := that.(ClaimToHeader)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if strings.Compare(m.GetClaim(), target.GetClaim()) != 0 {
+		return false
+	}
+
+	if strings.Compare(m.GetHeader(), target.GetHeader()) != 0 {
+		return false
+	}
+
+	if m.GetAppend() != target.GetAppend() {
+		return false
+	}
+
+	return true
+}
+
+// Equal function
 func (m *OidcAuthorizationCode) Equal(that interface{}) bool {
 	if that == nil {
 		return m == nil
@@ -1388,6 +1458,57 @@ func (m *OidcAuthorizationCode) Equal(that interface{}) bool {
 		}
 	}
 
+	if len(m.GetDynamicMetadataFromClaims()) != len(target.GetDynamicMetadataFromClaims()) {
+		return false
+	}
+	for k, v := range m.GetDynamicMetadataFromClaims() {
+
+		if strings.Compare(v, target.GetDynamicMetadataFromClaims()[k]) != 0 {
+			return false
+		}
+
+	}
+
+	if h, ok := interface{}(m.GetDisableClientSecret()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetDisableClientSecret()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetDisableClientSecret(), target.GetDisableClientSecret()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetAccessToken()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetAccessToken()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetAccessToken(), target.GetAccessToken()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetIdentityToken()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetIdentityToken()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetIdentityToken(), target.GetIdentityToken()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetClientAuthentication()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetClientAuthentication()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetClientAuthentication(), target.GetClientAuthentication()) {
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -1495,6 +1616,16 @@ func (m *PlainOAuth2) Equal(that interface{}) bool {
 
 	if strings.Compare(m.GetRevocationEndpoint(), target.GetRevocationEndpoint()) != 0 {
 		return false
+	}
+
+	if h, ok := interface{}(m.GetDisableClientSecret()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetDisableClientSecret()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetDisableClientSecret(), target.GetDisableClientSecret()) {
+			return false
+		}
 	}
 
 	return true
@@ -1610,6 +1741,16 @@ func (m *IntrospectionValidation) Equal(that interface{}) bool {
 		return false
 	}
 
+	if h, ok := interface{}(m.GetDisableClientSecret()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetDisableClientSecret()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetDisableClientSecret(), target.GetDisableClientSecret()) {
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -1646,6 +1787,17 @@ func (m *AccessTokenValidation) Equal(that interface{}) bool {
 		if !proto.Equal(m.GetCacheTimeout(), target.GetCacheTimeout()) {
 			return false
 		}
+	}
+
+	if len(m.GetDynamicMetadataFromClaims()) != len(target.GetDynamicMetadataFromClaims()) {
+		return false
+	}
+	for k, v := range m.GetDynamicMetadataFromClaims() {
+
+		if strings.Compare(v, target.GetDynamicMetadataFromClaims()[k]) != 0 {
+			return false
+		}
+
 	}
 
 	switch m.ValidationType.(type) {
@@ -2034,6 +2186,17 @@ func (m *AerospikeApiKeyStorage) Equal(that interface{}) bool {
 
 	}
 
+	if len(m.GetLabelSelector()) != len(target.GetLabelSelector()) {
+		return false
+	}
+	for k, v := range m.GetLabelSelector() {
+
+		if strings.Compare(v, target.GetLabelSelector()[k]) != 0 {
+			return false
+		}
+
+	}
+
 	switch m.CommitLevel.(type) {
 
 	case *AerospikeApiKeyStorage_CommitAll:
@@ -2246,6 +2409,56 @@ func (m *OpaAuthOptions) Equal(that interface{}) bool {
 
 	if m.GetFastInputConversion() != target.GetFastInputConversion() {
 		return false
+	}
+
+	if m.GetReturnDecisionReason() != target.GetReturnDecisionReason() {
+		return false
+	}
+
+	return true
+}
+
+// Equal function
+func (m *OpaServerAuth) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*OpaServerAuth)
+	if !ok {
+		that2, ok := that.(OpaServerAuth)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if strings.Compare(m.GetPackage(), target.GetPackage()) != 0 {
+		return false
+	}
+
+	if strings.Compare(m.GetRuleName(), target.GetRuleName()) != 0 {
+		return false
+	}
+
+	if strings.Compare(m.GetServerAddr(), target.GetServerAddr()) != 0 {
+		return false
+	}
+
+	if h, ok := interface{}(m.GetOptions()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetOptions()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetOptions(), target.GetOptions()) {
+			return false
+		}
 	}
 
 	return true
@@ -3160,6 +3373,21 @@ func (m *AuthConfig_Config) Equal(that interface{}) bool {
 			}
 		}
 
+	case *AuthConfig_Config_OpaServerAuth:
+		if _, ok := target.AuthConfig.(*AuthConfig_Config_OpaServerAuth); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetOpaServerAuth()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetOpaServerAuth()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetOpaServerAuth(), target.GetOpaServerAuth()) {
+				return false
+			}
+		}
+
 	default:
 		// m is nil but target is not nil
 		if m.AuthConfig != target.AuthConfig {
@@ -3326,6 +3554,142 @@ func (m *BasicAuth_Apr) Equal(that interface{}) bool {
 }
 
 // Equal function
+func (m *BasicAuth_EncryptionType) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*BasicAuth_EncryptionType)
+	if !ok {
+		that2, ok := that.(BasicAuth_EncryptionType)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	switch m.Algorithm.(type) {
+
+	case *BasicAuth_EncryptionType_Apr_:
+		if _, ok := target.Algorithm.(*BasicAuth_EncryptionType_Apr_); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetApr()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetApr()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetApr(), target.GetApr()) {
+				return false
+			}
+		}
+
+	case *BasicAuth_EncryptionType_Sha1_:
+		if _, ok := target.Algorithm.(*BasicAuth_EncryptionType_Sha1_); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetSha1()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetSha1()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetSha1(), target.GetSha1()) {
+				return false
+			}
+		}
+
+	default:
+		// m is nil but target is not nil
+		if m.Algorithm != target.Algorithm {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Equal function
+func (m *BasicAuth_User) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*BasicAuth_User)
+	if !ok {
+		that2, ok := that.(BasicAuth_User)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if strings.Compare(m.GetSalt(), target.GetSalt()) != 0 {
+		return false
+	}
+
+	if strings.Compare(m.GetHashedPassword(), target.GetHashedPassword()) != 0 {
+		return false
+	}
+
+	return true
+}
+
+// Equal function
+func (m *BasicAuth_UserList) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*BasicAuth_UserList)
+	if !ok {
+		that2, ok := that.(BasicAuth_UserList)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if len(m.GetUsers()) != len(target.GetUsers()) {
+		return false
+	}
+	for k, v := range m.GetUsers() {
+
+		if h, ok := interface{}(v).(equality.Equalizer); ok {
+			if !h.Equal(target.GetUsers()[k]) {
+				return false
+			}
+		} else {
+			if !proto.Equal(v, target.GetUsers()[k]) {
+				return false
+			}
+		}
+
+	}
+
+	return true
+}
+
+// Equal function
 func (m *BasicAuth_Apr_SaltedHashedPassword) Equal(that interface{}) bool {
 	if that == nil {
 		return m == nil
@@ -3351,6 +3715,54 @@ func (m *BasicAuth_Apr_SaltedHashedPassword) Equal(that interface{}) bool {
 	}
 
 	if strings.Compare(m.GetHashedPassword(), target.GetHashedPassword()) != 0 {
+		return false
+	}
+
+	return true
+}
+
+// Equal function
+func (m *BasicAuth_EncryptionType_Sha1) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*BasicAuth_EncryptionType_Sha1)
+	if !ok {
+		that2, ok := that.(BasicAuth_EncryptionType_Sha1)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	return true
+}
+
+// Equal function
+func (m *BasicAuth_EncryptionType_Apr) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*BasicAuth_EncryptionType_Apr)
+	if !ok {
+		that2, ok := that.(BasicAuth_EncryptionType_Apr)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
 		return false
 	}
 
@@ -3576,6 +3988,239 @@ func (m *UserSession_CipherConfig) Equal(that interface{}) bool {
 	default:
 		// m is nil but target is not nil
 		if m.Key != target.Key {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Equal function
+func (m *OidcAuthorizationCode_AccessToken) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*OidcAuthorizationCode_AccessToken)
+	if !ok {
+		that2, ok := that.(OidcAuthorizationCode_AccessToken)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if len(m.GetClaimsToHeaders()) != len(target.GetClaimsToHeaders()) {
+		return false
+	}
+	for idx, v := range m.GetClaimsToHeaders() {
+
+		if h, ok := interface{}(v).(equality.Equalizer); ok {
+			if !h.Equal(target.GetClaimsToHeaders()[idx]) {
+				return false
+			}
+		} else {
+			if !proto.Equal(v, target.GetClaimsToHeaders()[idx]) {
+				return false
+			}
+		}
+
+	}
+
+	return true
+}
+
+// Equal function
+func (m *OidcAuthorizationCode_IdentityToken) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*OidcAuthorizationCode_IdentityToken)
+	if !ok {
+		that2, ok := that.(OidcAuthorizationCode_IdentityToken)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if len(m.GetClaimsToHeaders()) != len(target.GetClaimsToHeaders()) {
+		return false
+	}
+	for idx, v := range m.GetClaimsToHeaders() {
+
+		if h, ok := interface{}(v).(equality.Equalizer); ok {
+			if !h.Equal(target.GetClaimsToHeaders()[idx]) {
+				return false
+			}
+		} else {
+			if !proto.Equal(v, target.GetClaimsToHeaders()[idx]) {
+				return false
+			}
+		}
+
+	}
+
+	return true
+}
+
+// Equal function
+func (m *OidcAuthorizationCode_ClientAuthentication) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*OidcAuthorizationCode_ClientAuthentication)
+	if !ok {
+		that2, ok := that.(OidcAuthorizationCode_ClientAuthentication)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	switch m.ClientAuthenticationConfig.(type) {
+
+	case *OidcAuthorizationCode_ClientAuthentication_ClientSecret_:
+		if _, ok := target.ClientAuthenticationConfig.(*OidcAuthorizationCode_ClientAuthentication_ClientSecret_); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetClientSecret()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetClientSecret()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetClientSecret(), target.GetClientSecret()) {
+				return false
+			}
+		}
+
+	case *OidcAuthorizationCode_ClientAuthentication_PrivateKeyJwt_:
+		if _, ok := target.ClientAuthenticationConfig.(*OidcAuthorizationCode_ClientAuthentication_PrivateKeyJwt_); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetPrivateKeyJwt()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetPrivateKeyJwt()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetPrivateKeyJwt(), target.GetPrivateKeyJwt()) {
+				return false
+			}
+		}
+
+	default:
+		// m is nil but target is not nil
+		if m.ClientAuthenticationConfig != target.ClientAuthenticationConfig {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Equal function
+func (m *OidcAuthorizationCode_ClientAuthentication_ClientSecret) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*OidcAuthorizationCode_ClientAuthentication_ClientSecret)
+	if !ok {
+		that2, ok := that.(OidcAuthorizationCode_ClientAuthentication_ClientSecret)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if h, ok := interface{}(m.GetClientSecretRef()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetClientSecretRef()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetClientSecretRef(), target.GetClientSecretRef()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetDisableClientSecret()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetDisableClientSecret()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetDisableClientSecret(), target.GetDisableClientSecret()) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Equal function
+func (m *OidcAuthorizationCode_ClientAuthentication_PrivateKeyJwt) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*OidcAuthorizationCode_ClientAuthentication_PrivateKeyJwt)
+	if !ok {
+		that2, ok := that.(OidcAuthorizationCode_ClientAuthentication_PrivateKeyJwt)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if h, ok := interface{}(m.GetSigningKeyRef()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetSigningKeyRef()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetSigningKeyRef(), target.GetSigningKeyRef()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetValidFor()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetValidFor()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetValidFor(), target.GetValidFor()) {
 			return false
 		}
 	}
@@ -4086,6 +4731,79 @@ func (m *PassThroughHttp_Response) Equal(that interface{}) bool {
 		return false
 	}
 
+	if len(m.GetAllowedUpstreamHeadersToOverwrite()) != len(target.GetAllowedUpstreamHeadersToOverwrite()) {
+		return false
+	}
+	for idx, v := range m.GetAllowedUpstreamHeadersToOverwrite() {
+
+		if strings.Compare(v, target.GetAllowedUpstreamHeadersToOverwrite()[idx]) != 0 {
+			return false
+		}
+
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ExtAuthConfig_BasicAuthInternal) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ExtAuthConfig_BasicAuthInternal)
+	if !ok {
+		that2, ok := that.(ExtAuthConfig_BasicAuthInternal)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if strings.Compare(m.GetRealm(), target.GetRealm()) != 0 {
+		return false
+	}
+
+	if h, ok := interface{}(m.GetEncryption()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetEncryption()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetEncryption(), target.GetEncryption()) {
+			return false
+		}
+	}
+
+	switch m.UserSource.(type) {
+
+	case *ExtAuthConfig_BasicAuthInternal_UserList_:
+		if _, ok := target.UserSource.(*ExtAuthConfig_BasicAuthInternal_UserList_); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetUserList()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetUserList()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetUserList(), target.GetUserList()) {
+				return false
+			}
+		}
+
+	default:
+		// m is nil but target is not nil
+		if m.UserSource != target.UserSource {
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -4408,6 +5126,36 @@ func (m *ExtAuthConfig_OidcAuthorizationCodeConfig) Equal(that interface{}) bool
 		}
 	} else {
 		if !proto.Equal(m.GetUserSession(), target.GetUserSession()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetPkJwtClientAuthenticationConfig()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetPkJwtClientAuthenticationConfig()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetPkJwtClientAuthenticationConfig(), target.GetPkJwtClientAuthenticationConfig()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetAccessToken()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetAccessToken()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetAccessToken(), target.GetAccessToken()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetIdentityToken()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetIdentityToken()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetIdentityToken(), target.GetIdentityToken()) {
 			return false
 		}
 	}
@@ -4861,6 +5609,52 @@ func (m *ExtAuthConfig_OpaAuthConfig) Equal(that interface{}) bool {
 }
 
 // Equal function
+func (m *ExtAuthConfig_OpaServerAuthConfig) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ExtAuthConfig_OpaServerAuthConfig)
+	if !ok {
+		that2, ok := that.(ExtAuthConfig_OpaServerAuthConfig)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if strings.Compare(m.GetPackage(), target.GetPackage()) != 0 {
+		return false
+	}
+
+	if strings.Compare(m.GetRuleName(), target.GetRuleName()) != 0 {
+		return false
+	}
+
+	if strings.Compare(m.GetServerAddr(), target.GetServerAddr()) != 0 {
+		return false
+	}
+
+	if h, ok := interface{}(m.GetOptions()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetOptions()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetOptions(), target.GetOptions()) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Equal function
 func (m *ExtAuthConfig_LdapConfig) Equal(that interface{}) bool {
 	if that == nil {
 		return m == nil
@@ -5156,6 +5950,21 @@ func (m *ExtAuthConfig_Config) Equal(that interface{}) bool {
 			}
 		}
 
+	case *ExtAuthConfig_Config_BasicAuthInternal:
+		if _, ok := target.AuthConfig.(*ExtAuthConfig_Config_BasicAuthInternal); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetBasicAuthInternal()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetBasicAuthInternal()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetBasicAuthInternal(), target.GetBasicAuthInternal()) {
+				return false
+			}
+		}
+
 	case *ExtAuthConfig_Config_ApiKeyAuth:
 		if _, ok := target.AuthConfig.(*ExtAuthConfig_Config_ApiKeyAuth); !ok {
 			return false
@@ -5276,11 +6085,210 @@ func (m *ExtAuthConfig_Config) Equal(that interface{}) bool {
 			}
 		}
 
+	case *ExtAuthConfig_Config_OpaServerAuth:
+		if _, ok := target.AuthConfig.(*ExtAuthConfig_Config_OpaServerAuth); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetOpaServerAuth()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetOpaServerAuth()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetOpaServerAuth(), target.GetOpaServerAuth()) {
+				return false
+			}
+		}
+
 	default:
 		// m is nil but target is not nil
 		if m.AuthConfig != target.AuthConfig {
 			return false
 		}
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ExtAuthConfig_BasicAuthInternal_EncryptionType) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ExtAuthConfig_BasicAuthInternal_EncryptionType)
+	if !ok {
+		that2, ok := that.(ExtAuthConfig_BasicAuthInternal_EncryptionType)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	switch m.Algorithm.(type) {
+
+	case *ExtAuthConfig_BasicAuthInternal_EncryptionType_Apr_:
+		if _, ok := target.Algorithm.(*ExtAuthConfig_BasicAuthInternal_EncryptionType_Apr_); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetApr()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetApr()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetApr(), target.GetApr()) {
+				return false
+			}
+		}
+
+	case *ExtAuthConfig_BasicAuthInternal_EncryptionType_Sha1_:
+		if _, ok := target.Algorithm.(*ExtAuthConfig_BasicAuthInternal_EncryptionType_Sha1_); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetSha1()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetSha1()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetSha1(), target.GetSha1()) {
+				return false
+			}
+		}
+
+	default:
+		// m is nil but target is not nil
+		if m.Algorithm != target.Algorithm {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ExtAuthConfig_BasicAuthInternal_User) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ExtAuthConfig_BasicAuthInternal_User)
+	if !ok {
+		that2, ok := that.(ExtAuthConfig_BasicAuthInternal_User)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if strings.Compare(m.GetSalt(), target.GetSalt()) != 0 {
+		return false
+	}
+
+	if strings.Compare(m.GetHashedPassword(), target.GetHashedPassword()) != 0 {
+		return false
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ExtAuthConfig_BasicAuthInternal_UserList) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ExtAuthConfig_BasicAuthInternal_UserList)
+	if !ok {
+		that2, ok := that.(ExtAuthConfig_BasicAuthInternal_UserList)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if len(m.GetUsers()) != len(target.GetUsers()) {
+		return false
+	}
+	for k, v := range m.GetUsers() {
+
+		if h, ok := interface{}(v).(equality.Equalizer); ok {
+			if !h.Equal(target.GetUsers()[k]) {
+				return false
+			}
+		} else {
+			if !proto.Equal(v, target.GetUsers()[k]) {
+				return false
+			}
+		}
+
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ExtAuthConfig_BasicAuthInternal_EncryptionType_Sha1) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ExtAuthConfig_BasicAuthInternal_EncryptionType_Sha1)
+	if !ok {
+		that2, ok := that.(ExtAuthConfig_BasicAuthInternal_EncryptionType_Sha1)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ExtAuthConfig_BasicAuthInternal_EncryptionType_Apr) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ExtAuthConfig_BasicAuthInternal_EncryptionType_Apr)
+	if !ok {
+		that2, ok := that.(ExtAuthConfig_BasicAuthInternal_EncryptionType_Apr)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
 	}
 
 	return true
@@ -5309,6 +6317,162 @@ func (m *ExtAuthConfig_UserSessionConfig_CipherConfig) Equal(that interface{}) b
 
 	if strings.Compare(m.GetKey(), target.GetKey()) != 0 {
 		return false
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ExtAuthConfig_OidcAuthorizationCodeConfig_PkJwtClientAuthenticationConfig) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ExtAuthConfig_OidcAuthorizationCodeConfig_PkJwtClientAuthenticationConfig)
+	if !ok {
+		that2, ok := that.(ExtAuthConfig_OidcAuthorizationCodeConfig_PkJwtClientAuthenticationConfig)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if strings.Compare(m.GetSigningKey(), target.GetSigningKey()) != 0 {
+		return false
+	}
+
+	if h, ok := interface{}(m.GetValidFor()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetValidFor()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetValidFor(), target.GetValidFor()) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ExtAuthConfig_OidcAuthorizationCodeConfig_ClaimToHeader) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ExtAuthConfig_OidcAuthorizationCodeConfig_ClaimToHeader)
+	if !ok {
+		that2, ok := that.(ExtAuthConfig_OidcAuthorizationCodeConfig_ClaimToHeader)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if strings.Compare(m.GetClaim(), target.GetClaim()) != 0 {
+		return false
+	}
+
+	if strings.Compare(m.GetHeader(), target.GetHeader()) != 0 {
+		return false
+	}
+
+	if m.GetAppend() != target.GetAppend() {
+		return false
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ExtAuthConfig_OidcAuthorizationCodeConfig_AccessToken) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ExtAuthConfig_OidcAuthorizationCodeConfig_AccessToken)
+	if !ok {
+		that2, ok := that.(ExtAuthConfig_OidcAuthorizationCodeConfig_AccessToken)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if len(m.GetClaimsToHeaders()) != len(target.GetClaimsToHeaders()) {
+		return false
+	}
+	for idx, v := range m.GetClaimsToHeaders() {
+
+		if h, ok := interface{}(v).(equality.Equalizer); ok {
+			if !h.Equal(target.GetClaimsToHeaders()[idx]) {
+				return false
+			}
+		} else {
+			if !proto.Equal(v, target.GetClaimsToHeaders()[idx]) {
+				return false
+			}
+		}
+
+	}
+
+	return true
+}
+
+// Equal function
+func (m *ExtAuthConfig_OidcAuthorizationCodeConfig_IdentityToken) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*ExtAuthConfig_OidcAuthorizationCodeConfig_IdentityToken)
+	if !ok {
+		that2, ok := that.(ExtAuthConfig_OidcAuthorizationCodeConfig_IdentityToken)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if len(m.GetClaimsToHeaders()) != len(target.GetClaimsToHeaders()) {
+		return false
+	}
+	for idx, v := range m.GetClaimsToHeaders() {
+
+		if h, ok := interface{}(v).(equality.Equalizer); ok {
+			if !h.Equal(target.GetClaimsToHeaders()[idx]) {
+				return false
+			}
+		} else {
+			if !proto.Equal(v, target.GetClaimsToHeaders()[idx]) {
+				return false
+			}
+		}
+
 	}
 
 	return true

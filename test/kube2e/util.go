@@ -2,11 +2,12 @@ package kube2e
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
 	"time"
+
+	"github.com/solo-io/gloo/test/testutils"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/solo-io/go-utils/stats"
@@ -30,6 +31,14 @@ import (
 	. "github.com/onsi/gomega"
 	errors "github.com/rotisserie/eris"
 	"k8s.io/client-go/kubernetes"
+)
+
+const (
+	// UniqueTestResourceLabel can be assigned to the resources used by kube2e tests
+	// This unique label per test run ensures that the generated snapshot is different on subsequent runs
+	// We have previously seen flakes where a resource is deleted and re-created with the same hash and thus
+	// the emitter can miss the update
+	UniqueTestResourceLabel = "gloo-kube2e-test-id"
 )
 
 func GetHttpEchoImage() string {
@@ -149,7 +158,7 @@ func UpdateSettingsWithPropagationDelay(updateSettings func(settings *v1.Setting
 }
 
 func ToFile(content string) string {
-	f, err := ioutil.TempFile("", "")
+	f, err := os.CreateTemp("", "")
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	n, err := f.WriteString(content)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
@@ -175,15 +184,22 @@ func GetSimpleTestRunnerHttpResponse() string {
 // For nightly runs, we want to install a released version rather than using a locally built chart
 // To do this, set the environment variable RELEASED_VERSION with either a version name or "LATEST" to get the last release
 func GetTestReleasedVersion(ctx context.Context, repoName string) string {
-	var useVersion string
-	if useVersion = os.Getenv("RELEASED_VERSION"); useVersion != "" {
-		if useVersion == "LATEST" {
-			_, current, err := upgrade.GetUpgradeVersions(ctx, repoName)
-			Expect(err).NotTo(HaveOccurred())
-			useVersion = current.String()
-		}
+	releasedVersion := os.Getenv(testutils.ReleasedVersion)
+
+	if releasedVersion == "" {
+		// In the case where the released version is empty, we return an empty string
+		// The function which consumes this value will then use the locally built chart
+		return releasedVersion
 	}
-	return useVersion
+
+	if releasedVersion == "LATEST" {
+		_, current, err := upgrade.GetUpgradeVersions(ctx, repoName)
+		Expect(err).NotTo(HaveOccurred())
+		return current.String()
+	}
+
+	// Assume that releasedVersion is a valid version, for a previously released version of Gloo Edge
+	return releasedVersion
 }
 func GetTestHelper(ctx context.Context, namespace string) (*helper.SoloTestHelper, error) {
 	cwd, err := os.Getwd()

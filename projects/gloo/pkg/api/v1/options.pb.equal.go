@@ -181,6 +181,16 @@ func (m *RouteConfigurationOptions) Equal(that interface{}) bool {
 		}
 	}
 
+	if h, ok := interface{}(m.GetMostSpecificHeaderMutationsWins()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetMostSpecificHeaderMutationsWins()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetMostSpecificHeaderMutationsWins(), target.GetMostSpecificHeaderMutationsWins()) {
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -385,12 +395,81 @@ func (m *HttpListenerOptions) Equal(that interface{}) bool {
 		}
 	}
 
+	if h, ok := interface{}(m.GetConnectionLimit()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetConnectionLimit()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetConnectionLimit(), target.GetConnectionLimit()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetNetworkLocalRatelimit()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetNetworkLocalRatelimit()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetNetworkLocalRatelimit(), target.GetNetworkLocalRatelimit()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetHttpLocalRatelimit()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetHttpLocalRatelimit()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetHttpLocalRatelimit(), target.GetHttpLocalRatelimit()) {
+			return false
+		}
+	}
+
 	if h, ok := interface{}(m.GetRouter()).(equality.Equalizer); ok {
 		if !h.Equal(target.GetRouter()) {
 			return false
 		}
 	} else {
 		if !proto.Equal(m.GetRouter(), target.GetRouter()) {
+			return false
+		}
+	}
+
+	switch m.ExtProcConfig.(type) {
+
+	case *HttpListenerOptions_DisableExtProc:
+		if _, ok := target.ExtProcConfig.(*HttpListenerOptions_DisableExtProc); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetDisableExtProc()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetDisableExtProc()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetDisableExtProc(), target.GetDisableExtProc()) {
+				return false
+			}
+		}
+
+	case *HttpListenerOptions_ExtProc:
+		if _, ok := target.ExtProcConfig.(*HttpListenerOptions_ExtProc); !ok {
+			return false
+		}
+
+		if h, ok := interface{}(m.GetExtProc()).(equality.Equalizer); ok {
+			if !h.Equal(target.GetExtProc()) {
+				return false
+			}
+		} else {
+			if !proto.Equal(m.GetExtProc(), target.GetExtProc()) {
+				return false
+			}
+		}
+
+	default:
+		// m is nil but target is not nil
+		if m.ExtProcConfig != target.ExtProcConfig {
 			return false
 		}
 	}
@@ -425,6 +504,26 @@ func (m *TcpListenerOptions) Equal(that interface{}) bool {
 		}
 	} else {
 		if !proto.Equal(m.GetTcpProxySettings(), target.GetTcpProxySettings()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetConnectionLimit()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetConnectionLimit()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetConnectionLimit(), target.GetConnectionLimit()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetLocalRatelimit()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetLocalRatelimit()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetLocalRatelimit(), target.GetLocalRatelimit()) {
 			return false
 		}
 	}
@@ -609,6 +708,16 @@ func (m *VirtualHostOptions) Equal(that interface{}) bool {
 		}
 	} else {
 		if !proto.Equal(m.GetStagedTransformations(), target.GetStagedTransformations()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetExtProc()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetExtProc()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetExtProc(), target.GetExtProc()) {
 			return false
 		}
 	}
@@ -883,6 +992,16 @@ func (m *RouteOptions) Equal(that interface{}) bool {
 		}
 	}
 
+	if h, ok := interface{}(m.GetAppendXForwardedHost()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetAppendXForwardedHost()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetAppendXForwardedHost(), target.GetAppendXForwardedHost()) {
+			return false
+		}
+	}
+
 	if h, ok := interface{}(m.GetCors()).(equality.Equalizer); ok {
 		if !h.Equal(target.GetCors()) {
 			return false
@@ -1043,6 +1162,16 @@ func (m *RouteOptions) Equal(that interface{}) bool {
 		}
 	} else {
 		if !proto.Equal(m.GetIdleTimeout(), target.GetIdleTimeout()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetExtProc()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetExtProc()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetExtProc(), target.GetExtProc()) {
 			return false
 		}
 	}

@@ -16,6 +16,7 @@ import "github.com/solo-io/gloo/projects/gloo/api/v1/extensions.proto";
 import "github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/ratelimit/ratelimit.proto";
 import "github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/caching/caching.proto";
 import "github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/extauth/v1/extauth.proto";
+import "github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/extproc/extproc.proto";
 import "github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/rbac/rbac.proto";
 import "github.com/solo-io/gloo/projects/gloo/api/v1/circuit_breaker.proto";
 import "github.com/solo-io/gloo/projects/gloo/api/v1/ssl/ssl.proto";
@@ -56,6 +57,25 @@ message Settings {
         VaultSecrets vault_secret_source = 7;
         Directory directory_secret_source = 8;
     };
+
+    // Settings for secrets storage.
+    // This API is experimental and not suitable for production use
+    SecretOptions secret_options = 38;
+
+    message SecretOptions {
+        message Source {
+            // Determines where Gloo will read/write secrets from/to.
+            oneof source {
+                KubernetesSecrets kubernetes = 1;
+                VaultSecrets vault = 2;
+                Directory directory = 3;
+            };
+        }
+
+        // Required. List of configured secret sources. These clients will be sorted and
+        // initialized in a stable order kubernetes > directory > vault.
+        repeated Source sources = 1;
+    }
 
     // Where to read artifacts from.
     oneof artifact_source {
@@ -151,9 +171,13 @@ message Settings {
         string iam_server_id_header = 3;
         // The Vault path on which the AWS auth is mounted
         string mount_path = 4;
-        // The Access Key ID as provided by the security credentials on the AWS IAM resource
+        // The Access Key ID as provided by the security credentials on the AWS IAM resource.
+        // Optional: In cases such as receiving temporary credentials through assumed roles with AWS Security Token Service (STS) or IAM Roles for Service Accounts (IRSA), this field can be omitted.
+        // https://developer.hashicorp.com/vault/docs/auth/aws#iam-authentication-inferences
         string access_key_id = 5;
-        // The Secret Access Key as provided by the security credentials on the AWS IAM resource
+        // The Secret Access Key as provided by the security credentials on the AWS IAM resource.
+        // Optional: In cases such as receiving temporary credentials through assumed roles with AWS Security Token Service (STS) or IAM Roles for Service Accounts (IRSA), this field can be omitted.
+        // https://developer.hashicorp.com/vault/docs/auth/aws#iam-authentication-inferences
         string secret_access_key = 6;
         // The Session Token as provided by the security credentials on the AWS IAM resource
         string session_token = 7;
@@ -522,6 +546,11 @@ message Settings {
 
     // Enterprise-only: GraphQL settings
     GraphqlOptions graphql_options = 37;
+
+    // Enterprise-only: External Processing filter settings. These settings are used as
+    // defaults globally, and can be overridden by HttpListenerOptions, VirtualHostOptions,
+    // or RouteOptions.
+    extproc.options.gloo.solo.io.Settings ext_proc = 39;
 }
 
 // Default configuration to use for upstreams, when not provided by a specific upstream
@@ -673,6 +702,16 @@ message GlooOptions {
 
     // Where the `gloo` proxy debug server should bind. Defaults to `gloo:9966`
     string proxy_debug_bind_addr = 15;
+
+    // When enabled, log the request/response body and headers before and after
+    // any transformations are applied. May be useful in the case where many
+    // transformations are applied and it is difficult to determine which are
+    // causing issues. Defaults to false.
+    google.protobuf.BoolValue log_transformation_request_response_info = 16;
+
+    // Set escapeCharacters for all TransformationTemplates on all vhosts and routes.
+    // This setting can be overridden in individual TransformationTemplates
+    google.protobuf.BoolValue transformation_escape_characters = 17;
 }
 
 
@@ -787,6 +826,9 @@ message GatewayOptions {
     // Individual Gateways can override this behavior by configuring the "gateway.solo.io/isolate_vhost" annotation
     // to be a truthy ("true", "false") value
     google.protobuf.BoolValue isolate_virtual_hosts_by_ssl_config = 10;
+
+    // This field is a no-op for now
+    google.protobuf.BoolValue translate_empty_gateways = 11;
 }
 
 // Settings used by the Enterprise Console (UI)

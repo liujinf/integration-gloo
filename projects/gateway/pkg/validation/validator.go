@@ -358,7 +358,7 @@ func (v *validator) validateSnapshot(opts *validationOptions) (*Reports, error) 
 
 // ValidateDeletedGvk will validate a deletion of a resource, as long as it is supported, against the Gateway and Gloo Translations.
 func (v *validator) ValidateDeletedGvk(ctx context.Context, gvk schema.GroupVersionKind, resource resources.Resource, dryRun bool) error {
-	_, err := v.validateResource(&validationOptions{Ctx: ctx, Resource: resource, Delete: true, DryRun: dryRun, AcquireLock: true})
+	_, err := v.validateResource(&validationOptions{Ctx: ctx, Resource: resource, Gvk: gvk, Delete: true, DryRun: dryRun, AcquireLock: true})
 	return err
 }
 
@@ -513,7 +513,13 @@ func UnmarshalResource(kubeJson []byte, resource resources.Resource) error {
 	resource.SetMetadata(kubeutils.FromKubeMeta(resourceCrd.ObjectMeta, true))
 
 	if resourceCrd.Spec != nil {
-		if err := skProtoUtils.UnmarshalMap(*resourceCrd.Spec, resource); err != nil {
+		if cir, ok := resource.(resources.CustomInputResource); ok {
+			// Custom input resource unmarshalling
+			if err := cir.UnmarshalSpec(*resourceCrd.Spec); err != nil {
+				return errors.Wrapf(err, "parsing custom input resource from crd spec %v in namespace %v into %T", resourceCrd.Name, resourceCrd.Namespace, resource)
+			}
+		} else if err := skProtoUtils.UnmarshalMap(*resourceCrd.Spec, resource); err != nil {
+			// Default unmarshalling
 			return errors.Wrapf(err, "parsing resource from crd spec %v in namespace %v into %T", resourceCrd.Name, resourceCrd.Namespace, resource)
 		}
 	}

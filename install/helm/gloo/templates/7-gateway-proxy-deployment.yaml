@@ -70,10 +70,10 @@ spec:
         sidecar.istio.io/inject: "true"
           {{- end }}
         {{- end }}
-{{ $annotationExist := false}}
-{{- if or ($spec.podTemplate.extraAnnotations) (.Values.global.glooStats.setDatadogAnnotations) }}
-{{ $annotationExist = true}}
       annotations:
+        # This annotation was introduced to resolve https://github.com/solo-io/gloo/issues/8392
+        # It triggers a new rollout of the gateway proxy if the values in this config map changes.
+        checksum/{{ $name | kebabcase }}-envoy-config: {{ $gatewaySpec.checksum }}
       {{- range $key, $value := $spec.podTemplate.extraAnnotations }}
         {{ $key }}: {{ $value | quote }}
       {{- end }}
@@ -83,12 +83,7 @@ spec:
         ad.datadoghq.com/gateway-proxy.instances: '[{"stats_url": "http://%%host%%:8081/stats"}]'
         ad.datadoghq.com/gateway-proxy.logs: '[{"source": "envoy", "service": "gloo","log_processing_rules":[{"type": "multi_line", "name": "log_start_with_date","pattern" : "^\\[[0-9]{4}-[0-9]{2}-[0-9]{2}"}]}]'
       {{- end }}
-{{- end }}
 {{- if $statsConfig.enabled }}
-{{- if not $annotationExist }}
-{{- $annotationExist = true}}
-      annotations:
-{{- end}}
         prometheus.io/path: /metrics
         prometheus.io/port: "8081"
         prometheus.io/scrape: "true"
@@ -97,9 +92,6 @@ spec:
         {{- end }}
 {{- end}}
 {{- if $spec.readConfig }}
-{{- if not $annotationExist }}
-      annotations:
-{{- end}}
         readconfig-stats: /stats
         readconfig-ready: /ready
         readconfig-config_dump: /config_dump
@@ -109,19 +101,18 @@ spec:
         {{- end }}
 {{- end}}
     spec:
-      {{- $securityDefaults := dict "fsGroup" $spec.podTemplate.fsGroup }}
-      {{- if not $spec.podTemplate.floatingUserId -}}
-        {{- $_ := set $securityDefaults "runAsUser" $spec.podTemplate.runAsUser }}
-      {{- end -}}
-      {{- $securityContext := or $spec.podTemplate.podSecurityContext $securityDefaults }}
-      {{- if and $spec.podTemplate.enablePodSecurityContext $securityContext }}
-      securityContext:
-      {{- toYaml $securityContext | nindent 8  }}
-      {{- end }}
+{{ $securityDefaults := dict "fsGroup" $spec.podTemplate.fsGroup }}
+{{- if not $spec.podTemplate.floatingUserId -}}
+  {{- $_ := set $securityDefaults "runAsUser" $spec.podTemplate.runAsUser }}
+{{ end -}}
+{{- if $spec.podTemplate.enablePodSecurityContext -}}
+{{ include "gloo.securityContext" (dict "values" $spec.podTemplate.podSecurityContext "defaults" $securityDefaults) | indent 6 -}}
+{{- end -}}
+
 {{- if $spec.kind.deployment }}
 {{ if or ($spec.antiAffinity) ($spec.affinity) }}
       affinity:
-{{- end}}
+{{- end }}
 {{ if $spec.antiAffinity }}
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -218,20 +209,15 @@ spec:
         {{- end}}
         {{- end}}
         name: {{ $name | kebabcase }}
-        {{- $runAsUser := $spec.podTemplate.runAsUser -}}
-        {{- if $spec.podTemplate.floatingUserId -}}
-        {{- $runAsUser = 0 -}}
-        {{- end -}}
         {{- $capabilities := dict "drop" (list "ALL") }}
         {{- if not $spec.podTemplate.disableNetBind -}}
           {{- $_ := set $capabilities "add"  (list "NET_BIND_SERVICE") }}
         {{- end -}}
-        {{- $securityDefaults := dict "runAsNonRoot" $spec.podTemplate.runUnprivileged "runAsUser" $runAsUser "capabilities" $capabilities "readOnlyRootFilesystem" true "allowPrivilegeEscalation" false }}
-        {{- $securityContext := or $spec.podTemplate.glooContainerSecurityContext $securityDefaults }}
-        {{- with $securityContext }}
-        securityContext:
-        {{- toYaml . | nindent 10  }}
-        {{- end }}
+        {{- $securityDefaults := dict "runAsNonRoot" $spec.podTemplate.runUnprivileged "capabilities" $capabilities "readOnlyRootFilesystem" true "allowPrivilegeEscalation" false }}
+        {{- if not $spec.podTemplate.floatingUserId -}}
+          {{- $_ := set $securityDefaults "runAsUser" $spec.podTemplate.runAsUser }}
+        {{- end -}}
+        {{- include "gloo.securityContext" (dict "values" $spec.podTemplate.glooContainerSecurityContext "defaults" $securityDefaults) | nindent 8 }}
 
         ports:
         - containerPort: {{ $spec.podTemplate.httpPort }}
@@ -475,6 +461,12 @@ spec:
           name: istio-certs
         - mountPath: /var/run/secrets/tokens
           name: istio-token
+        - mountPath: /var/run/secrets/credential-uds
+          name: credential-socket
+        - mountPath: /var/run/secrets/workload-spiffe-uds
+          name: workload-socket
+        - mountPath: /var/run/secrets/workload-spiffe-credentials
+          name: workload-certs
 {{- end }} {{/* if not $global.istioSDS.customSidecars */}}
 {{- end }}{{/* if $global.istioSDS.enabled */}}
       volumes:
@@ -500,6 +492,12 @@ spec:
               audience: istio-ca
               expirationSeconds: 43200
               path: istio-token
+      - name: credential-socket
+        emptyDir: {}
+      - name: workload-socket
+        emptyDir: {}
+      - name: workload-certs
+        emptyDir: {}
 {{- end}}
 
 {{- if $global.glooMtls.enabled }}

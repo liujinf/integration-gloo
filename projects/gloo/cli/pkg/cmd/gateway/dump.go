@@ -2,7 +2,7 @@ package gateway
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -69,7 +69,7 @@ func getEnvoyCfgDump(opts *options.Options) (string, error) {
 				time.Sleep(time.Millisecond * 250)
 				continue
 			}
-			b, err := ioutil.ReadAll(res.Body)
+			b, err := io.ReadAll(res.Body)
 			if err != nil {
 				errs <- err
 				time.Sleep(time.Millisecond * 250)
@@ -96,6 +96,10 @@ func getEnvoyCfgDump(opts *options.Options) (string, error) {
 		}
 	}
 
+}
+
+func GetEnvoyCfgDump(opts *options.Options) (string, error) {
+	return getEnvoyCfgDump(opts)
 }
 
 func statsCmd(opts *options.Options, optionsFunc ...cliutils.OptionsFunc) *cobra.Command {
@@ -149,7 +153,7 @@ func getEnvoyStatsDump(opts *options.Options) (string, error) {
 				time.Sleep(time.Millisecond * 250)
 				continue
 			}
-			b, err := ioutil.ReadAll(res.Body)
+			b, err := io.ReadAll(res.Body)
 			if err != nil {
 				errs <- err
 				time.Sleep(time.Millisecond * 250)

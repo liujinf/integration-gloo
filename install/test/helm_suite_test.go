@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path"
@@ -25,6 +24,7 @@ import (
 	"github.com/solo-io/gloo/pkg/cliutil/helm"
 	"github.com/solo-io/gloo/projects/gloo/cli/pkg/cmd/install"
 	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
+	soloHelm "github.com/solo-io/go-utils/helmutils"
 	"github.com/solo-io/go-utils/testutils"
 	. "github.com/solo-io/k8s-utils/manifesttestutils"
 	"helm.sh/helm/v3/pkg/action"
@@ -42,6 +42,9 @@ const (
 	releaseName    = "gloo"
 	chartDir       = "../helm/gloo"
 	debugOutputDir = "../../_output/helm/charts"
+
+	// the Gateway CR helm templates are stored as yaml in a configmap with this name
+	customResourceConfigMapName = "gloo-custom-resource-config"
 )
 
 var (
@@ -70,7 +73,7 @@ type renderTestCase struct {
 var renderers = []renderTestCase{
 	{"Helm 3", helm3Renderer{
 		chartDir:          chartDir,
-		manifestOutputDir: "", // set to debugOutputDir when debugging locally
+		manifestOutputDir: "", // set to the value of the const debugOutputDir when debugging locally
 	}},
 }
 
@@ -171,7 +174,7 @@ func (h3 helm3Renderer) RenderManifest(namespace string, values helmValues) (Tes
 	var testManifestFile *os.File
 
 	if h3.manifestOutputDir == "" {
-		testManifestFile, err = ioutil.TempFile("", "*.yaml")
+		testManifestFile, err = os.CreateTemp("", "*.yaml")
 		Expect(err).NotTo(HaveOccurred(), "Should be able to write a temp file for the helm unit test manifest")
 		defer func() {
 			_ = os.Remove(testManifestFile.Name())
@@ -197,6 +200,12 @@ func (h3 helm3Renderer) RenderManifest(namespace string, values helmValues) (Tes
 
 	err = testManifestFile.Close()
 	Expect(err).NotTo(HaveOccurred(), "Should be able to close the manifest file")
+
+	// check the manifest for lines that are not correctly parsed
+	manifestData, err := os.ReadFile(testManifestFile.Name())
+	Expect(err).ToNot(HaveOccurred())
+	windowsFound := soloHelm.FindHelmChartWhiteSpaces(string(manifestData), soloHelm.HelmDetectOptions{})
+	Expect(windowsFound).To(BeEmpty(), "Helm chart has parsing, white spacing, or formatting issues present")
 
 	return NewTestManifest(testManifestFile.Name()), nil
 }
@@ -297,7 +306,7 @@ func validateHelmValues(unstructuredHelmValues map[string]interface{}) error {
 func readValuesFile(filePath string) (map[string]interface{}, error) {
 	mapFromFile := map[string]interface{}{}
 
-	bytes, err := ioutil.ReadFile(filePath)
+	bytes, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, err
 	}

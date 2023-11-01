@@ -521,6 +521,19 @@ func (m *TcpHostReport) Clone() proto.Message {
 		}
 	}
 
+	if m.GetWarnings() != nil {
+		target.Warnings = make([]*TcpHostReport_Warning, len(m.GetWarnings()))
+		for idx, v := range m.GetWarnings() {
+
+			if h, ok := interface{}(v).(clone.Cloner); ok {
+				target.Warnings[idx] = h.Clone().(*TcpHostReport_Warning)
+			} else {
+				target.Warnings[idx] = proto.Clone(v).(*TcpHostReport_Warning)
+			}
+
+		}
+	}
+
 	return target
 }
 
@@ -603,6 +616,19 @@ func (m *AggregateListenerReport) Clone() proto.Message {
 				target.HttpListenerReports[k] = h.Clone().(*HttpListenerReport)
 			} else {
 				target.HttpListenerReports[k] = proto.Clone(v).(*HttpListenerReport)
+			}
+
+		}
+	}
+
+	if m.GetTcpListenerReports() != nil {
+		target.TcpListenerReports = make(map[string]*TcpListenerReport, len(m.GetTcpListenerReports()))
+		for k, v := range m.GetTcpListenerReports() {
+
+			if h, ok := interface{}(v).(clone.Cloner); ok {
+				target.TcpListenerReports[k] = h.Clone().(*TcpListenerReport)
+			} else {
+				target.TcpListenerReports[k] = proto.Clone(v).(*TcpListenerReport)
 			}
 
 		}
@@ -708,6 +734,21 @@ func (m *TcpHostReport_Error) Clone() proto.Message {
 		return target
 	}
 	target = &TcpHostReport_Error{}
+
+	target.Type = m.GetType()
+
+	target.Reason = m.GetReason()
+
+	return target
+}
+
+// Clone function
+func (m *TcpHostReport_Warning) Clone() proto.Message {
+	var target *TcpHostReport_Warning
+	if m == nil {
+		return target
+	}
+	target = &TcpHostReport_Warning{}
 
 	target.Type = m.GetType()
 

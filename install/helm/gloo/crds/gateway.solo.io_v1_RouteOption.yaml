@@ -33,6 +33,9 @@ spec:
                 type: object
               options:
                 properties:
+                  appendXForwardedHost:
+                    nullable: true
+                    type: boolean
                   autoHostRewrite:
                     nullable: true
                     type: boolean
@@ -195,6 +198,94 @@ spec:
                     additionalProperties:
                       type: object
                       x-kubernetes-preserve-unknown-fields: true
+                    type: object
+                  extProc:
+                    properties:
+                      disabled:
+                        nullable: true
+                        type: boolean
+                      overrides:
+                        properties:
+                          asyncMode:
+                            nullable: true
+                            type: boolean
+                          grpcService:
+                            properties:
+                              authority:
+                                nullable: true
+                                type: string
+                              extProcServerRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                type: object
+                              initialMetadata:
+                                items:
+                                  properties:
+                                    key:
+                                      type: string
+                                    value:
+                                      type: string
+                                  type: object
+                                type: array
+                              retryPolicy:
+                                properties:
+                                  numRetries:
+                                    maximum: 4294967295
+                                    minimum: 0
+                                    nullable: true
+                                    type: integer
+                                  retryBackOff:
+                                    properties:
+                                      baseInterval:
+                                        type: string
+                                      maxInterval:
+                                        type: string
+                                    type: object
+                                type: object
+                              timeout:
+                                type: string
+                            type: object
+                          metadataContextNamespaces:
+                            items:
+                              type: string
+                            type: array
+                          processingMode:
+                            properties:
+                              requestBodyMode:
+                                type: string
+                                x-kubernetes-int-or-string: true
+                              requestHeaderMode:
+                                type: string
+                                x-kubernetes-int-or-string: true
+                              requestTrailerMode:
+                                type: string
+                                x-kubernetes-int-or-string: true
+                              responseBodyMode:
+                                type: string
+                                x-kubernetes-int-or-string: true
+                              responseHeaderMode:
+                                type: string
+                                x-kubernetes-int-or-string: true
+                              responseTrailerMode:
+                                type: string
+                                x-kubernetes-int-or-string: true
+                            type: object
+                          requestAttributes:
+                            items:
+                              type: string
+                            type: array
+                          responseAttributes:
+                            items:
+                              type: string
+                            type: array
+                          typedMetadataContextNamespaces:
+                            items:
+                              type: string
+                            type: array
+                        type: object
                     type: object
                   extauth:
                     properties:
@@ -406,6 +497,19 @@ spec:
                     properties:
                       includeVhRateLimits:
                         type: boolean
+                      localRatelimit:
+                        properties:
+                          fillInterval:
+                            type: string
+                          maxTokens:
+                            format: int32
+                            type: integer
+                          tokensPerFill:
+                            maximum: 4294967295
+                            minimum: 0
+                            nullable: true
+                            type: integer
+                        type: object
                       rateLimits:
                         items:
                           properties:
@@ -603,6 +707,19 @@ spec:
                     properties:
                       includeVhRateLimits:
                         type: boolean
+                      localRatelimit:
+                        properties:
+                          fillInterval:
+                            type: string
+                          maxTokens:
+                            format: int32
+                            type: integer
+                          tokensPerFill:
+                            maximum: 4294967295
+                            minimum: 0
+                            nullable: true
+                            type: integer
+                        type: object
                       rateLimits:
                         items:
                           properties:
@@ -779,6 +896,19 @@ spec:
                     properties:
                       includeVhRateLimits:
                         type: boolean
+                      localRatelimit:
+                        properties:
+                          fillInterval:
+                            type: string
+                          maxTokens:
+                            format: int32
+                            type: integer
+                          tokensPerFill:
+                            maximum: 4294967295
+                            minimum: 0
+                            nullable: true
+                            type: integer
+                        type: object
                       rateLimits:
                         items:
                           properties:
@@ -1094,6 +1224,8 @@ spec:
                                         addRequestMetadata:
                                           type: boolean
                                       type: object
+                                    logRequestResponseInfo:
+                                      type: boolean
                                     transformationTemplate:
                                       properties:
                                         advancedTemplates:
@@ -1117,6 +1249,9 @@ spec:
                                                 type: object
                                             type: object
                                           type: array
+                                        escapeCharacters:
+                                          nullable: true
+                                          type: boolean
                                         extractors:
                                           additionalProperties:
                                             properties:
@@ -1182,6 +1317,8 @@ spec:
                                         addRequestMetadata:
                                           type: boolean
                                       type: object
+                                    logRequestResponseInfo:
+                                      type: boolean
                                     transformationTemplate:
                                       properties:
                                         advancedTemplates:
@@ -1205,6 +1342,9 @@ spec:
                                                 type: object
                                             type: object
                                           type: array
+                                        escapeCharacters:
+                                          nullable: true
+                                          type: boolean
                                         extractors:
                                           additionalProperties:
                                             properties:
@@ -1290,6 +1430,8 @@ spec:
                                         addRequestMetadata:
                                           type: boolean
                                       type: object
+                                    logRequestResponseInfo:
+                                      type: boolean
                                     transformationTemplate:
                                       properties:
                                         advancedTemplates:
@@ -1313,6 +1455,9 @@ spec:
                                                 type: object
                                             type: object
                                           type: array
+                                        escapeCharacters:
+                                          nullable: true
+                                          type: boolean
                                         extractors:
                                           additionalProperties:
                                             properties:
@@ -1374,7 +1519,13 @@ spec:
                               type: object
                             type: array
                         type: object
+                      escapeCharacters:
+                        nullable: true
+                        type: boolean
                       inheritTransformation:
+                        type: boolean
+                      logRequestResponseInfo:
+                        nullable: true
                         type: boolean
                       regular:
                         properties:
@@ -1432,6 +1583,8 @@ spec:
                                         addRequestMetadata:
                                           type: boolean
                                       type: object
+                                    logRequestResponseInfo:
+                                      type: boolean
                                     transformationTemplate:
                                       properties:
                                         advancedTemplates:
@@ -1455,6 +1608,9 @@ spec:
                                                 type: object
                                             type: object
                                           type: array
+                                        escapeCharacters:
+                                          nullable: true
+                                          type: boolean
                                         extractors:
                                           additionalProperties:
                                             properties:
@@ -1520,6 +1676,8 @@ spec:
                                         addRequestMetadata:
                                           type: boolean
                                       type: object
+                                    logRequestResponseInfo:
+                                      type: boolean
                                     transformationTemplate:
                                       properties:
                                         advancedTemplates:
@@ -1543,6 +1701,9 @@ spec:
                                                 type: object
                                             type: object
                                           type: array
+                                        escapeCharacters:
+                                          nullable: true
+                                          type: boolean
                                         extractors:
                                           additionalProperties:
                                             properties:
@@ -1628,6 +1789,8 @@ spec:
                                         addRequestMetadata:
                                           type: boolean
                                       type: object
+                                    logRequestResponseInfo:
+                                      type: boolean
                                     transformationTemplate:
                                       properties:
                                         advancedTemplates:
@@ -1651,6 +1814,9 @@ spec:
                                                 type: object
                                             type: object
                                           type: array
+                                        escapeCharacters:
+                                          nullable: true
+                                          type: boolean
                                         extractors:
                                           additionalProperties:
                                             properties:
@@ -1746,6 +1912,8 @@ spec:
                               addRequestMetadata:
                                 type: boolean
                             type: object
+                          logRequestResponseInfo:
+                            type: boolean
                           transformationTemplate:
                             properties:
                               advancedTemplates:
@@ -1769,6 +1937,9 @@ spec:
                                       type: object
                                   type: object
                                 type: array
+                              escapeCharacters:
+                                nullable: true
+                                type: boolean
                               extractors:
                                 additionalProperties:
                                   properties:
@@ -1834,6 +2005,8 @@ spec:
                               addRequestMetadata:
                                 type: boolean
                             type: object
+                          logRequestResponseInfo:
+                            type: boolean
                           transformationTemplate:
                             properties:
                               advancedTemplates:
@@ -1857,6 +2030,9 @@ spec:
                                       type: object
                                   type: object
                                 type: array
+                              escapeCharacters:
+                                nullable: true
+                                type: boolean
                               extractors:
                                 additionalProperties:
                                   properties:

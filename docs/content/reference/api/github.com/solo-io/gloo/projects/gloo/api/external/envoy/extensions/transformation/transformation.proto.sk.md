@@ -34,7 +34,7 @@ weight: 5
 
 
 
-##### Source File: [github.com/solo-io/gloo/projects/gloo/api/external/envoy/extensions/transformation/transformation.proto](https://github.com/solo-io/gloo/blob/master/projects/gloo/api/external/envoy/extensions/transformation/transformation.proto)
+##### Source File: [github.com/solo-io/gloo/projects/gloo/api/external/envoy/extensions/transformation/transformation.proto](https://github.com/solo-io/gloo/blob/main/projects/gloo/api/external/envoy/extensions/transformation/transformation.proto)
 
 
 
@@ -48,6 +48,7 @@ weight: 5
 ```yaml
 "transformations": []envoy.api.v2.filter.http.TransformationRule
 "stage": int
+"logRequestResponseInfo": bool
 
 ```
 
@@ -55,6 +56,7 @@ weight: 5
 | ----- | ---- | ----------- | 
 | `transformations` | [[]envoy.api.v2.filter.http.TransformationRule](../transformation.proto.sk/#transformationrule) | Specifies transformations based on the route matches. The first matched transformation will be applied. If there are overlapped match conditions, please put the most specific match first. |
 | `stage` | `int` | Only RouteTransformations.RouteTransformation with matching stage will be used with this filter. |
+| `logRequestResponseInfo` | `bool` | Logs request/response sensitive information By default, this is false so no request or response sensitive information is logged. If set to true, the filter will log the request/response body and headers before and after any transformation is applied. |
 
 
 
@@ -236,6 +238,7 @@ This proto is for envoy filter config, not user-facing API.
 "transformationTemplate": .envoy.api.v2.filter.http.TransformationTemplate
 "headerBodyTransform": .envoy.api.v2.filter.http.HeaderBodyTransform
 "transformerConfig": .solo.io.envoy.config.core.v3.TypedExtensionConfig
+"logRequestResponseInfo": .google.protobuf.BoolValue
 
 ```
 
@@ -244,6 +247,7 @@ This proto is for envoy filter config, not user-facing API.
 | `transformationTemplate` | [.envoy.api.v2.filter.http.TransformationTemplate](../transformation.proto.sk/#transformationtemplate) | Apply transformation templates. Only one of `transformationTemplate`, `headerBodyTransform`, or `transformerConfig` can be set. |
 | `headerBodyTransform` | [.envoy.api.v2.filter.http.HeaderBodyTransform](../transformation.proto.sk/#headerbodytransform) | This type of transformation will make all the headers available in the response body. The resulting JSON body will consist of two attributes: 'headers', containing the headers, and 'body', containing the original body. Only one of `headerBodyTransform`, `transformationTemplate`, or `transformerConfig` can be set. |
 | `transformerConfig` | [.solo.io.envoy.config.core.v3.TypedExtensionConfig](../../../config/core/v3/extension.proto.sk/#typedextensionconfig) | Configuration for an externally implemented transformer, used by envoy transformation filter. Only one of `transformerConfig`, `transformationTemplate`, or `headerBodyTransform` can be set. |
+| `logRequestResponseInfo` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | Logs request/response sensitive information By default, this is false so no request or response sensitive information is logged. If set to true, the filter will log the request/response body and headers before and after this transformation is applied. |
 
 
 
@@ -291,6 +295,7 @@ Defines a transformation template.
 "parseBodyBehavior": .envoy.api.v2.filter.http.TransformationTemplate.RequestBodyParse
 "ignoreErrorOnParse": bool
 "dynamicMetadataValues": []envoy.api.v2.filter.http.TransformationTemplate.DynamicMetadataValue
+"escapeCharacters": bool
 
 ```
 
@@ -304,9 +309,10 @@ Defines a transformation template.
 | `body` | [.envoy.api.v2.filter.http.InjaTemplate](../transformation.proto.sk/#injatemplate) | Apply a template to the body. Only one of `body`, `passthrough`, or `mergeExtractorsToBody` can be set. |
 | `passthrough` | [.envoy.api.v2.filter.http.Passthrough](../transformation.proto.sk/#passthrough) | This will cause the transformation filter not to buffer the body. Use this setting if the response body is large and you don't need to transform nor extract information from it. Only one of `passthrough`, `body`, or `mergeExtractorsToBody` can be set. |
 | `mergeExtractorsToBody` | [.envoy.api.v2.filter.http.MergeExtractorsToBody](../transformation.proto.sk/#mergeextractorstobody) | Merge all defined extractors to the request/response body. If you want to nest elements inside the body, use dot separator in the extractor name. Only one of `mergeExtractorsToBody`, `body`, or `passthrough` can be set. |
-| `parseBodyBehavior` | [.envoy.api.v2.filter.http.TransformationTemplate.RequestBodyParse](../transformation.proto.sk/#requestbodyparse) |  |
+| `parseBodyBehavior` | [.envoy.api.v2.filter.http.TransformationTemplate.RequestBodyParse](../transformation.proto.sk/#requestbodyparse) | Determines how the body will be parsed. Defaults to ParseAsJson. |
 | `ignoreErrorOnParse` | `bool` | If set to true, Envoy will not throw an exception in case the body parsing fails. |
 | `dynamicMetadataValues` | [[]envoy.api.v2.filter.http.TransformationTemplate.DynamicMetadataValue](../transformation.proto.sk/#dynamicmetadatavalue) | Use this field to set Dynamic Metadata. |
+| `escapeCharacters` | `bool` | Use this field to set Inja behavior when rendering strings which contain characters that would need to be escaped to be valid JSON. Note that this sets the behavior for the entire transformation. Use raw_strings function for fine-grained control within a template. |
 
 
 

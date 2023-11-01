@@ -52,7 +52,7 @@ spec:
 EOF
 {{< /highlight >}}
 
-The source code for the Http service can be found in the Gloo Edge repository [here](https://github.com/solo-io/gloo/tree/master/docs/examples/http-passthrough-auth).
+The source code for the Http service can be found in the Gloo Edge repository [here](https://github.com/solo-io/gloo/tree/main/docs/examples/http-passthrough-auth).
 
 Once we create the authentication service, we also want to apply the following Service to assign it a static cluster IP.
 {{< highlight shell >}}
@@ -60,7 +60,7 @@ kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
-  name: example-grpc-auth-service
+  name: example-http-auth-service
   labels:
       app: http-extauth
 spec:
@@ -233,6 +233,8 @@ The request should now be authorized!
 
 ## Http Passthrough Auth Config Options
 
+For more information about configuration options, see the [API docs]({{< versioned_link_path fromRoot="/reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/extauth/v1/extauth.proto.sk/#passthroughhttp" >}}).
+
 ```yaml
 apiVersion: enterprise.gloo.solo.io/v1
 kind: AuthConfig
@@ -287,7 +289,11 @@ spec:
           # { "state": map[string]object }.
           # If the state fails to be set for any reason, the auth request will be denied and an error will be logged in the ext-auth-service pod. 
           readStateFromResponse: bool
-
+          # When set, authorization response headers that have a header in this list are added to the original client request and sent to the upstream
+          # when the auth request is successful. These overwrite any request headers that already exist.
+          # If this and allowed_upstream_headers are empty, by default, no authorization response headers are added to the upstream request.
+          # Header names cannot be included in both allowed_upstream_headers and allowed_upstream_headers_to_overwrite.
+          allowedClientHeadersOnDenied: string[]
 ```
 
 

@@ -332,6 +332,8 @@ spec:
                                         type: object
                                     type: object
                                   type: array
+                                escapeCharacters:
+                                  type: boolean
                                 extractors:
                                   additionalProperties:
                                     properties:
@@ -557,6 +559,28 @@ spec:
                       properties:
                         authority:
                           type: string
+                        initialMetadata:
+                          items:
+                            properties:
+                              append:
+                                nullable: true
+                                type: boolean
+                              header:
+                                properties:
+                                  key:
+                                    type: string
+                                  value:
+                                    type: string
+                                type: object
+                              headerSecretRef:
+                                properties:
+                                  name:
+                                    type: string
+                                  namespace:
+                                    type: string
+                                type: object
+                            type: object
+                          type: array
                         serviceName:
                           type: string
                       type: object
@@ -917,6 +941,8 @@ spec:
                                         type: object
                                     type: object
                                   type: array
+                                escapeCharacters:
+                                  type: boolean
                                 extractors:
                                   additionalProperties:
                                     properties:
@@ -1251,6 +1277,8 @@ spec:
                                         type: object
                                     type: object
                                   type: array
+                                escapeCharacters:
+                                  type: boolean
                                 extractors:
                                   additionalProperties:
                                     properties:
@@ -1303,9 +1331,21 @@ spec:
                         type: object
                     type: object
                 type: object
+              preconnectPolicy:
+                properties:
+                  perUpstreamPreconnectRatio:
+                    nullable: true
+                    type: number
+                  predictivePreconnectRatio:
+                    nullable: true
+                    type: number
+                type: object
               protocolSelection:
                 type: string
                 x-kubernetes-int-or-string: true
+              proxyProtocolVersion:
+                nullable: true
+                type: string
               respectDnsTtl:
                 nullable: true
                 type: boolean
@@ -1519,6 +1559,8 @@ spec:
                                         type: object
                                     type: object
                                   type: array
+                                escapeCharacters:
+                                  type: boolean
                                 extractors:
                                   additionalProperties:
                                     properties:
@@ -1571,6 +1613,7 @@ spec:
                         type: object
                     type: object
                   useTls:
+                    nullable: true
                     type: boolean
                 type: object
               useHttp2:

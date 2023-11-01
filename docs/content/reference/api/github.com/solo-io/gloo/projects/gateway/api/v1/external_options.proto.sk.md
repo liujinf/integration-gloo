@@ -17,7 +17,7 @@ weight: 5
 
 
 
-##### Source File: [github.com/solo-io/gloo/projects/gateway/api/v1/external_options.proto](https://github.com/solo-io/gloo/blob/master/projects/gateway/api/v1/external_options.proto)
+##### Source File: [github.com/solo-io/gloo/projects/gateway/api/v1/external_options.proto](https://github.com/solo-io/gloo/blob/main/projects/gateway/api/v1/external_options.proto)
 
 
 
@@ -49,11 +49,12 @@ spec:
     options:
       headerManipulation:
         requestHeadersToRemove: "header-from-vhost"
-    delegateOptions:
-      - name: virtualhost-external-options-1
-        namespace: opt-namespace
-      - name: virtualhost-external-options-2
-        namespace: opt-namespace
+    optionsConfigRefs:
+      delegateOptions:
+        - name: virtualhost-external-options-1
+          namespace: opt-namespace
+        - name: virtualhost-external-options-2
+          namespace: opt-namespace
 ```
 
 ```yaml

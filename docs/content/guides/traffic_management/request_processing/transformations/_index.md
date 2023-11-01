@@ -10,7 +10,7 @@ To review where transformations happen as Gloo Edge filters traffic, see [Traffi
 
 ## Defining a transformation
 Transformations are defined by adding the `transformations` attribute to your Virtual Services. You can define this attribute on three different Virtual Service sub-resources:
- 
+
 - **VirtualHosts**
 - **Routes**
 - **WeightedDestinations**
@@ -38,11 +38,11 @@ By default, a transformation defined on a Virtual Service attribute is **inherit
 - transformations defined on `VirtualHosts` are inherited by `Route`s and `WeightedDestination`s.
 - transformations defined on `Route`s are inherited by `WeightedDestination`s.
 
-If a child attribute defines its own transformation, it will override the configuration on its parent.
+If a child attribute defines its own transformation, it overrides the configuration on its parent.
 However, if `inheritTransformation` is set to true on the `stagedTransformations` for a Route, it can inherit transformations
 from its parent as illustrated below.
 
-Let's define the `virtualHost` and it's child route is defined as follows:
+Let's define the `virtualHost` and its child route is defined as follows:
 {{< highlight yaml "hl_lines=7-13 20-27" >}}
 # This snippet has been abridged for brevity, and only includes transformation-relevant config
 virtualHost:
@@ -72,8 +72,7 @@ virtualHost:
                       text: 'baz'
 {{< /highlight >}}
 
-Because `inheritTransformation` is set to `true` on the child route, the parent `virtualHost` transformation config will
-be merged into the child. The child route's transformations will look like:
+Because `inheritTransformation` is set to `true` on the child route, the parent `virtualHost` transformation config is merged into the child. The child route's transformations look like the following.
 
 {{< highlight yaml "hl_lines=8-22" >}}
 # This snippet has been abridged for brevity, and only includes transformation-relevant config
@@ -99,21 +98,20 @@ routes:
                 text: 'bar'
 {{< /highlight >}}
 
-As stated above, the route's configuration will override its parent's, but now it also inherits the parent's transformations. So in this case,
-routes matching `/parent` will also be transformed. If `inheritTransformation` was set to `false`, this would not be the case. 
-Note that only the first matched transformation will run, so if both the child and the parent had the same matchers, the child's transformation
-would run.
+As stated above, the route's configuration overrides its parent's, but now it also inherits the parent's transformations. So in this case,
+routes matching `/parent` are also transformed. If `inheritTransformation` were set to `false`, the matching `/parent` routes would not be transformed.
+Note that only the first matched transformation runs, so if both the child and the parent had the same matchers, the child's transformation would run.
 
 ### Configuration format
-Learn more about the properties that you can set in the `stagedTransformations` {{< protobuf display="object" name="transformation.options.gloo.solo.io.TransformationStages" >}} section of your YAML file. 
+Learn more about the properties that you can set in the `stagedTransformations` {{< protobuf display="object" name="transformation.options.gloo.solo.io.TransformationStages" >}} section of your YAML file.
 
-The following YAML file shows a sample structure for how to configure request and response transformations in the `stagedTransformations` section: 
+The following YAML file shows a sample structure for how to configure request and response transformations in the `stagedTransformations` section:
 
 ```yaml
 stagedTransformations:
   early:
     # early transformations
-  regular: 
+  regular:
     requestTransforms:
       - matcher:
           prefix : '/'
@@ -124,7 +122,7 @@ stagedTransformations:
   inheritTransformations: bool
 ```
 
-The `early` and `regular` attributes are used to specify when in the envoy filter chain the transformations run. For request transformations, early transformations are applied before regular transformations as shown in the following diagram. For response transformations, this order is reversed, and regular transformations are applied before early transformations. To learn more about the order in which envoy filters are applied, see [HTTP filter chain processing](https://www.envoyproxy.io/docs/envoy/latest/intro/life_of_a_request#http-filter-chain-processing) in the envoy documentation. 
+The `early` and `regular` attributes are used to specify when in the envoy filter chain the transformations run. For request transformations, early transformations are applied before regular transformations as shown in the following diagram. For response transformations, this order is reversed, and regular transformations are applied before early transformations. To learn more about the order in which envoy filters are applied, see [HTTP filter chain processing](https://www.envoyproxy.io/docs/envoy/latest/intro/life_of_a_request#http-filter-chain-processing) in the envoy documentation.
 
 ![Transformation Filter Stages]({{% versioned_link_path fromRoot="/img/transformation_stages.png" %}})
 
@@ -139,7 +137,7 @@ The `requestTransformation` and `responseTransformation` attributes have the {{<
 - `headerBodyTransform`: This type of transformation makes all the headers available in the body and returns a JSON body that consists of two attributes: `headers`, containing the headers, and `body`, containing the original body.
   - If `addRequestMetadata` is true, `queryString`, `queryStringParameters`, `multiValueQueryStringParameters`, `httpMethod`, `path`, and `multiValueHeaders` will additionally be present in the body.
 - `transformationTemplate`: This type of transformation allows you to define transformation templates. This is the more powerful and flexible type of transformation. For more information, see [Transformation templates](#transformation-templates).
-- `xsltTransformation`: This type of transformation allows you to use the XSLT transformation language to describe your transformation. For more information, see [XSLT Transformation](#xslt-transformation). 
+- `xsltTransformation`: This type of transformation allows you to use the XSLT transformation language to describe your transformation. For more information, see [XSLT Transformation](#xslt-transformation).
 
 The `inheritTransformation` attribute allows child routes to inherit transformations from their parent RouteTables and/or VirtualHosts. For more information, see [Inheritance rules](#inheritance-rules).
 
@@ -153,11 +151,12 @@ transformationTemplate:
   extractors:  {}
   headers: {}
   # Only one of body, passthrough, and mergeExtractorsToBody can be specified
-  body: {} 
+  body: {}
   passthrough: {}
   mergeExtractorsToBody: {}
   dynamicMetadataValues: []
   advancedTemplates: bool
+  escapeCharacters: bool
 ```
 
 {{% notice note %}}
@@ -171,9 +170,9 @@ Let's go ahead and describe each one of these attributes in detail.
 By default, `transformationTemplate` parses the request/response body as JSON, depending on whether you configure a `requestTransformation` or `responseTransformation`. If Gloo Edge fails to parse the request/response body as JSON, it returns a `400 Bad Request` error.
 
 If you want to skip this behavior, you can:
-* Set the [`parseBodyBehavior`](#parsebodybehavior) attribute to `DontParse`. Edge treats the body as plain text and does not parse it.
+* Set the [`parseBodyBehavior`](#parsebodybehavior) attribute to `DontParse`. Edge buffers the body as plain text and does not parse it.
 * Set the [`ignoreErrorOnParse`](#ignoreerroronparse) attribute to `true`. Edge parses the body as JSON, but does not return an error if the body is not valid JSON.
-* Enable [`passthrough`](#passthrough). Edge does not parse the body.
+* Enable [`passthrough`](#passthrough). Edge does not parse or buffer the body.
 {{% /notice %}}
 ##### parseBodyBehavior
 This attribute determines how the request/response body will be parsed and can have one of two values:
@@ -191,7 +190,7 @@ By default, Gloo Edge will attempt to parse the body as JSON, unless you have `D
 Implicit in this setting is that the body will be buffered and available. If you're looking to skip any body buffering completely, see the section [on passthrough: {}](#passthrough)
 
 ##### extractors
-Use this attribute to extract information from a request or response. It consists of a set of mappings from a string to an `extraction`: 
+Use this attribute to extract information from a request or response. It consists of a set of mappings from a string to an `extraction`:
 
 - the `extraction` defines which information will be extracted
 - the string key will provide the extractor with a name it can be referred by.
@@ -311,7 +310,7 @@ As an example, the following configuration snippet could be used to transform a 
 ```yaml
 transformationTemplate:
   # [...]
-  body: 
+  body:
     text: '{% if header(":status") == "404" %}{ "error": "Not found!" }{% else %}{{ body() }}{% endif %}'
   # [...]
 ```
@@ -328,7 +327,7 @@ transformationTemplate:
   # [...]
 ```
 
-If you're looking to parse the body, and either [ignore errors on parsing](#ignoreerroronparse), or just [disable JSON parsing](#parsebodybehavior), see those sections in this document, respectively. 
+If you're looking to parse the body, and either [ignore errors on parsing](#ignoreerroronparse), or just [disable JSON parsing](#parsebodybehavior), see those sections in this document, respectively.
 
 ##### mergeExtractorsToBody
 Use this type of body transformation to merge all the `extractions` defined in the `transformationTemplate` to the body. The values of the extractions will be merged to a location in the body JSON determined by their names. You can use separators in the extractor names to nest elements inside the body.
@@ -362,7 +361,7 @@ This will cause the resulting body to include the following extra attributes (in
 ##### dynamicMetadataValues
 This attribute can be used to define an [Envoy Dynamic Metadata](https://www.envoyproxy.io/docs/envoy/latest/configuration/advanced/well_known_dynamic_metadata) entry. This metadata can be used by other filters in the filter chain to implement custom behavior.
 
-As an example, the following configuration creates a dynamic metadata entry in the `com.example` namespace with key  `foo` and value equal to that of the `foo` header . 
+As an example, the following configuration creates a dynamic metadata entry in the `com.example` namespace with key  `foo` and value equal to that of the `foo` header.
 
 ```yaml
 dynamicMetadataValues:
@@ -382,12 +381,15 @@ This attribute determines which notation to use when accessing elements in JSON 
 
 Please note that, if set to `true`, you will need to use the `extraction` function to access extractors in template strings (e.g. `{{ extraction("myExtractor") }}`); if the default value of `false` is used, extractors will simply be available by their name (e.g. `{{ myExtractor }}`).
 
+##### escapeCharacters
+This attribute is used to set for the entire transformation whether Inja should be configured to preserve escaped characters in strings. This is particularly useful when using context from the request or response body to construct new JSON bodies.
+
 #### Templating language
 {{% notice note %}}
-Templates can be used only if the request/response payload is a JSON string.
+Unless `parseBodyBehavior` is set to `DontParse`, templates can be used only if the request/response payload is a JSON string.
 {{% /notice %}}
 
-Gloo Edge templates are powered by the [Inja](https://github.com/pantor/inja) template engine, which is inspired by the popular [Jinja](https://palletsprojects.com/p/jinja/) templating language in Python. When writing your templates, you can take advantage of all the core _Inja_ features, i.a. loops, conditional logic, and functions.
+Gloo Edge templates are powered by v3.4 of the [Inja](https://github.com/pantor/inja/tree/v3.4.0) template engine, which is inspired by the popular [Jinja](https://palletsprojects.com/p/jinja/) templating language in Python. When writing your templates, you can take advantage of all the core _Inja_ features, i.a. loops, conditional logic, and functions.
 
 In addition to the standard functions available in the core _Inja_ library, you can use additional custom functions that we have added:
 
@@ -400,6 +402,8 @@ In addition to the standard functions available in the core _Inja_ library, you 
 - `base64_encode(string)`: encodes the input string to base64.
 - `base64_decode(string)`: decodes the input string from base64.
 - `substring(string, start_pos, substring_len)`: returns a substring of the input string, starting at `start_pos` and extending for `substring_len` characters. If no `substring_len` is provided or `substring_len` is <= 0, the substring extends to the end of the input string.
+- `replace_with_random(string, pattern)`: returns the input string with instances matching the `pattern` replaced with random characters.
+- `raw_string(string)`: returns the input string with escaped characters intact. Useful for constructing JSON request or response bodies.
 
 You can use templates to mutate [headers](#headers), the [body](#body), and [dynamic metadata](#dynamicmetadatavalues).
 
@@ -414,7 +418,7 @@ xsltTransformation:
 ```
 
 ##### xslt
-The XSLT transformation is specified in this field as a string. Like other transformations, an invalid XSLT transformation will not be accepted and envoy 
+The XSLT transformation is specified in this field as a string. Like other transformations, an invalid XSLT transformation will not be accepted and envoy
 validation will reject the transformation configuration.
 
 ##### setContentType
@@ -422,7 +426,7 @@ XSLT transformations can be used to transform HTTP body between content type. Fo
 In the case of these transformations, the `content-type` HTTP header is set to the value of `setContentType`. If left empty, the `content-type` header is unchanged.
 
 ##### nonXmlTransform
-XSLT transformations typically accept only XML as input. If the input to the transformation is not XML, this should be set to true. For example, if 
+XSLT transformations typically accept only XML as input. If the input to the transformation is not XML, this should be set to true. For example, if
 the XSLT transformation is transforming a JSON input to XML, this would be set to `true`. By default, this is false and the XSLT transformation will only accept XML input.
 
 ### Common use cases

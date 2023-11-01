@@ -3,11 +3,13 @@ package gateway_test
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/solo-io/gloo/projects/gateway/pkg/defaults"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources"
@@ -107,6 +109,7 @@ var _ = Describe("Robustness tests", func() {
 		appVs = helpers.NewVirtualServiceBuilder().
 			WithName(appName).
 			WithNamespace(testHelper.InstallNamespace).
+			WithLabel(kube2e.UniqueTestResourceLabel, uuid.New().String()).
 			WithDomain("app").
 			WithRoutePrefixMatcher("route", "/1").
 			WithRouteActionToSingleDestination("route",
@@ -235,9 +238,13 @@ var _ = Describe("Robustness tests", func() {
 			By("force proxy into warning state")
 			forceProxyIntoWarningState(appVs)
 
-			By("force an update of the service endpoints")
-			initialEndpointIPs := endpointIPsForKubeService(resourceClientset.KubeClients(), appService)
+			var initialEndpointIPs []string
+			Eventually(func() []string {
+				initialEndpointIPs = endpointIPsForKubeService(resourceClientset.KubeClients(), appService)
+				return initialEndpointIPs
+			}, 20*time.Second, 1*time.Second).Should(Not(HaveLen(0)))
 
+			By("force an update of the service endpoints")
 			scaleDeploymentTo(resourceClientset.KubeClients(), appDeployment, 0)
 			scaleDeploymentTo(resourceClientset.KubeClients(), appDeployment, 1)
 
@@ -444,7 +451,7 @@ var _ = Describe("Robustness tests", func() {
 			gatewayProxyPodName := findPodNamesByLabel(ctx, testHelper.InstallNamespace, "gloo=gateway-proxy")[0]
 			envoyClustersPath := "http://localhost:19000/clusters" // TODO - this should live in envoy test service
 			Eventually(func() bool {
-				clusters := testutils.CurlWithEphemeralPodStable(ctx, ioutil.Discard, "", testHelper.InstallNamespace, gatewayProxyPodName, envoyClustersPath)
+				clusters := testutils.CurlWithEphemeralPodStable(ctx, io.Discard, "", testHelper.InstallNamespace, gatewayProxyPodName, envoyClustersPath)
 
 				fmt.Println(fmt.Sprintf("initial endpoint ips %+v", initialEndpointIPs))
 

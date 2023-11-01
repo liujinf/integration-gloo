@@ -80,4 +80,12 @@ func UpdateUpstream(original, desired *v1.Upstream) {
 	if desired.GetDnsRefreshRate() == nil {
 		desired.DnsRefreshRate = original.GetDnsRefreshRate()
 	}
+
+	if desired.GetProxyProtocolVersion() == nil {
+		desired.ProxyProtocolVersion = original.GetProxyProtocolVersion()
+	}
+
+	if desired.GetPreconnectPolicy() == nil {
+		desired.PreconnectPolicy = original.GetPreconnectPolicy()
+	}
 }

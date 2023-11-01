@@ -21,10 +21,6 @@ const (
 	// are not met. See ValidateRequirementsAndNotifyGinkgo for a detail of available behaviors
 	InvalidTestReqsEnvVar = "INVALID_TEST_REQS"
 
-	// RunKubeTests is used to enable any tests which depend on Kubernetes. NOTE: Kubernetes back tests should
-	// be written into the kube2e suites, and those don't require this guard.
-	RunKubeTests = "RUN_KUBE_TESTS"
-
 	// RunVaultTests is used to enable any tests which depend on Vault.
 	RunVaultTests = "RUN_VAULT_TESTS"
 
@@ -45,6 +41,32 @@ const (
 	// EnvoyImageTag is used in e2e tests to specify the tag of the docker image to use for the tests
 	// If a tag is not provided, the tests dynamically identify the latest released tag to use
 	EnvoyImageTag = "ENVOY_IMAGE_TAG"
+
+	// EnvoyBinary is used in e2e tests to specify the path to the envoy binary to use for the tests
+	EnvoyBinary = "ENVOY_BINARY"
+
+	// ConsulBinary is used in e2e tests to specify the path to the consul binary to use for the tests
+	ConsulBinary = "CONSUL_BINARY"
+
+	// VaultBinary is used in e2e tests to specify the path to the vault binary to use for the tests
+	VaultBinary = "VAULT_BINARY"
+
+	// ServiceLogLevel is used to set the log level for the test services. See services/logging.go for more details
+	ServiceLogLevel = "SERVICE_LOG_LEVEL"
+
+	// GithubAction is used by Github Actions and is the name of the currently running action or ID of a step
+	// https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables
+	GithubAction = "GITHUB_ACTION"
+
+	// GcloudBuildId is used by Cloudbuild to identify the build id
+	// This is set when running tests in Cloudbuild
+	GcloudBuildId = "GCLOUD_BUILD_ID"
+
+	// ReleasedVersion can be used when running KubeE2E tests to have the test suite use a previously released version of Gloo Edge
+	// If set to 'LATEST', the most recently released version will be used
+	// If set to another value, the test suite will use that version (ie '1.15.0-beta1')
+	// This is an optional value, so if it is not set, the test suite will use the locally built version of Gloo Edge
+	ReleasedVersion = "RELEASED_VERSION"
 )
 
 // ShouldTearDown returns true if any assets that were created before a test (for example Gloo being installed)
@@ -60,16 +82,14 @@ func ShouldSkipInstall() bool {
 	return IsEnvTruthy(SkipInstall)
 }
 
-// ShouldRunKubeTests returns true if any tests which require a Kubernetes cluster should be executed
-// This may guard tests which are run using our old CloudBuilder infrastructure. In the future, all kube tests
-// should be written in our Kube2e suites, which are run with a kubernetes cluster
-func ShouldRunKubeTests() bool {
-	return IsEnvTruthy(RunKubeTests)
-}
-
 // ShouldSkipTempDisabledTests returns true if temporarily disabled tests should be skipped
 func ShouldSkipTempDisabledTests() bool {
 	return IsEnvTruthy(SkipTempDisabledTests)
+}
+
+// IsRunningInCloudbuild returns true if tests are running in Cloudbuild
+func IsRunningInCloudbuild() bool {
+	return IsEnvDefined(GcloudBuildId)
 }
 
 // IsEnvTruthy returns true if a given environment variable has a truthy value
@@ -77,4 +97,10 @@ func ShouldSkipTempDisabledTests() bool {
 func IsEnvTruthy(envVarName string) bool {
 	envValue, _ := strconv.ParseBool(os.Getenv(envVarName))
 	return envValue
+}
+
+// IsEnvDefined returns true if a given environment variable has any value
+func IsEnvDefined(envVarName string) bool {
+	envValue := os.Getenv(envVarName)
+	return len(envValue) > 0
 }

@@ -122,6 +122,8 @@ spec:
                                             type: object
                                         type: object
                                       type: array
+                                    escapeCharacters:
+                                      type: boolean
                                     extractors:
                                       additionalProperties:
                                         properties:
@@ -407,6 +409,8 @@ spec:
                                               addRequestMetadata:
                                                 type: boolean
                                             type: object
+                                          logRequestResponseInfo:
+                                            type: boolean
                                           transformationTemplate:
                                             properties:
                                               advancedTemplates:
@@ -430,6 +434,9 @@ spec:
                                                       type: object
                                                   type: object
                                                 type: array
+                                              escapeCharacters:
+                                                nullable: true
+                                                type: boolean
                                               extractors:
                                                 additionalProperties:
                                                   properties:
@@ -495,6 +502,8 @@ spec:
                                               addRequestMetadata:
                                                 type: boolean
                                             type: object
+                                          logRequestResponseInfo:
+                                            type: boolean
                                           transformationTemplate:
                                             properties:
                                               advancedTemplates:
@@ -518,6 +527,9 @@ spec:
                                                       type: object
                                                   type: object
                                                 type: array
+                                              escapeCharacters:
+                                                nullable: true
+                                                type: boolean
                                               extractors:
                                                 additionalProperties:
                                                   properties:
@@ -603,6 +615,8 @@ spec:
                                               addRequestMetadata:
                                                 type: boolean
                                             type: object
+                                          logRequestResponseInfo:
+                                            type: boolean
                                           transformationTemplate:
                                             properties:
                                               advancedTemplates:
@@ -626,6 +640,9 @@ spec:
                                                       type: object
                                                   type: object
                                                 type: array
+                                              escapeCharacters:
+                                                nullable: true
+                                                type: boolean
                                               extractors:
                                                 additionalProperties:
                                                   properties:
@@ -687,7 +704,13 @@ spec:
                                     type: object
                                   type: array
                               type: object
+                            escapeCharacters:
+                              nullable: true
+                              type: boolean
                             inheritTransformation:
+                              type: boolean
+                            logRequestResponseInfo:
+                              nullable: true
                               type: boolean
                             regular:
                               properties:
@@ -745,6 +768,8 @@ spec:
                                               addRequestMetadata:
                                                 type: boolean
                                             type: object
+                                          logRequestResponseInfo:
+                                            type: boolean
                                           transformationTemplate:
                                             properties:
                                               advancedTemplates:
@@ -768,6 +793,9 @@ spec:
                                                       type: object
                                                   type: object
                                                 type: array
+                                              escapeCharacters:
+                                                nullable: true
+                                                type: boolean
                                               extractors:
                                                 additionalProperties:
                                                   properties:
@@ -833,6 +861,8 @@ spec:
                                               addRequestMetadata:
                                                 type: boolean
                                             type: object
+                                          logRequestResponseInfo:
+                                            type: boolean
                                           transformationTemplate:
                                             properties:
                                               advancedTemplates:
@@ -856,6 +886,9 @@ spec:
                                                       type: object
                                                   type: object
                                                 type: array
+                                              escapeCharacters:
+                                                nullable: true
+                                                type: boolean
                                               extractors:
                                                 additionalProperties:
                                                   properties:
@@ -941,6 +974,8 @@ spec:
                                               addRequestMetadata:
                                                 type: boolean
                                             type: object
+                                          logRequestResponseInfo:
+                                            type: boolean
                                           transformationTemplate:
                                             properties:
                                               advancedTemplates:
@@ -964,6 +999,9 @@ spec:
                                                       type: object
                                                   type: object
                                                 type: array
+                                              escapeCharacters:
+                                                nullable: true
+                                                type: boolean
                                               extractors:
                                                 additionalProperties:
                                                   properties:
@@ -1037,6 +1075,8 @@ spec:
                                     addRequestMetadata:
                                       type: boolean
                                   type: object
+                                logRequestResponseInfo:
+                                  type: boolean
                                 transformationTemplate:
                                   properties:
                                     advancedTemplates:
@@ -1060,6 +1100,9 @@ spec:
                                             type: object
                                         type: object
                                       type: array
+                                    escapeCharacters:
+                                      nullable: true
+                                      type: boolean
                                     extractors:
                                       additionalProperties:
                                         properties:
@@ -1125,6 +1168,8 @@ spec:
                                     addRequestMetadata:
                                       type: boolean
                                   type: object
+                                logRequestResponseInfo:
+                                  type: boolean
                                 transformationTemplate:
                                   properties:
                                     advancedTemplates:
@@ -1148,6 +1193,9 @@ spec:
                                             type: object
                                         type: object
                                       type: array
+                                    escapeCharacters:
+                                      nullable: true
+                                      type: boolean
                                     extractors:
                                       additionalProperties:
                                         properties:

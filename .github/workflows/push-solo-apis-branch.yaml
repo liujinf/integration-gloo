@@ -20,6 +20,7 @@ jobs:
   prepare-env:
     name: Prepare Environment Variables
     runs-on: ubuntu-22.04
+    timeout-minutes: 5
     outputs:
       # The Gloo Commit ID that contains the changes we are attempting to mirror
       # On a manual trigger, this is branch name with your changes
@@ -54,28 +55,8 @@ jobs:
       SOLO_APIS_PREFIX: ${{ needs.prepare-env.outputs.solo-apis-prefix }}
     name: Publish Gloo APIs
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     steps:
-      - name: Cancel Previous Actions
-        uses: styfle/cancel-workflow-action@0.11.0
-        with:
-          access_token: ${{ github.token }}
-      - name: Free disk space
-        run: |
-          echo "Before clearing disk space:"
-          df -h
-
-          # https://github.com/actions/virtual-environments/issues/709
-          sudo apt-get clean
-
-          # Clean up pre-installed tools
-          # https://github.com/actions/virtual-environments/issues/1918
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf $AGENT_TOOLSDIRECTORY
-
-          echo "After clearing disk space:"
-          df -h
       - name: Install SSH Deploy key
         uses: webfactory/ssh-agent@v0.4.1
         with:
@@ -89,10 +70,11 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
+          cache: false
           go-version-file: gloo/go.mod
         id: go
       - name: Install Protoc
-        uses: arduino/setup-protoc@master
+        uses: arduino/setup-protoc@v1
         with:
           version: '3.6.1'
           repo-token: ${{ secrets.GITHUB_TOKEN }}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	types2 "github.com/onsi/gomega/types"
 
@@ -1116,8 +1117,9 @@ var _ = Describe("Translator", func() {
 					UnhealthyThreshold: DefaultThreshold,
 					HealthChecker: &envoy_config_core_v3.HealthCheck_GrpcHealthCheck_{
 						GrpcHealthCheck: &envoy_config_core_v3.HealthCheck_GrpcHealthCheck{
-							ServiceName: "svc",
-							Authority:   "authority",
+							ServiceName:     "svc",
+							Authority:       "authority",
+							InitialMetadata: []*envoy_config_core_v3.HeaderValueOption{},
 						},
 					},
 				},
@@ -1172,91 +1174,222 @@ var _ = Describe("Translator", func() {
 			translateWithBuggyHasher()
 		})
 
-		It("can translate health check with secret header", func() {
-			params.Snapshot.Secrets = v1.SecretList{
-				{
-					Kind: &v1.Secret_Header{
-						Header: &v1.HeaderSecret{
-							Headers: map[string]string{
-								"Authorization": "basic dXNlcjpwYXNzd29yZA==",
-							},
-						},
-					},
-					Metadata: &core.Metadata{
-						Name:      "foo",
-						Namespace: "bar",
-					},
-				},
-			}
+		Context("Healthcheck with Forbidden headers", func() {
+			var healthChecks []*gloo_envoy_core.HealthCheck
 
-			expectedResult := []*envoy_config_core_v3.HealthCheck{
-				{
-					Timeout:            DefaultHealthCheckTimeout,
-					Interval:           DefaultHealthCheckInterval,
-					HealthyThreshold:   DefaultThreshold,
-					UnhealthyThreshold: DefaultThreshold,
-					HealthChecker: &envoy_config_core_v3.HealthCheck_HttpHealthCheck_{
-						HttpHealthCheck: &envoy_config_core_v3.HealthCheck_HttpHealthCheck{
-							Host: "host",
-							Path: "path",
-							ServiceNameMatcher: &envoy_type_matcher_v3.StringMatcher{
-								MatchPattern: &envoy_type_matcher_v3.StringMatcher_Prefix{
-									Prefix: "svc",
+			BeforeEach(func() {
+				healthChecks = []*gloo_envoy_core.HealthCheck{
+					{
+						Timeout:            DefaultHealthCheckTimeout,
+						Interval:           DefaultHealthCheckInterval,
+						HealthyThreshold:   DefaultThreshold,
+						UnhealthyThreshold: DefaultThreshold,
+					},
+				}
+				Expect(healthChecks[0].HealthChecker).To(BeNil())
+			})
+
+			DescribeTable("http health check", func(key string, expectError bool) {
+				upstream.HealthChecks = healthChecks
+				healthChecks[0].HealthChecker = &gloo_envoy_core.HealthCheck_HttpHealthCheck_{
+					HttpHealthCheck: &gloo_envoy_core.HealthCheck_HttpHealthCheck{
+						RequestHeadersToAdd: []*envoycore_sk.HeaderValueOption{
+							{
+								HeaderOption: &envoycore_sk.HeaderValueOption_Header{
+									Header: &envoycore_sk.HeaderValue{
+										Key:   key,
+										Value: "value",
+									},
+								},
+								Append: &wrappers.BoolValue{
+									Value: true,
 								},
 							},
-							RequestHeadersToAdd:    []*envoy_config_core_v3.HeaderValueOption{},
-							RequestHeadersToRemove: []string{},
-							CodecClientType:        envoy_type_v3.CodecClientType_HTTP2,
-							ExpectedStatuses:       []*envoy_type_v3.Int64Range{},
 						},
 					},
-				},
-			}
+				}
+				_, errs, _ := translator.Translate(params, proxy)
 
-			var err error
-			upstream.HealthChecks, err = api_conversion.ToGlooHealthCheckList(expectedResult)
-			Expect(err).NotTo(HaveOccurred())
+				if expectError {
+					Expect(errs.Validate()).To(MatchError(ContainSubstring(": -prefixed or host headers may not be modified")))
+					return
+				}
+				Expect(errs.Validate()).NotTo(HaveOccurred())
+			},
+				Entry("Allowed header", "some-header", false),
+				Entry(":-prefixed header", ":path", true))
 
-			expectedResult[0].GetHttpHealthCheck().RequestHeadersToAdd = []*envoy_config_core_v3.HeaderValueOption{
-				{
-					Header: &envoy_config_core_v3.HeaderValue{
-						Key:   "Authorization",
-						Value: "basic dXNlcjpwYXNzd29yZA==",
-					},
-					Append: &wrappers.BoolValue{
-						Value: true,
-					},
-				},
-			}
-
-			upstream.GetHealthChecks()[0].GetHttpHealthCheck().RequestHeadersToAdd = []*envoycore_sk.HeaderValueOption{
-				{
-					HeaderOption: &envoycore_sk.HeaderValueOption_HeaderSecretRef{
-						HeaderSecretRef: &core.ResourceRef{
-							Name:      "foo",
-							Namespace: "bar",
+			DescribeTable("grpc health check", func(key string, expectError bool) {
+				upstream.HealthChecks = healthChecks
+				healthChecks[0].HealthChecker = &gloo_envoy_core.HealthCheck_GrpcHealthCheck_{
+					GrpcHealthCheck: &gloo_envoy_core.HealthCheck_GrpcHealthCheck{
+						InitialMetadata: []*envoycore_sk.HeaderValueOption{
+							{
+								HeaderOption: &envoycore_sk.HeaderValueOption_Header{
+									Header: &envoycore_sk.HeaderValue{
+										Key:   key,
+										Value: "value",
+									},
+								},
+								Append: &wrappers.BoolValue{
+									Value: true,
+								},
+							},
 						},
 					},
-					Append: &wrappers.BoolValue{
-						Value: true,
+				}
+				_, errs, _ := translator.Translate(params, proxy)
+
+				if expectError {
+					Expect(errs.Validate()).To(MatchError(ContainSubstring(": -prefixed or host headers may not be modified")))
+					return
+				}
+				Expect(errs.Validate()).NotTo(HaveOccurred())
+			},
+				Entry("Allowed header", "some-header", false),
+				Entry("host header", "host", true))
+		})
+
+		Context("Health checks with secret header", func() {
+			var expectedResult []*envoy_config_core_v3.HealthCheck
+			var expectedHeaders []*envoy_config_core_v3.HeaderValueOption
+			var upstreamHeaders []*envoycore_sk.HeaderValueOption
+
+			BeforeEach(func() {
+				params.Snapshot.Secrets = v1.SecretList{
+					{
+						Kind: &v1.Secret_Header{
+							Header: &v1.HeaderSecret{
+								Headers: map[string]string{
+									"Authorization": "basic dXNlcjpwYXNzd29yZA==",
+								},
+							},
+						},
+						Metadata: &core.Metadata{
+							Name: "foo",
+						},
 					},
-				},
+				}
+
+				expectedHeaders = []*envoy_config_core_v3.HeaderValueOption{
+					{
+						Header: &envoy_config_core_v3.HeaderValue{
+							Key:   "Authorization",
+							Value: "basic dXNlcjpwYXNzd29yZA==",
+						},
+						AppendAction: envoy_config_core_v3.HeaderValueOption_APPEND_IF_EXISTS_OR_ADD,
+					},
+				}
+
+				upstreamHeaders = []*envoycore_sk.HeaderValueOption{
+					{
+						HeaderOption: &envoycore_sk.HeaderValueOption_HeaderSecretRef{
+							HeaderSecretRef: &core.ResourceRef{
+								Name: "foo",
+							},
+						},
+						Append: &wrappers.BoolValue{
+							Value: true,
+						},
+					},
+				}
+
+				expectedResult = []*envoy_config_core_v3.HealthCheck{
+					{
+						Timeout:            DefaultHealthCheckTimeout,
+						Interval:           DefaultHealthCheckInterval,
+						HealthyThreshold:   DefaultThreshold,
+						UnhealthyThreshold: DefaultThreshold,
+					},
+				}
+				Expect(expectedResult[0].HealthChecker).To(BeNil())
+			})
+
+			AfterEach(os.Clearenv)
+
+			translate := func(expectError bool) {
+				snap, errs, report := translator.Translate(params, proxy)
+				if expectError {
+					Expect(errs.Validate()).To(MatchError(ContainSubstring("list did not find secret bar.foo")))
+					return
+				}
+				Expect(errs.Validate()).NotTo(HaveOccurred())
+				Expect(snap).NotTo(BeNil())
+				Expect(report).To(Equal(validationutils.MakeReport(proxy)))
+
+				clusters := snap.GetResources(types.ClusterTypeV3)
+				clusterResource := clusters.Items[UpstreamToClusterName(upstream.Metadata.Ref())]
+				cluster = clusterResource.ResourceProto().(*envoy_config_cluster_v3.Cluster)
+				Expect(cluster).NotTo(BeNil())
+				var msgList []proto.Message
+				for _, v := range expectedResult {
+					msgList = append(msgList, v)
+				}
+				Expect(cluster.HealthChecks).To(ConsistOfProtos(msgList...))
 			}
 
-			snap, errs, report := translator.Translate(params, proxy)
-			Expect(errs.Validate()).NotTo(HaveOccurred())
-			Expect(snap).NotTo(BeNil())
-			Expect(report).To(Equal(validationutils.MakeReport(proxy)))
+			// Checks to ensure that https://github.com/solo-io/gloo/pull/8505 works as expected.
+			// It checks whether headerSecretRef and the upstream that the secret is sent to have matching namespaces
+			// if configured to do so and the code to do so is shared across both the http && grpc healt check.
+			// The test cases have been split between the http and grpc health checks as it relies on shared code,
+			// avoids test duplication and to ensure they both work as expected.
+			DescribeTable("http health check", func(enforceMatch, secretNamespace string, expectError bool) {
+				err := os.Setenv(api_conversion.MatchingNamespaceEnv, enforceMatch)
+				Expect(err).NotTo(HaveOccurred())
 
-			clusters := snap.GetResources(types.ClusterTypeV3)
-			clusterResource := clusters.Items[UpstreamToClusterName(upstream.Metadata.Ref())]
-			cluster = clusterResource.ResourceProto().(*envoy_config_cluster_v3.Cluster)
-			Expect(cluster).NotTo(BeNil())
-			var msgList []proto.Message
-			for _, v := range expectedResult {
-				msgList = append(msgList, v)
-			}
-			Expect(cluster.HealthChecks).To(ConsistOfProtos(msgList...))
+				params.Snapshot.Secrets[0].Metadata.Namespace = secretNamespace
+				expectedResult[0].HealthChecker = &envoy_config_core_v3.HealthCheck_HttpHealthCheck_{
+					HttpHealthCheck: &envoy_config_core_v3.HealthCheck_HttpHealthCheck{
+						Host: "host",
+						Path: "path",
+						ServiceNameMatcher: &envoy_type_matcher_v3.StringMatcher{
+							MatchPattern: &envoy_type_matcher_v3.StringMatcher_Prefix{
+								Prefix: "svc",
+							},
+						},
+						RequestHeadersToAdd:    []*envoy_config_core_v3.HeaderValueOption{},
+						RequestHeadersToRemove: []string{},
+						CodecClientType:        envoy_type_v3.CodecClientType_HTTP2,
+						ExpectedStatuses:       []*envoy_type_v3.Int64Range{},
+					},
+				}
+
+				upstream.HealthChecks, err = api_conversion.ToGlooHealthCheckList(expectedResult)
+				Expect(err).NotTo(HaveOccurred())
+
+				expectedResult[0].GetHttpHealthCheck().RequestHeadersToAdd = expectedHeaders
+				upstream.GetHealthChecks()[0].GetHttpHealthCheck().RequestHeadersToAdd = upstreamHeaders
+				upstream.GetHealthChecks()[0].GetHttpHealthCheck().RequestHeadersToAdd[0].GetHeaderSecretRef().Namespace = secretNamespace
+
+				translate(expectError)
+			},
+				Entry("Matching enforced and namespaces match", "true", "gloo-system", false),
+				Entry("Matching not enforced and namespaces match", "false", "gloo-system", false))
+
+			DescribeTable("grpc health check", func(enforceMatch, secretNamespace string, expectError bool) {
+				err := os.Setenv(api_conversion.MatchingNamespaceEnv, enforceMatch)
+				Expect(err).NotTo(HaveOccurred())
+
+				params.Snapshot.Secrets[0].Metadata.Namespace = secretNamespace
+				expectedResult[0].HealthChecker = &envoy_config_core_v3.HealthCheck_GrpcHealthCheck_{
+					GrpcHealthCheck: &envoy_config_core_v3.HealthCheck_GrpcHealthCheck{
+						ServiceName:     "svc",
+						Authority:       "authority",
+						InitialMetadata: []*envoy_config_core_v3.HeaderValueOption{},
+					},
+				}
+
+				upstream.HealthChecks, err = api_conversion.ToGlooHealthCheckList(expectedResult)
+				Expect(err).NotTo(HaveOccurred())
+
+				expectedResult[0].GetGrpcHealthCheck().InitialMetadata = expectedHeaders
+				upstream.GetHealthChecks()[0].GetGrpcHealthCheck().InitialMetadata = upstreamHeaders
+				upstream.GetHealthChecks()[0].GetGrpcHealthCheck().InitialMetadata[0].GetHeaderSecretRef().Namespace = secretNamespace
+
+				translate(expectError)
+			},
+				Entry("Matching not enforced and namespaces don't match", "false", "bar", false),
+				Entry("Matching enforced and namespaces don't match", "true", "bar", true))
 		})
 	})
 
@@ -2619,9 +2752,7 @@ var _ = Describe("Translator", func() {
 						Key:   "client-id",
 						Value: "%REQ(client-id)%",
 					},
-					Append: &wrappers.BoolValue{
-						Value: false,
-					},
+					AppendAction: envoy_config_core_v3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 				},
 			))
 		})
@@ -2655,7 +2786,7 @@ var _ = Describe("Translator", func() {
 	Context("Hybrid", func() {
 
 		// The number of HttpFilters that we expect to be generated on the HttpConnectionManager by default
-		var defaultHttpFilters = 6
+		var defaultHttpFilters = 7
 
 		It("can properly create a hybrid listener", func() {
 			translate()
@@ -3034,7 +3165,7 @@ var _ = Describe("Translator", func() {
 					},
 				}
 				report := &validation.ListenerReport{}
-				CheckForDuplicateFilterChainMatches(filterChains, report)
+				CheckForFilterChainConsistency(filterChains, report, listener)
 				Expect(report.Errors).NotTo(BeNil())
 				Expect(report.Errors).To(HaveLen(1))
 				Expect(report.Errors[0].Type).To(Equal(validation.ListenerReport_Error_SSLConfigError))
@@ -3520,6 +3651,47 @@ var _ = Describe("Translator", func() {
 			Entry("When value=nil", nil, false))
 	})
 
+	Context("PreconnectPolicy", func() {
+		DescribeTable("propagates PreconnectPolicy to Cluster",
+			func(upstreamValue *v1.PreconnectPolicy, shouldErr bool) {
+				// Set the value to test
+				upstream.PreconnectPolicy = upstreamValue
+
+				snap, errs, _ := translator.Translate(params, proxy)
+				if shouldErr {
+					Expect(errs.Validate()).To(HaveOccurred())
+					return
+				}
+				Expect(snap).NotTo(BeNil())
+				Expect(errs.Validate()).To(BeNil())
+
+				clusters := snap.GetResources(types.ClusterTypeV3)
+				clusterResource := clusters.Items[UpstreamToClusterName(upstream.Metadata.Ref())]
+				cluster = clusterResource.ResourceProto().(*envoy_config_cluster_v3.Cluster)
+				Expect(cluster).NotTo(BeNil())
+
+				// The underlying types are different but not individual fields
+				actualPrecon := cluster.PreconnectPolicy
+				if upstreamValue == nil {
+					Expect(actualPrecon).To(BeNil())
+					return
+				}
+
+				Expect(actualPrecon.PerUpstreamPreconnectRatio).To(Equal(upstreamValue.PerUpstreamPreconnectRatio))
+
+				Expect(actualPrecon.PredictivePreconnectRatio).To(Equal(upstreamValue.PredictivePreconnectRatio))
+			},
+			Entry("When unset", nil, false),
+			Entry("When valid perupstream", &v1.PreconnectPolicy{PerUpstreamPreconnectRatio: asDouble(1)}, false),
+			Entry("When valid predictive", &v1.PreconnectPolicy{PredictivePreconnectRatio: asDouble(2)}, false),
+			Entry("When valid", &v1.PreconnectPolicy{PerUpstreamPreconnectRatio: asDouble(1), PredictivePreconnectRatio: asDouble(2)}, false),
+			// invalid based on proto constraints https://github.com/envoyproxy/envoy/blob/353c0a439ef8bc8eb63bf08c2db4fd3fc3778dec/api/envoy/config/cluster/v3/cluster.proto#L724
+			Entry("When invalid perupstream", &v1.PreconnectPolicy{PerUpstreamPreconnectRatio: asDouble(0.5)}, true),
+			Entry("When both pieces are invalid", &v1.PreconnectPolicy{PerUpstreamPreconnectRatio: asDouble(0.5), PredictivePreconnectRatio: asDouble(1000)}, true),
+			Entry("When valid perupstream but invalid predictive", &v1.PreconnectPolicy{PerUpstreamPreconnectRatio: asDouble(1), PredictivePreconnectRatio: asDouble(1000)}, true),
+		)
+	})
+
 	Context("DnsRefreshRate", func() {
 		DescribeTable("Sets DnsRefreshRate on Cluster",
 			func(staticUpstream bool, refreshRate *duration.Duration, refreshRateMatcher types2.GomegaMatcher, reportMatcher types2.GomegaMatcher) {
@@ -3748,4 +3920,8 @@ func createMultiActionRoute(routeName string, matcher *matchers.Matcher, destina
 			},
 		},
 	}
+}
+
+func asDouble(v float64) *wrappers.DoubleValue {
+	return &wrappers.DoubleValue{Value: v}
 }

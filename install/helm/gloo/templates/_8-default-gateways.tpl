@@ -147,10 +147,10 @@ spec:
 {{- define "gloo.customResources.defaultGateways" -}}
 {{- $gatewayProxy := .Values.gatewayProxies.gatewayProxy }}
 {{- range $name, $gatewaySpec := .Values.gatewayProxies }}
-{{- $spec := deepCopy $gatewaySpec | mergeOverwrite (deepCopy $gatewayProxy ) -}}
+{{- $spec := deepCopy $gatewaySpec | mergeOverwrite (deepCopy $gatewayProxy) }}
 {{- $gatewaySettings := $spec.gatewaySettings }}
 {{- if and $spec.gatewaySettings (not $gatewaySpec.disabled) }}
-{{- $ctx := (list $ $name $spec)}}
+{{- $ctx := (list $ $name $spec) }}
 {{- if not $gatewaySettings.disableGeneratedGateways }}
 {{- if not $gatewaySettings.disableHttpGateway }}
 {{- $defaultGatewayOverride := $spec.gatewaySettings.httpGatewayKubeOverride }}

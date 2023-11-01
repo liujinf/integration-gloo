@@ -12,6 +12,8 @@ weight: 5
 
 
 - [Settings](#settings) **Top-Level Resource**
+- [SecretOptions](#secretoptions)
+- [Source](#source)
 - [KubernetesCrds](#kubernetescrds)
 - [KubernetesSecrets](#kubernetessecrets)
 - [VaultSecrets](#vaultsecrets)
@@ -48,7 +50,7 @@ weight: 5
 
 
 
-##### Source File: [github.com/solo-io/gloo/projects/gloo/api/v1/settings.proto](https://github.com/solo-io/gloo/blob/master/projects/gloo/api/v1/settings.proto)
+##### Source File: [github.com/solo-io/gloo/projects/gloo/api/v1/settings.proto](https://github.com/solo-io/gloo/blob/main/projects/gloo/api/v1/settings.proto)
 
 
 
@@ -69,6 +71,7 @@ Represents global settings for all the Gloo components.
 "kubernetesSecretSource": .gloo.solo.io.Settings.KubernetesSecrets
 "vaultSecretSource": .gloo.solo.io.Settings.VaultSecrets
 "directorySecretSource": .gloo.solo.io.Settings.Directory
+"secretOptions": .gloo.solo.io.Settings.SecretOptions
 "kubernetesArtifactSource": .gloo.solo.io.Settings.KubernetesConfigmaps
 "directoryArtifactSource": .gloo.solo.io.Settings.Directory
 "consulKvArtifactSource": .gloo.solo.io.Settings.ConsulKv
@@ -95,6 +98,7 @@ Represents global settings for all the Gloo components.
 "upstreamOptions": .gloo.solo.io.UpstreamOptions
 "consoleOptions": .gloo.solo.io.ConsoleOptions
 "graphqlOptions": .gloo.solo.io.GraphqlOptions
+"extProc": .extproc.options.gloo.solo.io.Settings
 
 ```
 
@@ -108,6 +112,7 @@ Represents global settings for all the Gloo components.
 | `kubernetesSecretSource` | [.gloo.solo.io.Settings.KubernetesSecrets](../settings.proto.sk/#kubernetessecrets) |  Only one of `kubernetesSecretSource`, `vaultSecretSource`, or `directorySecretSource` can be set. |
 | `vaultSecretSource` | [.gloo.solo.io.Settings.VaultSecrets](../settings.proto.sk/#vaultsecrets) |  Only one of `vaultSecretSource`, `kubernetesSecretSource`, or `directorySecretSource` can be set. |
 | `directorySecretSource` | [.gloo.solo.io.Settings.Directory](../settings.proto.sk/#directory) |  Only one of `directorySecretSource`, `kubernetesSecretSource`, or `vaultSecretSource` can be set. |
+| `secretOptions` | [.gloo.solo.io.Settings.SecretOptions](../settings.proto.sk/#secretoptions) | Settings for secrets storage. This API is experimental and not suitable for production use. |
 | `kubernetesArtifactSource` | [.gloo.solo.io.Settings.KubernetesConfigmaps](../settings.proto.sk/#kubernetesconfigmaps) |  Only one of `kubernetesArtifactSource`, `directoryArtifactSource`, or `consulKvArtifactSource` can be set. |
 | `directoryArtifactSource` | [.gloo.solo.io.Settings.Directory](../settings.proto.sk/#directory) |  Only one of `directoryArtifactSource`, `kubernetesArtifactSource`, or `consulKvArtifactSource` can be set. |
 | `consulKvArtifactSource` | [.gloo.solo.io.Settings.ConsulKv](../settings.proto.sk/#consulkv) |  Only one of `consulKvArtifactSource`, `kubernetesArtifactSource`, or `directoryArtifactSource` can be set. |
@@ -134,6 +139,45 @@ Represents global settings for all the Gloo components.
 | `upstreamOptions` | [.gloo.solo.io.UpstreamOptions](../settings.proto.sk/#upstreamoptions) | Default configuration to use for upstreams, when not provided by specific upstream When these properties are defined on an upstream, this configuration will be ignored. |
 | `consoleOptions` | [.gloo.solo.io.ConsoleOptions](../settings.proto.sk/#consoleoptions) | Enterprise-only: Settings for the Gloo Edge Enterprise Console (UI). |
 | `graphqlOptions` | [.gloo.solo.io.GraphqlOptions](../settings.proto.sk/#graphqloptions) | Enterprise-only: GraphQL settings. |
+| `extProc` | [.extproc.options.gloo.solo.io.Settings](../enterprise/options/extproc/extproc.proto.sk/#settings) | Enterprise-only: External Processing filter settings. These settings are used as defaults globally, and can be overridden by HttpListenerOptions, VirtualHostOptions, or RouteOptions. |
+
+
+
+
+---
+### SecretOptions
+
+
+
+```yaml
+"sources": []gloo.solo.io.Settings.SecretOptions.Source
+
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
+| `sources` | [[]gloo.solo.io.Settings.SecretOptions.Source](../settings.proto.sk/#source) | Required. List of configured secret sources. These clients will be sorted and initialized in a stable order kubernetes > directory > vault. |
+
+
+
+
+---
+### Source
+
+
+
+```yaml
+"kubernetes": .gloo.solo.io.Settings.KubernetesSecrets
+"vault": .gloo.solo.io.Settings.VaultSecrets
+"directory": .gloo.solo.io.Settings.Directory
+
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
+| `kubernetes` | [.gloo.solo.io.Settings.KubernetesSecrets](../settings.proto.sk/#kubernetessecrets) |  Only one of `kubernetes`, `vault`, or `directory` can be set. |
+| `vault` | [.gloo.solo.io.Settings.VaultSecrets](../settings.proto.sk/#vaultsecrets) |  Only one of `vault`, `kubernetes`, or `directory` can be set. |
+| `directory` | [.gloo.solo.io.Settings.Directory](../settings.proto.sk/#directory) |  Only one of `directory`, `kubernetes`, or `vault` can be set. |
 
 
 
@@ -236,8 +280,8 @@ For more info see https://developer.hashicorp.com/vault/docs/auth/aws
 | `region` | `string` | The AWS region to use for the login attempt. |
 | `iamServerIdHeader` | `string` | The IAM Server ID Header required to be included in the request. |
 | `mountPath` | `string` | The Vault path on which the AWS auth is mounted. |
-| `accessKeyId` | `string` | The Access Key ID as provided by the security credentials on the AWS IAM resource. |
-| `secretAccessKey` | `string` | The Secret Access Key as provided by the security credentials on the AWS IAM resource. |
+| `accessKeyId` | `string` | The Access Key ID as provided by the security credentials on the AWS IAM resource. Optional: In cases such as receiving temporary credentials through assumed roles with AWS Security Token Service (STS) or IAM Roles for Service Accounts (IRSA), this field can be omitted. https://developer.hashicorp.com/vault/docs/auth/aws#iam-authentication-inferences. |
+| `secretAccessKey` | `string` | The Secret Access Key as provided by the security credentials on the AWS IAM resource. Optional: In cases such as receiving temporary credentials through assumed roles with AWS Security Token Service (STS) or IAM Roles for Service Accounts (IRSA), this field can be omitted. https://developer.hashicorp.com/vault/docs/auth/aws#iam-authentication-inferences. |
 | `sessionToken` | `string` | The Session Token as provided by the security credentials on the AWS IAM resource. |
 
 
@@ -656,6 +700,8 @@ Settings specific to the gloo (Envoy xDS server) controller
 "failoverUpstreamDnsPollingInterval": .google.protobuf.Duration
 "removeUnusedFilters": .google.protobuf.BoolValue
 "proxyDebugBindAddr": string
+"logTransformationRequestResponseInfo": .google.protobuf.BoolValue
+"transformationEscapeCharacters": .google.protobuf.BoolValue
 
 ```
 
@@ -676,6 +722,8 @@ Settings specific to the gloo (Envoy xDS server) controller
 | `failoverUpstreamDnsPollingInterval` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) | The polling interval for the DNS server if upstream failover is configured. If there is a failover upstream address with a hostname instead of an IP, Gloo will resolve the hostname with the configured frequency to update endpoints with any changes to DNS resolution. Defaults to 10s. |
 | `removeUnusedFilters` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | By default gloo adds a series of filters to envoy to ensure that new routes are picked up Even if the listener previously did not have a filter on the chain previously. When set to true unused filters are not added to the chain by default. Defaults to false. |
 | `proxyDebugBindAddr` | `string` | Where the `gloo` proxy debug server should bind. Defaults to `gloo:9966`. |
+| `logTransformationRequestResponseInfo` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | When enabled, log the request/response body and headers before and after any transformations are applied. May be useful in the case where many transformations are applied and it is difficult to determine which are causing issues. Defaults to false. |
+| `transformationEscapeCharacters` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | Set escapeCharacters for all TransformationTemplates on all vhosts and routes. This setting can be overridden in individual TransformationTemplates. |
 
 
 
@@ -763,6 +811,7 @@ Settings specific to the Gateway controller
 "persistProxySpec": .google.protobuf.BoolValue
 "enableGatewayController": .google.protobuf.BoolValue
 "isolateVirtualHostsBySslConfig": .google.protobuf.BoolValue
+"translateEmptyGateways": .google.protobuf.BoolValue
 
 ```
 
@@ -777,6 +826,7 @@ Settings specific to the Gateway controller
 | `persistProxySpec` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | Set this to persist the Proxy CRD to etcd By default, proxies are kept in memory to improve performance. Proxies can be persisted to etcd to allow external tools and other pods to read the contents the Proxy CRD. |
 | `enableGatewayController` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | This is set based on the install mode. It indicates to gloo whether or not it should run the gateway translations and validation. |
 | `isolateVirtualHostsBySslConfig` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | If set, group virtual hosts by matching ssl config, and isolate them on separate filter chains The default behavior is to aggregate all virtual hosts, and expose them on identical filter chains, each with a FilterChainMatch that corresponds to the ssl config. Individual Gateways can override this behavior by configuring the "gateway.solo.io/isolate_vhost" annotation to be a truthy ("true", "false") value. |
+| `translateEmptyGateways` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | This field is a no-op for now. |
 
 
 

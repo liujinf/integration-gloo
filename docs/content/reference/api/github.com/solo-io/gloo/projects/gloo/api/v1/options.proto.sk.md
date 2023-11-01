@@ -26,7 +26,7 @@ weight: 5
 
 
 
-##### Source File: [github.com/solo-io/gloo/projects/gloo/api/v1/options.proto](https://github.com/solo-io/gloo/blob/master/projects/gloo/api/v1/options.proto)
+##### Source File: [github.com/solo-io/gloo/projects/gloo/api/v1/options.proto](https://github.com/solo-io/gloo/blob/main/projects/gloo/api/v1/options.proto)
 
 
 
@@ -109,12 +109,14 @@ connections that rarely cycle (e.g., service mesh gRPC egress).
 
 ```yaml
 "maxDirectResponseBodySizeBytes": .google.protobuf.UInt32Value
+"mostSpecificHeaderMutationsWins": .google.protobuf.BoolValue
 
 ```
 
 | Field | Type | Description |
 | ----- | ---- | ----------- | 
 | `maxDirectResponseBodySizeBytes` | [.google.protobuf.UInt32Value](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/u-int-32-value) | The maximum bytes of the response direct response body size. If not specified the default is 4096. Please refer to the [Envoy documentation](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/route/v3/route.proto#envoy-v3-api-field-config-route-v3-routeconfiguration-max-direct-response-body-size-bytes) for more details about the `max_direct_response_body_size_bytes` attribute. |
+| `mostSpecificHeaderMutationsWins` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | By default, headers that should be added/removed are evaluated from most to least specific. To allow setting overrides at the route or virtual host level, this order can be reversed by setting this option to true. Refer to the [Envoy documentation](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/route/v3/route.proto#envoy-v3-api-field-config-route-v3-routeconfiguration-most-specific-header-mutations-wins) for more details. |
 
 
 
@@ -136,6 +138,8 @@ Optional, feature-specific configuration that lives on http listeners
 "extauth": .enterprise.gloo.solo.io.Settings
 "ratelimitServer": .ratelimit.options.gloo.solo.io.Settings
 "caching": .caching.options.gloo.solo.io.Settings
+"disableExtProc": .google.protobuf.BoolValue
+"extProc": .extproc.options.gloo.solo.io.Settings
 "gzip": .solo.io.envoy.config.filter.http.gzip.v2.Gzip
 "proxyLatency": .envoy.config.filter.http.proxylatency.v2.ProxyLatency
 "buffer": .solo.io.envoy.extensions.filters.http.buffer.v3.Buffer
@@ -144,6 +148,9 @@ Optional, feature-specific configuration that lives on http listeners
 "sanitizeClusterHeader": .google.protobuf.BoolValue
 "leftmostXffAddress": .google.protobuf.BoolValue
 "dynamicForwardProxy": .dfp.options.gloo.solo.io.FilterConfig
+"connectionLimit": .connection_limit.options.gloo.solo.io.ConnectionLimit
+"networkLocalRatelimit": .local_ratelimit.options.gloo.solo.io.TokenBucket
+"httpLocalRatelimit": .local_ratelimit.options.gloo.solo.io.Settings
 "router": .gloo.solo.io.Router
 
 ```
@@ -160,6 +167,8 @@ Optional, feature-specific configuration that lives on http listeners
 | `extauth` | [.enterprise.gloo.solo.io.Settings](../enterprise/options/extauth/v1/extauth.proto.sk/#settings) | Enterprise-only: External auth related settings. |
 | `ratelimitServer` | [.ratelimit.options.gloo.solo.io.Settings](../enterprise/options/ratelimit/ratelimit.proto.sk/#settings) | Enterprise-only: Settings for the rate limiting server itself. |
 | `caching` | [.caching.options.gloo.solo.io.Settings](../enterprise/options/caching/caching.proto.sk/#settings) | Enterprise-only: Settings for the cache server itself. |
+| `disableExtProc` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | Enterprise-only: Set to true to disable the External Processing filter for this listener. This can be overridden by child VirtualHostOptions or RouteOptions. Only one of `disableExtProc` or `extProc` can be set. |
+| `extProc` | [.extproc.options.gloo.solo.io.Settings](../enterprise/options/extproc/extproc.proto.sk/#settings) | Enterprise-only: External Processing filter settings for the listener. This can be used to override the defaults from the global settings (via shallow merge). Some of the settings on the listener can be overridden by child VirtualHostOptions or RouteOptions. Only one of `extProc` or `disableExtProc` can be set. |
 | `gzip` | [.solo.io.envoy.config.filter.http.gzip.v2.Gzip](../../external/envoy/config/filter/http/gzip/v2/gzip.proto.sk/#gzip) | Gzip is an HTTP option which enables Gloo to compress data returned from an upstream service upon client request. Compression is useful in situations where large payloads need to be transmitted without compromising the response time. Example: ``` gzip: contentType: - "application/json" compressionLevel: BEST ```. |
 | `proxyLatency` | [.envoy.config.filter.http.proxylatency.v2.ProxyLatency](../../external/envoy/extensions/proxylatency/proxylatency.proto.sk/#proxylatency) | Enterprise-only: Proxy latency. |
 | `buffer` | [.solo.io.envoy.extensions.filters.http.buffer.v3.Buffer](../../external/envoy/extensions/filters/http/buffer/v3/buffer.proto.sk/#buffer) | Buffer can be used to set the maximum request size that the filter will buffer before the connection manager will stop buffering and return a 413 response. |
@@ -168,6 +177,9 @@ Optional, feature-specific configuration that lives on http listeners
 | `sanitizeClusterHeader` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | Enterprise-only: If using the HTTP header specified by cluster_header to direct traffic to a cluster, this option will sanitize that header from downstream traffic. Defaults to false. |
 | `leftmostXffAddress` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | Enterprise-only: Setting this value to true will grab the leftmost IP address from the x-forwarded-for header and set it as the downstream address. It is worth noting that the x-forwarded-for header can be tampered with by clients and should therefore be sanitized by any preceding proxies / load balancers if this option is to be used. |
 | `dynamicForwardProxy` | [.dfp.options.gloo.solo.io.FilterConfig](../options/dynamic_forward_proxy/dynamic_forward_proxy.proto.sk/#filterconfig) |  |
+| `connectionLimit` | [.connection_limit.options.gloo.solo.io.ConnectionLimit](../options/connection_limit/connection_limit.proto.sk/#connectionlimit) | ConnectionLimit can be used to limit the number of active connections per gateway. Useful for resource protection as well as DoS prevention. |
+| `networkLocalRatelimit` | [.local_ratelimit.options.gloo.solo.io.TokenBucket](../options/local_ratelimit/local_ratelimit.proto.sk/#tokenbucket) | NetworkLocalRatelimit can be used to rate limit the connections per gateway at the L4 layer and works pre-auth. It uses envoy's own local rate limit filter to do so, without the need for an external rate limit server to be set up. |
+| `httpLocalRatelimit` | [.local_ratelimit.options.gloo.solo.io.Settings](../options/local_ratelimit/local_ratelimit.proto.sk/#settings) | HttpLocalRatelimit can be used to rate limit the number of requests per gateway and works pre-auth. Unlike the NetworkLocalRatelimit, this works as part of the HCM (ie: L7 layer). All virtual host and routes that are part of this gateway will share this rate limit unless explicity configured with another limit. It uses envoy's own local rate limit filter to do so, without the need for an external rate limit server to be set up. |
 | `router` | [.gloo.solo.io.Router](../options/router/router.proto.sk/#router) | Router is an extension of the envoy http filters Maps to https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/http/router/v3/router.proto. |
 
 
@@ -181,12 +193,16 @@ Optional, feature-specific configuration that lives on tcp listeners
 
 ```yaml
 "tcpProxySettings": .tcp.options.gloo.solo.io.TcpProxySettings
+"connectionLimit": .connection_limit.options.gloo.solo.io.ConnectionLimit
+"localRatelimit": .local_ratelimit.options.gloo.solo.io.TokenBucket
 
 ```
 
 | Field | Type | Description |
 | ----- | ---- | ----------- | 
 | `tcpProxySettings` | [.tcp.options.gloo.solo.io.TcpProxySettings](../options/tcp/tcp.proto.sk/#tcpproxysettings) |  |
+| `connectionLimit` | [.connection_limit.options.gloo.solo.io.ConnectionLimit](../options/connection_limit/connection_limit.proto.sk/#connectionlimit) | ConnectionLimit can be used to limit the number of active connections per gateway. Useful for resource protection as well as DoS prevention. |
+| `localRatelimit` | [.local_ratelimit.options.gloo.solo.io.TokenBucket](../options/local_ratelimit/local_ratelimit.proto.sk/#tokenbucket) | LocalRatelimit can be used to rate limit the connections per gateway at the L4 layer. It uses envoy's own local rate limit filter to do so, without the need for an external rate limit server to be set up. |
 
 
 
@@ -225,6 +241,7 @@ to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 "includeRequestAttemptCount": .google.protobuf.BoolValue
 "includeAttemptCountInResponse": .google.protobuf.BoolValue
 "stagedTransformations": .transformation.options.gloo.solo.io.TransformationStages
+"extProc": .extproc.options.gloo.solo.io.RouteSettings
 
 ```
 
@@ -254,6 +271,7 @@ to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 | `includeRequestAttemptCount` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | IncludeRequestAttemptCount decides whether the x-envoy-attempt-count header should be included in the upstream request. Setting this option will cause it to override any existing header value, so in the case of two Envoys on the request path with this option enabled, the upstream will see the attempt count as perceived by the second Envoy. Defaults to false. |
 | `includeAttemptCountInResponse` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | IncludeAttemptCountInResponse decides whether the x-envoy-attempt-count header should be included in the downstream response. Setting this option will cause the router to override any existing header value, so in the case of two Envoys on the request path with this option enabled, the downstream will see the attempt count as perceived by the Envoy closest upstream from itself. Defaults to false. |
 | `stagedTransformations` | [.transformation.options.gloo.solo.io.TransformationStages](../options/transformation/transformation.proto.sk/#transformationstages) | Early transformations stage. These transformations run before most other options are processed. If the `regular` field is set in here, the `transformations` field is ignored. |
+| `extProc` | [.extproc.options.gloo.solo.io.RouteSettings](../enterprise/options/extproc/extproc.proto.sk/#routesettings) | Enterprise-only: External Processing filter settings for the virtual host. This can be used to override certain HttpListenerOptions settings, and can be overridden by RouteOptions settings. |
 
 
 
@@ -280,6 +298,7 @@ to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 "hostRewrite": string
 "autoHostRewrite": .google.protobuf.BoolValue
 "hostRewritePathRegex": .solo.io.envoy.type.matcher.v3.RegexMatchAndSubstitute
+"appendXForwardedHost": .google.protobuf.BoolValue
 "cors": .cors.options.gloo.solo.io.CorsPolicy
 "lbHash": .lbhash.options.gloo.solo.io.RouteActionHashConfig
 "upgrades": []protocol_upgrade.options.gloo.solo.io.ProtocolUpgradeConfig
@@ -303,6 +322,7 @@ to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 "regexRewrite": .solo.io.envoy.type.matcher.v3.RegexMatchAndSubstitute
 "maxStreamDuration": .gloo.solo.io.RouteOptions.MaxStreamDuration
 "idleTimeout": .google.protobuf.Duration
+"extProc": .extproc.options.gloo.solo.io.RouteSettings
 
 ```
 
@@ -320,6 +340,7 @@ to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 | `hostRewrite` | `string` | Indicates that during forwarding, the host header will be swapped with this value. Only one of `hostRewrite`, `autoHostRewrite`, or `hostRewritePathRegex` can be set. |
 | `autoHostRewrite` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | Enable/Disable auto host re-write. Indicates that the host header will be swapped with the hostname of the upstream host. This setting is only honored for upstreams that use DNS resolution (i.e., their generated Envoy cluster is of type STRICT_DNS or LOGICAL_DNS -- think aws, azure, or static upstreams with hostnames). Only one of `autoHostRewrite`, `hostRewrite`, or `hostRewritePathRegex` can be set. |
 | `hostRewritePathRegex` | [.solo.io.envoy.type.matcher.v3.RegexMatchAndSubstitute](../../external/envoy/type/matcher/v3/regex.proto.sk/#regexmatchandsubstitute) | Indicates that during forwarding, the host header will be swapped with the result of the regex substitution executed on path value with query and fragment removed. Only one of `hostRewritePathRegex`, `hostRewrite`, or `autoHostRewrite` can be set. |
+| `appendXForwardedHost` | [.google.protobuf.BoolValue](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/bool-value) | If true and there is a host rewrite, appends the x-forwarded-host header to requests. |
 | `cors` | [.cors.options.gloo.solo.io.CorsPolicy](../options/cors/cors.proto.sk/#corspolicy) | Defines a CORS policy for the route If a CORS policy is also defined on the route's virtual host, the policies are merged. |
 | `lbHash` | [.lbhash.options.gloo.solo.io.RouteActionHashConfig](../options/lbhash/lbhash.proto.sk/#routeactionhashconfig) | For routes served by a hashing load balancer, this defines the input to the hash key Gloo configures Envoy with the first available RouteActionHashConfig among the following ordered list of providers: - route, upstream, virtual service. |
 | `upgrades` | [[]protocol_upgrade.options.gloo.solo.io.ProtocolUpgradeConfig](../options/protocol_upgrade/protocol_upgrade.proto.sk/#protocolupgradeconfig) | Route configuration for protocol upgrade requests. |
@@ -343,6 +364,7 @@ to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 | `regexRewrite` | [.solo.io.envoy.type.matcher.v3.RegexMatchAndSubstitute](../../external/envoy/type/matcher/v3/regex.proto.sk/#regexmatchandsubstitute) | For requests matched on this route, rewrite the HTTP request path according to the provided regex pattern before forwarding upstream Please refer to the [Envoy documentation](https://www.envoyproxy.io/docs/envoy/v1.14.1/api-v3/config/route/v3/route_components.proto#envoy-v3-api-field-config-route-v3-routeaction-regex-rewrite) for more details about the `regex_rewrite` attribute. |
 | `maxStreamDuration` | [.gloo.solo.io.RouteOptions.MaxStreamDuration](../options.proto.sk/#maxstreamduration) | Settings for maximum durations and timeouts for streams on the route. Please refer to the [Envoy documentation](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/route/v3/route_components.proto#envoy-v3-api-msg-config-route-v3-routeaction-maxstreamduration). |
 | `idleTimeout` | [.google.protobuf.Duration](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/duration) | Specifies the idle timeout for the route. If not specified, there is no per-route idle timeout, although the Gateway's [httpConnectionManagerSettings](https://docs.solo.io/gloo-edge/latest/reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/options/hcm/hcm.proto.sk/#httpconnectionmanagersettings) wide stream_idle_timeout will still apply. A value of 0 will completely disable the route’s idle timeout, even if a connection manager stream idle timeout is configured. Please refer to the [Envoy documentation](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/route/v3/route_components.proto#envoy-v3-api-field-config-route-v3-routeaction-idle-timeout). |
+| `extProc` | [.extproc.options.gloo.solo.io.RouteSettings](../enterprise/options/extproc/extproc.proto.sk/#routesettings) | Enterprise-only: External Processing filter settings for the route. This can be used to override certain HttpListenerOptions or VirtualHostOptions settings. |
 
 
 

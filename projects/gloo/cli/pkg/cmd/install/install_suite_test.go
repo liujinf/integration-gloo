@@ -2,7 +2,6 @@ package install_test
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,12 +35,7 @@ const (
 	expectedHelmFilenameFmt = "gloo-%s.tgz"
 )
 
-// NOTE: This needs to be run from the root of the repo as the working directory
-var _ = BeforeSuite(func() {
-
-	// Make sure we don't hit a real cluster during any of the tests in this suite
-	helpers.UseMemoryClients()
-
+func setupVariables() {
 	cwd, err := os.Getwd()
 	Expect(err).NotTo(HaveOccurred())
 	RootDir = filepath.Join(cwd, "../../../../../..")
@@ -49,19 +43,28 @@ var _ = BeforeSuite(func() {
 	// the regression test depend on having only one chart in _test.
 	// so run these in a different location.
 	dir = filepath.Join(RootDir, "_unit_test/")
+	file = filepath.Join(dir, fmt.Sprintf(expectedHelmFilenameFmt, version.Version))
+
+	values1 = filepath.Join(dir, "values-namespace1.yaml")
+	values2 = filepath.Join(dir, "values-namespace2.yaml")
+}
+
+// NOTE: This needs to be run from the root of the repo as the working directory
+var beforeSuiteOnce = func() {
+
+	// Make sure we don't hit a real cluster during any of the tests in this suite
+	helpers.UseMemoryClients()
+
+	setupVariables()
 	os.Mkdir(dir, 0755)
 
-	err = testutils.Make(RootDir, "build-test-chart TEST_ASSET_DIR=\""+dir+"\"")
+	err := testutils.Make(RootDir, "build-test-chart TEST_ASSET_DIR=\""+dir+"\"")
 	Expect(err).NotTo(HaveOccurred())
 
 	// Some tests need the Gloo/GlooE version that gets linked into the glooctl binary at build time
 	err = testutils.Make(RootDir, "glooctl")
 	Expect(err).NotTo(HaveOccurred())
 
-	file = filepath.Join(dir, fmt.Sprintf(expectedHelmFilenameFmt, version.Version))
-
-	values1 = filepath.Join(dir, "values-namespace1.yaml")
-	values2 = filepath.Join(dir, "values-namespace2.yaml")
 	f, err := os.Create(values1)
 	Expect(err).NotTo(HaveOccurred())
 	_, err = f.WriteString(`
@@ -80,14 +83,14 @@ settings:
 
 	// Check all gloo crds are included in GlooCrdNames
 	crdDir := filepath.Join(RootDir, "/install/helm/gloo/crds")
-	files, err := ioutil.ReadDir(crdDir)
+	files, err := os.ReadDir(crdDir)
 	Expect(err).NotTo(HaveOccurred())
 	var crdNames []string
 	for _, f3 := range files {
 		ext := filepath.Ext(f3.Name())
 		// check file has manifest extension
 		if !f3.IsDir() && (strings.EqualFold(ext, ".yaml") || strings.EqualFold(ext, ".yml") || strings.EqualFold(ext, ".json")) {
-			manifest, err := ioutil.ReadFile(crdDir + "/" + f3.Name())
+			manifest, err := os.ReadFile(crdDir + "/" + f3.Name())
 			Expect(err).NotTo(HaveOccurred())
 			jsn, err := yaml.YAMLToJSON(manifest)
 			Expect(err).NotTo(HaveOccurred())
@@ -101,9 +104,13 @@ settings:
 		}
 	}
 	Expect(install.GlooCrdNames).To(ContainElements(crdNames))
-})
+}
 
-var _ = AfterSuite(func() {
+var beforeSuiteAll = func() {
+	setupVariables()
+}
+
+var afterSuiteOnce = func() {
 	err := os.Remove(file)
 	Expect(err).NotTo(HaveOccurred())
 	err = os.Remove(values1)
@@ -112,4 +119,9 @@ var _ = AfterSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	err = os.RemoveAll(dir)
 	Expect(err).NotTo(HaveOccurred())
-})
+}
+
+var (
+	_ = SynchronizedBeforeSuite(beforeSuiteOnce, beforeSuiteAll)
+	_ = SynchronizedAfterSuite(func() {}, afterSuiteOnce)
+)

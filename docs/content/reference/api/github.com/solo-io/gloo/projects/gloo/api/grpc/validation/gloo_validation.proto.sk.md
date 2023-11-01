@@ -40,6 +40,8 @@ weight: 5
 - [TcpHostReport](#tcphostreport)
 - [Error](#error)
 - [Type](#type)
+- [Warning](#warning)
+- [Type](#type)
 - [HybridListenerReport](#hybridlistenerreport)
 - [MatchedListenerReport](#matchedlistenerreport)
 - [AggregateListenerReport](#aggregatelistenerreport)
@@ -47,7 +49,7 @@ weight: 5
 
 
 
-##### Source File: [github.com/solo-io/gloo/projects/gloo/api/grpc/validation/gloo_validation.proto](https://github.com/solo-io/gloo/blob/master/projects/gloo/api/grpc/validation/gloo_validation.proto)
+##### Source File: [github.com/solo-io/gloo/projects/gloo/api/grpc/validation/gloo_validation.proto](https://github.com/solo-io/gloo/blob/main/projects/gloo/api/grpc/validation/gloo_validation.proto)
 
 
 
@@ -533,12 +535,14 @@ error types for top-level tcp listener config
 
 ```yaml
 "errors": []gloo.solo.io.TcpHostReport.Error
+"warnings": []gloo.solo.io.TcpHostReport.Warning
 
 ```
 
 | Field | Type | Description |
 | ----- | ---- | ----------- | 
 | `errors` | [[]gloo.solo.io.TcpHostReport.Error](../gloo_validation.proto.sk/#error) | errors on the tcp host. |
+| `warnings` | [[]gloo.solo.io.TcpHostReport.Warning](../gloo_validation.proto.sk/#warning) | warnings on the config of the tcp host. |
 
 
 
@@ -573,6 +577,39 @@ error types for tcp host config
 | `NameNotUniqueError` |  |
 | `InvalidDestinationError` |  |
 | `ProcessingError` |  |
+
+
+
+
+---
+### Warning
+
+ 
+warning types for the given tcp host config
+
+```yaml
+"type": .gloo.solo.io.TcpHostReport.Warning.Type
+"reason": string
+
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- | 
+| `type` | [.gloo.solo.io.TcpHostReport.Warning.Type](../gloo_validation.proto.sk/#type) | the type of the warning. |
+| `reason` | `string` | any extra info as a string. |
+
+
+
+
+---
+### Type
+
+
+
+| Name | Description |
+| ----- | ----------- | 
+| `UnknownWarning` |  |
+| `InvalidDestinationWarning` |  |
 
 
 
@@ -621,12 +658,14 @@ the report for an AggregateListener
 
 ```yaml
 "httpListenerReports": map<string, .gloo.solo.io.HttpListenerReport>
+"tcpListenerReports": map<string, .gloo.solo.io.TcpListenerReport>
 
 ```
 
 | Field | Type | Description |
 | ----- | ---- | ----------- | 
 | `httpListenerReports` | `map<string, .gloo.solo.io.HttpListenerReport>` |  |
+| `tcpListenerReports` | `map<string, .gloo.solo.io.TcpListenerReport>` |  |
 
 
 

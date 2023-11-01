@@ -43,86 +43,12 @@ IMAGE_REGISTRY ?= quay.io/solo-io
 # Kind of a hack to make sure _output exists
 z := $(shell mkdir -p $(OUTPUT_DIR))
 
+# a semver resembling 1.0.1-dev.  Most calling jobs customize this.  Ex:  v1.15.0-pr8278
+VERSION ?= 1.0.1-dev
+
 SOURCES := $(shell find . -name "*.go" | grep -v test.go)
-RELEASE := "false"
 
-# CREATE_ASSETS is used to protect certain make targets which publish assets and are used for releases
-CREATE_ASSETS := "true"
-
-# CREATE_TEST_ASSETS allows us to create assets on PRs that are unique
-# This flag will set the version to be PR-unique rather than commit-unique for charts and images
-CREATE_TEST_ASSETS := "false"
-ifneq ($(TEST_ASSET_ID),)
-	CREATE_TEST_ASSETS := "true"
-endif
-
-# ensure we have a valid version from a forked repo, so community users can submit PRs
-ORIGIN_URL ?= $(shell git remote get-url origin)
-UPSTREAM_ORIGIN_URL ?= git@github.com:solo-io/gloo.git
-UPSTREAM_ORIGIN_URL_HTTPS ?= https://www.github.com/solo-io/gloo.git
-UPSTREAM_ORIGIN_URL_SSH ?= ssh://git@github.com/solo-io/gloo
-ifeq ($(filter "$(ORIGIN_URL)", "$(UPSTREAM_ORIGIN_URL)" "$(UPSTREAM_ORIGIN_URL_HTTPS)" "$(UPSTREAM_ORIGIN_URL_SSH)"),)
-	VERSION ?= 0.0.1-fork
-	CREATE_TEST_ASSETS := "false"
-endif
-
-# If TAGGED_VERSION does not exist, this is not a release in CI
-ifeq ($(TAGGED_VERSION),)
-	# If we want to create test assets, set version to be PR-unique rather than commit-unique for charts and images
-	ifeq ($(CREATE_TEST_ASSETS), "true")
-	  VERSION ?= $(shell git describe --tags --abbrev=0 | cut -c 2-)-$(TEST_ASSET_ID)
-	else
-	  VERSION ?= $(shell git describe --tags --dirty | cut -c 2-)
-	endif
-else
-	RELEASE := "true"
-	VERSION ?= $(shell echo $(TAGGED_VERSION) | cut -c 2-)
-endif
-
-# only set CREATE_ASSETS to true if RELEASE is true or CREATE_TEST_ASSETS is true
-# workaround since makefile has no Logical OR for conditionals
-ifeq ($(CREATE_TEST_ASSETS), "true")
-  # set quay image expiration if creating test assets and we're pushing to Quay
-  ifeq ($(IMAGE_REGISTRY),"quay.io/solo-io")
-    QUAY_EXPIRATION_LABEL := --label "quay.expires-after=3w"
-  endif
-else
-  ifeq ($(RELEASE), "true")
-  else
-    CREATE_ASSETS := "false"
-  endif
-endif
-
-ENVOY_GLOO_IMAGE ?= quay.io/solo-io/envoy-gloo:1.25.6-patch1
-
-# The full SHA of the currently checked out commit
-CHECKED_OUT_SHA := $(shell git rev-parse HEAD)
-# Returns the name of the default branch in the remote `origin` repository, e.g. `master`
-DEFAULT_BRANCH_NAME := $(shell git remote show origin | sed -n '/HEAD branch/s/.*: //p')
-
-# Print the branches that contain the current commit and keep only the one that
-# EXACTLY matches the name of the default branch (avoid matching e.g. `master-2`).
-# If we get back a result, it mean we are on the default branch.
-EMPTY_IF_NOT_DEFAULT := $(shell git branch --contains $(CHECKED_OUT_SHA) | grep -ow $(DEFAULT_BRANCH_NAME))
-
-ON_DEFAULT_BRANCH := false
-ifneq ($(EMPTY_IF_NOT_DEFAULT),)
-    ON_DEFAULT_BRANCH = true
-endif
-
-ASSETS_ONLY_RELEASE := true
-ifeq ($(ON_DEFAULT_BRANCH), true)
-    ASSETS_ONLY_RELEASE = false
-endif
-
-.PHONY: print-git-info
-print-git-info:
-	@echo CHECKED_OUT_SHA: $(CHECKED_OUT_SHA)
-	@echo DEFAULT_BRANCH_NAME: $(DEFAULT_BRANCH_NAME)
-	@echo EMPTY_IF_NOT_DEFAULT: $(EMPTY_IF_NOT_DEFAULT)
-	@echo ON_DEFAULT_BRANCH: $(ON_DEFAULT_BRANCH)
-	@echo ASSETS_ONLY_RELEASE: $(ASSETS_ONLY_RELEASE)
-
+ENVOY_GLOO_IMAGE ?= quay.io/solo-io/envoy-gloo:1.26.5-patch1
 LDFLAGS := "-X github.com/solo-io/gloo/pkg/version.Version=$(VERSION)"
 GCFLAGS := all="-N -l"
 
@@ -147,10 +73,6 @@ GOOS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]')
 
 GO_BUILD_FLAGS := GO111MODULE=on CGO_ENABLED=0 GOARCH=$(GOARCH)
 GOLANG_ALPINE_IMAGE_NAME = golang:$(shell go version | egrep -o '([0-9]+\.[0-9]+)')-alpine
-
-# Passed by cloudbuild
-GCLOUD_PROJECT_ID := $(GCLOUD_PROJECT_ID)
-BUILD_ID := $(BUILD_ID)
 
 TEST_ASSET_DIR := $(ROOTDIR)/_test
 
@@ -180,6 +102,7 @@ include Makefile.ci
 init:
 	git config core.hooksPath .githooks
 
+# Runs [`goimports`](https://pkg.go.dev/golang.org/x/tools/cmd/goimports) which updates imports and formats code
 .PHONY: fmt
 fmt:
 	$(DEPSGOBIN)/goimports -w $(shell ls -d */ | grep -v vendor)
@@ -188,11 +111,10 @@ fmt:
 fmt-changed:
 	git diff --name-only | grep '.*.go$$' | xargs -- goimports -w
 
-# must be a seperate target so that make waits for it to complete before moving on
+# must be a separate target so that make waits for it to complete before moving on
 .PHONY: mod-download
 mod-download: check-go-version
 	go mod download all
-
 
 # https://github.com/go-modules-by-example/index/blob/master/010_tools/README.md
 .PHONY: install-go-tools
@@ -224,7 +146,7 @@ check-spelling:
 
 GINKGO_VERSION ?= $(shell echo $(shell go list -m github.com/onsi/ginkgo/v2) | cut -d' ' -f2)
 GINKGO_ENV ?= GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore ACK_GINKGO_RC=true ACK_GINKGO_DEPRECATIONS=$(GINKGO_VERSION)
-GINKGO_FLAGS ?= -tags=purego -compilers=4 --trace -progress -race --fail-fast -fail-on-pending --randomize-all
+GINKGO_FLAGS ?= -tags=purego --trace -progress -race --fail-fast -fail-on-pending --randomize-all --compilers=5
 GINKGO_REPORT_FLAGS ?= --json-report=test-report.json --junit-report=junit.xml -output-dir=$(OUTPUT_DIR)
 GINKGO_COVERAGE_FLAGS ?= --cover --covermode=count --coverprofile=coverage.cov
 TEST_PKG ?= ./... # Default to run all tests
@@ -238,7 +160,7 @@ install-test-tools: check-go-version
 	go install github.com/onsi/ginkgo/v2/ginkgo@$(GINKGO_VERSION)
 
 .PHONY: test
-test: install-test-tools ## Run all tests, or only run the test package at {TEST_PKG} if it is specified
+test: ## Run all tests, or only run the test package at {TEST_PKG} if it is specified
 	$(GINKGO_ENV) $(DEPSGOBIN)/ginkgo -ldflags=$(LDFLAGS) \
 	$(GINKGO_FLAGS) $(GINKGO_REPORT_FLAGS) $(GINKGO_USER_FLAGS) \
 	$(TEST_PKG)
@@ -250,16 +172,26 @@ test-with-coverage: test
 
 .PHONY: run-tests
 run-tests: GINKGO_FLAGS += -skip-package=e2e ## Run all non E2E tests, or only run the test package at {TEST_PKG} if it is specified
+run-tests: GINKGO_FLAGS += --label-filter="!end-to-end && !performance"
 run-tests: test
 
+.PHONY: run-performance-tests
+run-performance-tests: GINKGO_FLAGS += --label-filter="performance" ## Run only tests with the Performance label
+run-performance-tests: test
+
 .PHONY: run-e2e-tests
-run-e2e-tests: TEST_PKG = ./test/e2e/ ./test/consulvaulte2e ## Run all E2E tests
+run-e2e-tests: TEST_PKG = ./test/e2e/ ## Run all in-memory E2E tests
+run-e2e-tests: GINKGO_FLAGS += --label-filter="end-to-end && !performance"
 run-e2e-tests: test
 
-.PHONY: run-ci-regression-tests
-run-ci-regression-tests: install-test-tools ## Run the Kubernetes E2E Tests in the {KUBE2E_TESTS} package
-run-ci-regression-tests: TEST_PKG = ./test/kube2e/$(KUBE2E_TESTS)
-run-ci-regression-tests: test
+.PHONY: run-hashicorp-e2e-tests
+run-hashicorp-e2e-tests: TEST_PKG = ./test/consulvaulte2e/
+run-hashicorp-e2e-tests: GINKGO_FLAGS += --label-filter="end-to-end && !performance"
+run-hashicorp-e2e-tests: test
+
+.PHONY: run-kube-e2e-tests
+run-kube-e2e-tests: TEST_PKG = ./test/kube2e/$(KUBE2E_TESTS) ## Run the Kubernetes E2E Tests in the {KUBE2E_TESTS} package
+run-kube-e2e-tests: test
 
 #----------------------------------------------------------------------------------
 # Clean
@@ -285,6 +217,7 @@ clean-tests:
 clean-vendor-any:
 	rm -rf vendor_any
 
+# Removes files generated by codegen other than docs and tests
 .PHONY: clean-solo-kit-gen
 clean-solo-kit-gen:
 	find * -type f -name '*.sk.md' -not -path "docs/*" -not -path "test/*" -exec rm {} \;
@@ -296,7 +229,7 @@ clean-solo-kit-gen:
 
 .PHONY: clean-cli-docs
 clean-cli-docs:
-	rm docs/content/reference/cli/glooctl*
+	rm docs/content/reference/cli/glooctl* || true # ignore error if file doesn't exist
 
 #----------------------------------------------------------------------------------
 # Generated Code and Docs
@@ -305,32 +238,54 @@ clean-cli-docs:
 .PHONY: generate-all
 generate-all: generated-code
 
+# Generates all required code, cleaning and formatting as well; this target is executed in CI
 .PHONY: generated-code
-generated-code: check-go-version clean-vendor-any clean-solo-kit-gen clean-cli-docs ## Execute Gloo Edge codegen
-generated-code: $(OUTPUT_DIR)/.generated-code
+generated-code: check-go-version clean-solo-kit-gen ## Run all codegen and formatting as required by CI
+generated-code: go-generate-all generate-cli-docs getter-check mod-tidy
 generated-code: verify-enterprise-protos generate-helm-files update-licenses
 generated-code: fmt
 
-# Note: currently we generate CLI docs, but don't push them to the consolidated docs repo (gloo-docs). Instead, the
-# Glooctl enterprise docs are pushed from the private repo.
-# TODO(EItanya): make mockgen work for gloo
-$(OUTPUT_DIR)/.generated-code:
+.PHONY: go-generate-all
+go-generate-all: clean-vendor-any ## Run all go generate directives in the repo, including codegen for protos, mockgen, and more
 	GO111MODULE=on go generate ./...
-	GO111MODULE=on go run projects/gloo/cli/cmd/docs/main.go
-	$(DEPSGOBIN)/gettercheck -ignoretests -ignoregenerated -write ./...
-	go mod tidy
-	touch $@
 
+.PHONY: go-generate-apis
+go-generate-apis: clean-vendor-any ## Runs the generate directive in generate.go, which executes codegen for protos
+	GO111MODULE=on go generate generate.go
+
+.PHONY: go-generate-mocks
+go-generate-mocks: clean-vendor-any ## Runs all generate directives for mockgen in the repo
+	GO111MODULE=on go generate -run="mockgen" ./...
+
+.PHONY: generate-cli-docs
+generate-cli-docs: clean-cli-docs ## Removes existing CLI docs and re-generates them
+	GO111MODULE=on go run projects/gloo/cli/cmd/docs/main.go
+
+# Ensures that accesses for fields which have "getter" functions are exclusively done via said "getter" functions
+.PHONY: getter-check
+getter-check:
+	$(DEPSGOBIN)/gettercheck -ignoretests -ignoregenerated -write ./...
+
+.PHONY: mod-tidy
+mod-tidy:
+	go mod tidy
+
+# Validates that protos used exclusively in EE are valid
 .PHONY: verify-enterprise-protos
 verify-enterprise-protos:
 	@echo Verifying validity of generated enterprise files...
 	$(GO_BUILD_FLAGS) GOOS=linux go build projects/gloo/pkg/api/v1/enterprise/verify.go $(STDERR_SILENCE_REDIRECT)
 
-# makes sure you are running codegen with the correct Go version
+# Validates that local Go version matches go.mod
 .PHONY: check-go-version
 check-go-version:
 	./ci/check-go-version.sh
 
+.PHONY: generated-code-apis
+generated-code-apis: clean-solo-kit-gen go-generate-apis fmt ## Executes the targets necessary to generate formatted code from all protos
+
+.PHONY: generated-code-cleanup
+generated-code-cleanup: getter-check mod-tidy update-licenses fmt ## Executes the targets necessary to cleanup and format code
 
 #----------------------------------------------------------------------------------
 # Generate mocks
@@ -610,17 +565,9 @@ kubectl-docker: $(KUBECTL_OUTPUT_DIR)/Dockerfile.kubectl
 
 HELM_SYNC_DIR := $(OUTPUT_DIR)/helm
 HELM_DIR := install/helm/gloo
-HELM_BUCKET := gs://solo-public-helm
-
-# If this is not a release commit, push up helm chart to solo-public-tagged-helm chart repo with
-# name gloo-{{VERSION}}-{{TEST_ASSET_ID}}
-# e.g. gloo-v1.7.0-4300
-ifeq ($(RELEASE), "false")
-	HELM_BUCKET := gs://solo-public-tagged-helm
-endif
 
 .PHONY: generate-helm-files
-generate-helm-files: $(OUTPUT_DIR)/.helm-prepared
+generate-helm-files: $(OUTPUT_DIR)/.helm-prepared ## Generates required helm files
 
 HELM_PREPARED_INPUT := $(HELM_DIR)/generate.go $(wildcard $(HELM_DIR)/generate/*.go)
 $(OUTPUT_DIR)/.helm-prepared: $(HELM_PREPARED_INPUT)
@@ -634,14 +581,76 @@ package-chart: generate-helm-files
 	helm package --destination $(HELM_SYNC_DIR)/charts $(HELM_DIR)
 	helm repo index $(HELM_SYNC_DIR)
 
-.PHONY: push-chart-to-registry
-push-chart-to-registry: generate-helm-files
-	helm package $(HELM_DIR)
-	helm push --registry-config $(DOCKER_CONFIG)/config.json gloo-$(VERSION).tgz oci://gcr.io/solo-public/gloo-helm
+#----------------------------------------------------------------------------------
+# Publish Artifacts
+#
+# We publish artifacts using our CI pipeline. This may happen during any of the following scenarios:
+# 	- Release
+#	- Development Build (a one-off build for unreleased code)
+#	- Pull Request (we publish unreleased artifacts to be consumed by our Enterprise project)
+#----------------------------------------------------------------------------------
+# TODO: delete this logic block when we have a github actions-managed release
 
-.PHONY: fetch-package-and-save-helm
-fetch-package-and-save-helm: generate-helm-files
-ifeq ($(CREATE_ASSETS), "true")
+# git_tag is evaluated when is used (recursively expanded variable)
+# https://ftp.gnu.org/old-gnu/Manuals/make-3.79.1/html_chapter/make_6.html#SEC59
+git_tag = $(shell git describe --abbrev=0 --tags)
+# Semantic versioning format https://semver.org/
+# Regex copied from: https://github.com/solo-io/go-utils/blob/16d4d94e4e5f182ca8c10c5823df303087879dea/versionutils/version.go#L338
+tag_regex := v[0-9]+[.][0-9]+[.][0-9]+(-[a-z]+)*(-[a-z]+[0-9]*)?$
+
+ifneq (,$(TEST_ASSET_ID))
+PUBLISH_CONTEXT := PULL_REQUEST
+ifeq ($(shell echo $(git_tag) | egrep "$(tag_regex)"),)
+# Forked repos don't have tags by default, so we create a standard tag for them
+# This only impacts the version of the assets used in CI for this PR, so it is ok that it is not a real tag
+VERSION = 1.0.0-$(TEST_ASSET_ID)
+else
+VERSION = $(shell echo $(git_tag) | cut -c 2-)-$(TEST_ASSET_ID) # example: 1.16.0-beta4-{TEST_ASSET_ID}
+endif
+LDFLAGS := "-X github.com/solo-io/gloo/pkg/version.Version=$(VERSION)"
+endif
+
+# TODO: delete this logic block when we have a github actions-managed release
+ifneq (,$(TAGGED_VERSION))
+PUBLISH_CONTEXT := RELEASE
+VERSION := $(shell echo $(TAGGED_VERSION) | cut -c 2-)
+LDFLAGS := "-X github.com/solo-io/gloo/pkg/version.Version=$(VERSION)"
+endif
+
+# controller variable for the "Publish Artifacts" section.  Defines which targets exist.  Possible Values: NONE, RELEASE, PULL_REQUEST
+PUBLISH_CONTEXT ?= NONE
+# specify which bucket to upload helm chart to
+HELM_BUCKET ?= gs://solo-public-tagged-helm
+# modifier to docker builds which can auto-delete docker images after a set time
+QUAY_EXPIRATION_LABEL ?= --label quay.expires-after=3w
+
+# define empty publish targets so calls won't fail
+.PHONY: publish-docker
+.PHONY: publish-docker-retag
+.PHONY: publish-glooctl
+.PHONY: publish-helm-chart
+
+# don't define Publish Artifacts Targets if we don't have a release context
+ifneq (,$(filter $(PUBLISH_CONTEXT),RELEASE PULL_REQUEST))
+
+ifeq (RELEASE, $(PUBLISH_CONTEXT))      # RELEASE contexts have additional make targets
+HELM_BUCKET           := gs://solo-public-helm
+QUAY_EXPIRATION_LABEL :=
+# Re-tag docker images previously pushed to the ORIGINAL_IMAGE_REGISTRY,
+# and push them to a secondary repository, defined at IMAGE_REGISTRY
+publish-docker-retag: docker-retag docker-push
+
+# publish glooctl
+publish-glooctl: build-cli
+	VERSION=$(VERSION) GO111MODULE=on go run ci/upload_github_release_assets.go true
+endif # RELEASE exclusive make targets
+
+
+# Build and push docker images to the defined $(IMAGE_REGISTRY)
+publish-docker: docker docker-push
+
+# create a new helm chart and publish it to $(HELM_BUCKET)
+publish-helm-chart: generate-helm-files
 	@echo "Uploading helm chart to $(HELM_BUCKET) with name gloo-$(VERSION).tgz"
 	until $$(GENERATION=$$(gsutil ls -a $(HELM_BUCKET)/index.yaml | tail -1 | cut -f2 -d '#') && \
 					gsutil cp -v $(HELM_BUCKET)/index.yaml $(HELM_SYNC_DIR)/index.yaml && \
@@ -652,78 +661,7 @@ ifeq ($(CREATE_ASSETS), "true")
 		echo "Failed to upload new helm index (updated helm index since last download?). Trying again"; \
 		sleep 2; \
 	done
-endif
-
-.PHONY: render-manifests
-render-manifests: install/gloo-gateway.yaml install/gloo-ingress.yaml install/gloo-knative.yaml
-
-INSTALL_NAMESPACE ?= gloo-system
-
-MANIFEST_OUTPUT = > /dev/null
-ifneq ($(BUILD_ID),)
-MANIFEST_OUTPUT =
-endif
-
-define HELM_VALUES
-namespace:
-  create: true
-endef
-
-# Export as a shell variable, make variables do not play well with multiple lines
-export HELM_VALUES
-$(OUTPUT_DIR)/release-manifest-values.yaml:
-	@echo "$$HELM_VALUES" > $@
-
-install/gloo-gateway.yaml: $(OUTPUT_DIR)/glooctl-linux-$(GOARCH) $(OUTPUT_DIR)/release-manifest-values.yaml package-chart
-ifeq ($(RELEASE),"true")
-	$(OUTPUT_DIR)/glooctl-linux-$(GOARCH) install gateway -n $(INSTALL_NAMESPACE) -f $(HELM_SYNC_DIR)/charts/gloo-$(VERSION).tgz \
-		--values $(OUTPUT_DIR)/release-manifest-values.yaml --dry-run | tee $@ $(OUTPUT_YAML) $(MANIFEST_OUTPUT)
-endif
-
-install/gloo-knative.yaml: $(OUTPUT_DIR)/glooctl-linux-$(GOARCH) $(OUTPUT_DIR)/release-manifest-values.yaml package-chart
-ifeq ($(RELEASE),"true")
-	$(OUTPUT_DIR)/glooctl-linux-$(GOARCH) install knative -n $(INSTALL_NAMESPACE) -f $(HELM_SYNC_DIR)/charts/gloo-$(VERSION).tgz \
-		--values $(OUTPUT_DIR)/release-manifest-values.yaml --dry-run | tee $@ $(OUTPUT_YAML) $(MANIFEST_OUTPUT)
-endif
-
-install/gloo-ingress.yaml: $(OUTPUT_DIR)/glooctl-linux-$(GOARCH) $(OUTPUT_DIR)/release-manifest-values.yaml package-chart
-ifeq ($(RELEASE),"true")
-	$(OUTPUT_DIR)/glooctl-linux-$(GOARCH) install ingress -n $(INSTALL_NAMESPACE) -f $(HELM_SYNC_DIR)/charts/gloo-$(VERSION).tgz \
-		--values $(OUTPUT_DIR)/release-manifest-values.yaml --dry-run | tee $@ $(OUTPUT_YAML) $(MANIFEST_OUTPUT)
-endif
-
-#----------------------------------------------------------------------------------
-# Publish Artifacts
-#
-# We publish artifacts using our CI pipeline. This may happen during any of the following scenarios:
-# 	- Release
-#	- Development Build (a one-off build for unreleased code)
-#	- Pull Request (we publish unreleased artifacts to be consumed by our Enterprise project)
-#----------------------------------------------------------------------------------
-
-$(OUTPUT_DIR)/gloo-enterprise-version:
-	GO111MODULE=on go run hack/find_latest_enterprise_version.go
-
-.PHONY: upload-github-release-assets
-upload-github-release-assets: print-git-info build-cli render-manifests
-	GO111MODULE=on go run ci/upload_github_release_assets.go $(ASSETS_ONLY_RELEASE)
-
-# Intended only to be run by CI
-# Build and push docker images to the defined IMAGE_REGISTRY
-.PHONY: publish-docker
-ifeq ($(CREATE_ASSETS), "true")
-publish-docker: docker
-publish-docker: docker-push
-endif
-
-# Intended only to be run by CI
-# Re-tag docker images previously pushed to the ORIGINAL_IMAGE_REGISTRY,
-# and push them to a secondary repository, defined at IMAGE_REGISTRY
-.PHONY: publish-docker-retag
-ifeq ($(RELEASE), "true")
-publish-docker-retag: docker-retag
-publish-docker-retag: docker-push
-endif
+endif # Publish Artifact Targets
 
 #----------------------------------------------------------------------------------
 # Docker
@@ -863,7 +801,7 @@ build-test-chart: ## Build the Helm chart and place it in the _test directory
 SCAN_DIR ?= $(OUTPUT_DIR)/scans
 SCAN_BUCKET ?= solo-gloo-security-scans
 # The minimum version to scan with trivy
-MIN_SCANNED_VERSION ?= v1.11.0
+MIN_SCANNED_VERSION ?= v1.12.0
 
 .PHONY: run-security-scans
 run-security-scan:

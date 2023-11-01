@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/solo-io/gloo/test/services/envoy"
+
 	"github.com/solo-io/gloo/test/gomega/matchers"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -123,7 +125,9 @@ func (s *metadataCheckingRateLimitServer) getActionsForServer() []*rltypes.RateL
 	}
 }
 
-var _ = Describe("Rate Limit", func() {
+var _ = Describe("Rate Limit", Serial, func() {
+
+	// These tests use the Serial decorator because they rely on a hard-coded port for the RateLimit server (18081)
 
 	var (
 		ctx         context.Context
@@ -138,18 +142,15 @@ var _ = Describe("Rate Limit", func() {
 	Context("with envoy", func() {
 
 		var (
-			envoyInstance *services.EnvoyInstance
+			envoyInstance *envoy.Instance
 			testUpstream  *v1helpers.TestUpstream
 			envoyPort     uint32
 			srv           *grpc.Server
 		)
 
 		BeforeEach(func() {
-			var err error
-			envoyInstance, err = envoyFactory.NewEnvoyInstance()
-			Expect(err).NotTo(HaveOccurred())
-
-			envoyPort = defaults.HttpPort
+			envoyInstance = envoyFactory.NewInstance()
+			envoyPort = envoyInstance.HttpPort
 
 			// add the rl service as a static upstream
 			rlserver := &gloov1.Upstream{
@@ -188,13 +189,13 @@ var _ = Describe("Rate Limit", func() {
 			}
 
 			testClients = services.RunGlooGatewayUdsFds(ctx, ro)
-			_, err = testClients.UpstreamClient.Write(rlserver, clients.WriteOpts{})
+			_, err := testClients.UpstreamClient.Write(rlserver, clients.WriteOpts{})
 			Expect(err).NotTo(HaveOccurred())
 
 			err = helpers.WriteDefaultGateways(defaults.GlooSystem, testClients.GatewayClient)
 			Expect(err).NotTo(HaveOccurred(), "Should be able to write the default gateways")
 
-			err = envoyInstance.RunWithRoleAndRestXds(services.DefaultProxyName, testClients.GlooPort, testClients.RestXdsPort)
+			err = envoyInstance.RunWithRoleAndRestXds(envoy.DefaultProxyName, testClients.GlooPort, testClients.RestXdsPort)
 			Expect(err).NotTo(HaveOccurred())
 
 			testUpstream = v1helpers.NewTestHttpUpstream(ctx, envoyInstance.LocalAddr())

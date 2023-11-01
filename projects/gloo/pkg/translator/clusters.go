@@ -2,6 +2,7 @@ package translator
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
@@ -12,11 +13,13 @@ import (
 	_struct "github.com/golang/protobuf/ptypes/struct"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/rotisserie/eris"
+	errors "github.com/rotisserie/eris"
 	"github.com/solo-io/gloo/pkg/utils/api_conversion"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	v1_options "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options"
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/ssl"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
+	upstream_proxy_protocol "github.com/solo-io/gloo/projects/gloo/pkg/plugins/utils/upstreamproxyprotocol"
 	"github.com/solo-io/gloo/projects/gloo/pkg/utils"
 	"github.com/solo-io/gloo/projects/gloo/pkg/xds"
 	"github.com/solo-io/go-utils/contextutils"
@@ -31,6 +34,7 @@ func (t *translatorInstance) computeClusters(
 	reports reporter.ResourceReports,
 	upstreamRefKeyToEndpoints map[string][]*v1.Endpoint,
 	proxy *v1.Proxy,
+	shouldEnforceNamespaceMatch bool,
 ) ([]*envoy_config_cluster_v3.Cluster, map[*envoy_config_cluster_v3.Cluster]*v1.Upstream) {
 
 	ctx, span := trace.StartSpan(params.Ctx, "gloo.translator.computeClusters")
@@ -45,7 +49,7 @@ func (t *translatorInstance) computeClusters(
 
 	clusterToUpstreamMap := make(map[*envoy_config_cluster_v3.Cluster]*v1.Upstream)
 	for _, upstream := range upstreams {
-		cluster := t.computeCluster(params, upstream, upstreamRefKeyToEndpoints, reports)
+		cluster := t.computeCluster(params, upstream, upstreamRefKeyToEndpoints, reports, shouldEnforceNamespaceMatch)
 		clusterToUpstreamMap[cluster] = upstream
 		clusters = append(clusters, cluster)
 	}
@@ -58,9 +62,10 @@ func (t *translatorInstance) computeCluster(
 	upstream *v1.Upstream,
 	upstreamRefKeyToEndpoints map[string][]*v1.Endpoint,
 	reports reporter.ResourceReports,
+	shouldEnforceNamespaceMatch bool,
 ) *envoy_config_cluster_v3.Cluster {
 	params.Ctx = contextutils.WithLogger(params.Ctx, upstream.GetMetadata().GetName())
-	out := t.initializeCluster(upstream, upstreamRefKeyToEndpoints, reports, &params.Snapshot.Secrets)
+	out := t.initializeCluster(upstream, upstreamRefKeyToEndpoints, reports, &params.Snapshot.Secrets, shouldEnforceNamespaceMatch)
 
 	for _, plugin := range t.pluginRegistry.GetUpstreamPlugins() {
 		if err := plugin.ProcessUpstream(params, upstream, out); err != nil {
@@ -68,8 +73,7 @@ func (t *translatorInstance) computeCluster(
 		}
 	}
 	if err := validateCluster(out); err != nil {
-		reports.AddError(upstream, eris.Wrapf(err, "cluster was configured improperly "+
-			"by one or more plugins: %v", out))
+		reports.AddError(upstream, eris.Wrap(err, "cluster was configured improperly by one or more plugins"))
 	}
 	return out
 }
@@ -79,12 +83,18 @@ func (t *translatorInstance) initializeCluster(
 	upstreamRefKeyToEndpoints map[string][]*v1.Endpoint,
 	reports reporter.ResourceReports,
 	secrets *v1.SecretList,
+	shouldEnforceNamespaceMatch bool,
 ) *envoy_config_cluster_v3.Cluster {
-	hcConfig, err := createHealthCheckConfig(upstream, secrets)
+	hcConfig, err := createHealthCheckConfig(upstream, secrets, shouldEnforceNamespaceMatch)
 	if err != nil {
 		reports.AddError(upstream, err)
 	}
 	detectCfg, err := createOutlierDetectionConfig(upstream)
+	if err != nil {
+		reports.AddError(upstream, err)
+	}
+
+	preconnect, err := getPreconnectPolicy(upstream.GetPreconnectPolicy())
 	if err != nil {
 		reports.AddError(upstream, err)
 	}
@@ -105,6 +115,7 @@ func (t *translatorInstance) initializeCluster(
 		IgnoreHealthOnHostRemoval: upstream.GetIgnoreHealthOnHostRemoval().GetValue(),
 		RespectDnsTtl:             upstream.GetRespectDnsTtl().GetValue(),
 		DnsRefreshRate:            getDnsRefreshRate(upstream, reports),
+		PreconnectPolicy:          preconnect,
 	}
 
 	if sslConfig := upstream.GetSslConfig(); sslConfig != nil {
@@ -125,6 +136,17 @@ func (t *translatorInstance) initializeCluster(
 					ConfigType: &envoy_config_core_v3.TransportSocket_TypedConfig{TypedConfig: typedConfig},
 				}
 			}
+		}
+	}
+	// proxyprotocol may be wiped by some plugins that transform transport sockets
+	// see static and failover at time of writing.
+	if upstream.GetProxyProtocolVersion() != nil {
+
+		tp, err := upstream_proxy_protocol.WrapWithPProtocol(out.GetTransportSocket(), upstream.GetProxyProtocolVersion().GetValue())
+		if err != nil {
+			reports.AddError(upstream, err)
+		} else {
+			out.TransportSocket = tp
 		}
 	}
 
@@ -149,7 +171,7 @@ var (
 	minimumDnsRefreshRate = prototime.DurationToProto(time.Millisecond * 1)
 )
 
-func createHealthCheckConfig(upstream *v1.Upstream, secrets *v1.SecretList) ([]*envoy_config_core_v3.HealthCheck, error) {
+func createHealthCheckConfig(upstream *v1.Upstream, secrets *v1.SecretList, shouldEnforceNamespaceMatch bool) ([]*envoy_config_core_v3.HealthCheck, error) {
 	if upstream == nil {
 		return nil, nil
 	}
@@ -165,7 +187,8 @@ func createHealthCheckConfig(upstream *v1.Upstream, secrets *v1.SecretList) ([]*
 		if hc.GetHealthChecker() == nil {
 			return nil, NilFieldError(fmt.Sprintf("HealthCheck[%d].HealthChecker", i))
 		}
-		converted, err := api_conversion.ToEnvoyHealthCheck(hc, secrets)
+		options := api_conversion.HeaderSecretOptions{UpstreamNamespace: upstream.GetMetadata().GetNamespace(), EnforceNamespaceMatch: shouldEnforceNamespaceMatch}
+		converted, err := api_conversion.ToEnvoyHealthCheck(hc, secrets, options)
 		if err != nil {
 			return nil, err
 		}
@@ -274,6 +297,45 @@ func getCircuitBreakers(cfgs ...*v1.CircuitBreakerConfig) *envoy_config_cluster_
 		}
 	}
 	return nil
+}
+
+// getPreconnectPolicy follows the naming of the rest of functions here
+// it MAY someday deal with inheritance like the other functions
+// it consumes an ordered list of preconnect policies
+// it returns the first non-nil policy
+func getPreconnectPolicy(cfgs ...*v1.PreconnectPolicy) (*envoy_config_cluster_v3.Cluster_PreconnectPolicy, error) {
+
+	// since we dont want strict reliance on envoy's current api
+	// but still able to map as closely as possible
+	// if not nil then convert the gloo configurations to envoy
+	for _, curConfig := range cfgs {
+		if curConfig == nil {
+			continue
+		}
+
+		// we have a policy. However we dont respect proto constraints
+		// therefore we need to check here to see if the applied configuration is
+		// SILLY and warn the user.
+		perUpstream := curConfig.GetPerUpstreamPreconnectRatio()
+		predictive := curConfig.GetPredictivePreconnectRatio()
+
+		eStrings := []string{}
+		if perUpstream != nil && (perUpstream.GetValue() < 1 || perUpstream.GetValue() > 3) {
+			eStrings = append(eStrings, fmt.Sprintf("perupstream must be between 1 and 3 if set, it was: %v", perUpstream.GetValue()))
+		}
+		if predictive != nil && (predictive.GetValue() < 1 || predictive.GetValue() > 3) {
+			eStrings = append(eStrings, fmt.Sprintf("predictive must be between 1 and 3 if set, it was: %v", perUpstream.GetValue()))
+		}
+		if len(eStrings) > 0 {
+			return nil, errors.New("invalid preconnect policy: " + strings.Join(eStrings, "; "))
+		}
+		return &envoy_config_cluster_v3.Cluster_PreconnectPolicy{
+
+			PerUpstreamPreconnectRatio: curConfig.GetPerUpstreamPreconnectRatio(),
+			PredictivePreconnectRatio:  curConfig.GetPredictivePreconnectRatio(),
+		}, nil
+	}
+	return nil, nil
 }
 
 func getHttp2options(us *v1.Upstream) *envoy_config_core_v3.Http2ProtocolOptions {
