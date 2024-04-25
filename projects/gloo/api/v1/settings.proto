@@ -59,7 +59,7 @@ message Settings {
     };
 
     // Settings for secrets storage.
-    // This API is experimental and not suitable for production use
+    // This API is beta and should be tested thoroughly before production use
     SecretOptions secret_options = 38;
 
     message SecretOptions {
@@ -181,6 +181,8 @@ message Settings {
         string secret_access_key = 6;
         // The Session Token as provided by the security credentials on the AWS IAM resource
         string session_token = 7;
+        // The time increment, in seconds, used in renewing the lease of the Vault token. See: https://developer.hashicorp.com/vault/docs/concepts/lease#lease-durations-and-renewal. Defaults to 0, which causes the default TTL to be used.
+        int32 lease_increment = 8;
     }
 
     // Settings to configure TLS-enabled Vault as a secret store
@@ -510,6 +512,16 @@ message Settings {
             // 2. Request all folder data (after admin:admin is replaced with the correct credentials):
             // curl http://admin:admin@localhost:3000/api/folders
             google.protobuf.UInt32Value default_dashboard_folder_id = 1;
+
+            // The prefix of the UIDs and Titles for all dashboards created on grafana.
+            // This is restricted to 20 characters.
+            string dashboard_prefix = 2;
+
+            // Extra parameters when querying metrics from Grafana dashboards.
+            // This string will be appended to every query for metrics in the definition of all gloo managed dashboards.
+            // It can consist of multiple query parameters separated by a comma.
+            // For example `cluster="some-cluster",gateway_proxy_id="proxy-2"`
+            string extra_metric_query_parameters = 3;
         }
 
         // Options to configure Gloo's integration with [Kubernetes](https://www.kubernetes.io/).
@@ -657,10 +669,16 @@ message GlooOptions {
     // set these options to fine-tune the way Gloo handles invalid user configuration
     InvalidConfigPolicy invalid_config_policy = 6;
 
-    // Gloo allows you to directly reference a Kubernetes service as a routing destination. To enable this feature,
-    // Gloo scans the cluster for Kubernetes services and creates a special type of in-memory Upstream to represent them.
-    // If the cluster contains a lot of services and you do not restrict the namespaces Gloo is watching, this can result
-    // in significant overhead. If you do not plan on using this feature, you can use this flag to turn it off.
+    // Enable or disable Gloo Edge to scan Kubernetes services in the cluster and create in-memory Upstream resources 
+    // to represent them. These resources enable Gloo Edge to route requests to a Kubernetes service. Note that if  
+    // you have a large number of services in your cluster and you do not restrict the namespaces that Gloo Edge watches,
+    // the API snapshot increases which can have a negative impact on the Gloo Edge translation time. In addition, load 
+    // balancing is done in `kube-proxy` which can have further performance impacts. Using Gloo Upstreams as a routing
+    // destination bypasses `kube-proxy` as the request is routed to the pod directly. Alternatively, you can use 
+    // [`Kubernetes`](https://docs.solo.io/gloo-edge/latest/reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/options/kubernetes/kubernetes.proto.sk/) 
+    // Upstream resources as a routing destination to forward requests to the pod directly. 
+    // 
+    // For more information, see the [docs](https://docs.solo.io/gloo-edge/latest/guides/traffic_management/destination_types/kubernetes_services/).
     bool disable_kubernetes_destinations = 7;
 
     // Default policy for grpc-web.
@@ -686,6 +704,7 @@ message GlooOptions {
 
     // Whether or not to use rest xds for all EDS by default.
     // Rest XDS, as opposed to grpc, uses http polling rather than streaming
+    // It is strongly recommended that this field be set to false, due to the superior performance of GRPC XDS
     google.protobuf.BoolValue enable_rest_eds = 12;
 
     // The polling interval for the DNS server if upstream failover is configured.
@@ -712,6 +731,18 @@ message GlooOptions {
     // Set escapeCharacters for all TransformationTemplates on all vhosts and routes.
     // This setting can be overridden in individual TransformationTemplates
     google.protobuf.BoolValue transformation_escape_characters = 17;
+
+    message IstioOptions {
+        // Set to false to disable adding X-Forwarded-Host header in Istio integration
+        // Defaults to true
+        google.protobuf.BoolValue append_x_forwarded_host = 1;
+
+        // Set to true to enable automatic mTLS for all upstreams. Istio integration must be enabled for this to take effect.
+        // Defaults to false
+        google.protobuf.BoolValue enable_auto_mtls = 2;
+    }
+
+    IstioOptions istio_options = 18;
 }
 
 
@@ -827,7 +858,11 @@ message GatewayOptions {
     // to be a truthy ("true", "false") value
     google.protobuf.BoolValue isolate_virtual_hosts_by_ssl_config = 10;
 
-    // This field is a no-op for now
+    // If set, gateways will be translated into Envoy listeners even if no VirtualServices exist or match a gateway.
+    // When there are no VirtualServices that implies there are no routes to serve, so all requests will return a 404.
+    // Defaults to false.
+    // The default behavior when no VirtualServices are defined or no Gateways match a VirtualService is that
+    // the gateway is not converted into an Envoy listener.
     google.protobuf.BoolValue translate_empty_gateways = 11;
 }
 

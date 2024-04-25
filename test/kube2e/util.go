@@ -7,30 +7,25 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/solo-io/gloo/test/testutils"
-
-	"github.com/onsi/ginkgo/v2"
-	"github.com/solo-io/go-utils/stats"
-
-	"github.com/solo-io/gloo/test/gomega/assertions"
-
-	"github.com/solo-io/gloo/test/kube2e/upgrade"
-
-	"go.uber.org/zap/zapcore"
-
 	"github.com/golang/protobuf/ptypes/wrappers"
+	"github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	errors "github.com/rotisserie/eris"
 	"github.com/solo-io/gloo/projects/gloo/cli/pkg/cmd/check"
 	"github.com/solo-io/gloo/projects/gloo/cli/pkg/cmd/options"
 	clienthelpers "github.com/solo-io/gloo/projects/gloo/cli/pkg/helpers"
+	"github.com/solo-io/gloo/projects/gloo/cli/pkg/printers"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
-	"github.com/solo-io/k8s-utils/kubeutils"
-	"github.com/solo-io/k8s-utils/testutils/helper"
+	"github.com/solo-io/gloo/test/gomega/assertions"
+	"github.com/solo-io/gloo/test/kube2e/helper"
+	"github.com/solo-io/gloo/test/kube2e/upgrade"
+	"github.com/solo-io/gloo/test/testutils"
+	"github.com/solo-io/go-utils/stats"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
-
-	. "github.com/onsi/gomega"
-	errors "github.com/rotisserie/eris"
-	"k8s.io/client-go/kubernetes"
+	"go.uber.org/zap/zapcore"
+	admissionregv1 "k8s.io/api/admissionregistration/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -49,14 +44,6 @@ func GetHttpEchoImage() string {
 	return httpEchoImage
 }
 
-func MustKubeClient() kubernetes.Interface {
-	restConfig, err := kubeutils.GetConfig("", "")
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	kubeClient, err := kubernetes.NewForConfig(restConfig)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	return kubeClient
-}
-
 // GlooctlCheckEventuallyHealthy will run up until proved timeoutInterval or until gloo is reported as healthy
 func GlooctlCheckEventuallyHealthy(offset int, testHelper *helper.SoloTestHelper, timeoutInterval string) {
 	EventuallyWithOffset(offset, func() error {
@@ -70,7 +57,7 @@ func GlooctlCheckEventuallyHealthy(offset int, testHelper *helper.SoloTestHelper
 				Ctx: contextWithCancel,
 			},
 		}
-		err := check.CheckResources(opts)
+		err := check.CheckResources(contextWithCancel, printers.P{}, opts)
 		if err != nil {
 			return errors.Wrap(err, "glooctl check detected a problem with the installation")
 		}
@@ -116,6 +103,13 @@ func UpdateAlwaysAcceptSetting(ctx context.Context, alwaysAccept bool, installNa
 	UpdateSettings(ctx, func(settings *v1.Settings) {
 		Expect(settings.GetGateway().GetValidation()).NotTo(BeNil())
 		settings.GetGateway().GetValidation().AlwaysAccept = &wrappers.BoolValue{Value: alwaysAccept}
+	}, installNamespace)
+}
+
+func UpdateAllowWarningsSetting(ctx context.Context, allowWarnings bool, installNamespace string) {
+	UpdateSettings(ctx, func(settings *v1.Settings) {
+		Expect(settings.GetGateway().GetValidation()).NotTo(BeNil())
+		settings.GetGateway().GetValidation().AllowWarnings = &wrappers.BoolValue{Value: allowWarnings}
 	}, installNamespace)
 }
 
@@ -168,16 +162,16 @@ func ToFile(content string) string {
 }
 
 // https://github.com/solo-io/gloo/issues/4043#issuecomment-772706604
-// We should move tests away from using the testrunner, and instead depend on EphemeralContainers.
+// We should move tests away from using the testserver, and instead depend on EphemeralContainers.
 // The default response changed in later kube versions, which caused this value to change.
 // Ideally the test utilities used by Gloo are maintained in the Gloo repo, so I opted to move
 // this constant here.
-// This response is given by the testrunner when the SimpleServer is started
-func GetSimpleTestRunnerHttpResponse() string {
+// This response is given by the testserver from the python2 SimpleHTTPServer
+func TestServerHttpResponse() string {
 	if runtime.GOARCH == "arm64" {
-		return SimpleTestRunnerHttpResponseArm
+		return helper.SimpleHttpResponseArm
 	} else {
-		return SimpleTestRunnerHttpResponse
+		return helper.SimpleHttpResponse
 	}
 }
 
@@ -226,67 +220,28 @@ func GetTestHelper(ctx context.Context, namespace string) (*helper.SoloTestHelpe
 	}
 }
 
-const SimpleTestRunnerHttpResponse = `<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 3.2 Final//EN"><html>
-<title>Directory listing for /</title>
-<body>
-<h2>Directory listing for /</h2>
-<hr>
-<ul>
-<li><a href="bin/">bin/</a>
-<li><a href="boot/">boot/</a>
-<li><a href="dev/">dev/</a>
-<li><a href="etc/">etc/</a>
-<li><a href="home/">home/</a>
-<li><a href="lib/">lib/</a>
-<li><a href="lib64/">lib64/</a>
-<li><a href="media/">media/</a>
-<li><a href="mnt/">mnt/</a>
-<li><a href="opt/">opt/</a>
-<li><a href="proc/">proc/</a>
-<li><a href="product_name">product_name</a>
-<li><a href="product_uuid">product_uuid</a>
-<li><a href="root/">root/</a>
-<li><a href="root.crt">root.crt</a>
-<li><a href="run/">run/</a>
-<li><a href="sbin/">sbin/</a>
-<li><a href="srv/">srv/</a>
-<li><a href="sys/">sys/</a>
-<li><a href="tmp/">tmp/</a>
-<li><a href="usr/">usr/</a>
-<li><a href="var/">var/</a>
-</ul>
-<hr>
-</body>
-</html>`
+func GetFailurePolicy(ctx context.Context, webhookName string) *admissionregv1.FailurePolicyType {
+	cfg := GetValidatingWebhookWithOffset(ctx, 2, webhookName)
+	ExpectWithOffset(1, cfg.Webhooks).To(HaveLen(1))
+	return cfg.Webhooks[0].FailurePolicy
+}
 
-const SimpleTestRunnerHttpResponseArm = `<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 3.2 Final//EN"><html>
-<title>Directory listing for /</title>
-<body>
-<h2>Directory listing for /</h2>
-<hr>
-<ul>
-<li><a href="bin/">bin/</a>
-<li><a href="boot/">boot/</a>
-<li><a href="dev/">dev/</a>
-<li><a href="etc/">etc/</a>
-<li><a href="home/">home/</a>
-<li><a href="lib/">lib/</a>
-<li><a href="lib64/">lib64/</a>
-<li><a href="media/">media/</a>
-<li><a href="mnt/">mnt/</a>
-<li><a href="opt/">opt/</a>
-<li><a href="proc/">proc/</a>
-<li><a href="product_uuid">product_uuid</a>
-<li><a href="root/">root/</a>
-<li><a href="root.crt">root.crt</a>
-<li><a href="run/">run/</a>
-<li><a href="sbin/">sbin/</a>
-<li><a href="srv/">srv/</a>
-<li><a href="sys/">sys/</a>
-<li><a href="tmp/">tmp/</a>
-<li><a href="usr/">usr/</a>
-<li><a href="var/">var/</a>
-</ul>
-<hr>
-</body>
-</html>`
+func UpdateFailurePolicy(ctx context.Context, webhookName string, failurePolicy admissionregv1.FailurePolicyType) {
+	kubeClient := clienthelpers.MustKubeClient()
+	cfg := GetValidatingWebhookWithOffset(ctx, 2, webhookName)
+	ExpectWithOffset(1, cfg.Webhooks).To(HaveLen(1))
+	cfg.Webhooks[0].FailurePolicy = &failurePolicy
+
+	_, err := kubeClient.AdmissionregistrationV1().ValidatingWebhookConfigurations().Update(ctx, cfg, metav1.UpdateOptions{})
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+}
+func GetValidatingWebhook(ctx context.Context, webhookName string) *admissionregv1.ValidatingWebhookConfiguration {
+	return GetValidatingWebhookWithOffset(ctx, 1, webhookName)
+}
+
+func GetValidatingWebhookWithOffset(ctx context.Context, offset int, webhookName string) *admissionregv1.ValidatingWebhookConfiguration {
+	kubeClient := clienthelpers.MustKubeClient()
+	cfg, err := kubeClient.AdmissionregistrationV1().ValidatingWebhookConfigurations().Get(ctx, webhookName, metav1.GetOptions{})
+	ExpectWithOffset(offset, err).NotTo(HaveOccurred())
+	return cfg
+}

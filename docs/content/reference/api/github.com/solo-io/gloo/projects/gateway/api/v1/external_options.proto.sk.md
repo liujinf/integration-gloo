@@ -48,7 +48,7 @@ spec:
     - '*'
     options:
       headerManipulation:
-        requestHeadersToRemove: "header-from-vhost"
+        requestHeadersToRemove: ["header-from-vhost"]
     optionsConfigRefs:
       delegateOptions:
         - name: virtualhost-external-options-1
@@ -66,10 +66,12 @@ metadata:
 spec:
   options:
     headerManipulation:
-      requestHeadersToRemove: "header-from-external-options1"
-    corsPolicy:
+      requestHeadersToRemove: ["header-from-external-options1"]
+    cors:
       exposeHeaders:
         - header-from-extopt1
+      allowOrigin:
+        - 'https://solo.io'
 ```
 
 ```yaml
@@ -81,17 +83,19 @@ metadata:
 spec:
   options:
     headerManipulation:
-      requestHeadersToRemove: "header-from-external-options2"
-    corsPolicy:
+      requestHeadersToRemove: ["header-from-external-options2"]
+    cors:
       exposeHeaders:
         - header-from-extopt2
       maxAge: 2s
+      allowOrigin:
+        - 'https://solo.io'
     transformations:
       requestTransformation:
         transformationTemplate:
           headers:
             x-header-added-in-opt2:
-              value: this header was added in the VirtualHostOption object - #2
+              text: this header was added in the VirtualHostOption object - #2
 ```
 
 The final virtual host options (visible in the Proxy CR) would be:
@@ -103,18 +107,20 @@ spec:
     options:
       # from Virtual host options
       headerManipulation:
-        requestHeadersToRemove: "header-from-vhost"
+        requestHeadersToRemove: ["header-from-vhost"]
       # from delegated virtualhost-external-options-1
-      corsPolicy:
+      cors:
         exposeHeaders:
           - header-from-extopt1
+        allowOrigin:
+          - 'https://solo.io'
       # from delegated virtualhost-external-options-2
       transformations:
         requestTransformation:
           transformationTemplate:
             headers:
               x-header-added-in-opt2:
-                value: this header was added in the VirtualHostOption object - #2
+                text: this header was added in the VirtualHostOption object - #2
 ```
 
 Notice how the order of VirtualHostOption delegations matters, and that the VirtualHost-level config overrides all delegated configs.
@@ -123,6 +129,7 @@ Notice how the order of VirtualHostOption delegations matters, and that the Virt
 "namespacedStatuses": .core.solo.io.NamespacedStatuses
 "metadata": .core.solo.io.Metadata
 "options": .gloo.solo.io.VirtualHostOptions
+"targetRef": .core.skv2.solo.io.PolicyTargetReferenceWithSectionName
 
 ```
 
@@ -131,6 +138,7 @@ Notice how the order of VirtualHostOption delegations matters, and that the Virt
 | `namespacedStatuses` | [.core.solo.io.NamespacedStatuses](../../../../../../solo-kit/api/v1/status.proto.sk/#namespacedstatuses) | NamespacedStatuses indicates the validation status of this resource. NamespacedStatuses is read-only by clients, and set by gateway during validation. |
 | `metadata` | [.core.solo.io.Metadata](../../../../../../solo-kit/api/v1/metadata.proto.sk/#metadata) | Metadata contains the object metadata for this resource. |
 | `options` | [.gloo.solo.io.VirtualHostOptions](../../../../gloo/api/v1/options.proto.sk/#virtualhostoptions) | VirtualHost options. See VirtualHost for delegation behavior. |
+| `targetRef` | [.core.skv2.solo.io.PolicyTargetReferenceWithSectionName](../../../../../../skv2/api/core/v1/core.proto.sk/#policytargetreferencewithsectionname) | When using Kubernetes Gateway API mode, targetRef can be used to attach this VirtualHostOption to a gateway.networking.k8s.io/Gateway object. The `options` specified will then be used for all `Listeners` in the `Gateway` unless `targetRef.sectionName` is specified. |
 
 
 
@@ -163,12 +171,13 @@ spec:
       - prefix: /
       options:
         headerManipulation:
-          requestHeadersToRemove: "header-from-route"
-      delegateOptions:
-        - name: route-external-options-1
-          namespace: opt-namespace
-        - name: route-external-options-2
-          namespace: opt-namespace
+          requestHeadersToRemove: ["header-from-route"]
+      optionsConfigRefs:
+        delegateOptions:
+          - name: route-external-options-1
+            namespace: opt-namespace
+          - name: route-external-options-2
+            namespace: opt-namespace
 ```
 
 ```yaml
@@ -180,10 +189,12 @@ metadata:
 spec:
   options:
     headerManipulation:
-      requestHeadersToRemove: "header-from-external-options1"
-    corsPolicy:
+      requestHeadersToRemove: ["header-from-external-options1"]
+    cors:
       exposeHeaders:
         - header-from-extopt1
+      allowOrigin:
+        - 'https://solo.io'
 ```
 
 ```yaml
@@ -195,17 +206,19 @@ metadata:
 spec:
   options:
     headerManipulation:
-      requestHeadersToRemove: "header-from-external-options2"
-    corsPolicy:
+      requestHeadersToRemove: ["header-from-external-options2"]
+    cors:
       exposeHeaders:
         - header-from-extopt2
       maxAge: 2s
+      allowOrigin:
+        - 'https://solo.io'
     transformations:
       requestTransformation:
         transformationTemplate:
           headers:
             x-header-added-in-opt2:
-              value: this header was added in the RouteOption object - #2
+              text: this header was added in the RouteOption object - #2
 ```
 
 The final route options would bewould be:
@@ -216,18 +229,20 @@ routes:
     options:
       # from Route options
       headerManipulation:
-        requestHeadersToRemove: "header-from-route"
+        requestHeadersToRemove: ["header-from-route"]
       # from delegated route-external-options-1
-      corsPolicy:
+      cors:
         exposeHeaders:
           - header-from-extopt1
+        allowOrigin:
+          - 'https://solo.io'
       # from delegated route-external-options-2
       transformations:
         requestTransformation:
           transformationTemplate:
             headers:
               x-header-added-in-opt2:
-                value: this header was added in the Route object - #2
+                text: this header was added in the Route object - #2
 ```
 
 Notice how the order of RouteOption delegations matters, and that the Route-level option config overrides all delegated option configs.
@@ -236,6 +251,7 @@ Notice how the order of RouteOption delegations matters, and that the Route-leve
 "namespacedStatuses": .core.solo.io.NamespacedStatuses
 "metadata": .core.solo.io.Metadata
 "options": .gloo.solo.io.RouteOptions
+"targetRef": .core.skv2.solo.io.PolicyTargetReference
 
 ```
 
@@ -244,6 +260,7 @@ Notice how the order of RouteOption delegations matters, and that the Route-leve
 | `namespacedStatuses` | [.core.solo.io.NamespacedStatuses](../../../../../../solo-kit/api/v1/status.proto.sk/#namespacedstatuses) | NamespacedStatuses indicates the validation status of this resource. NamespacedStatuses is read-only by clients, and set by gateway during validation. |
 | `metadata` | [.core.solo.io.Metadata](../../../../../../solo-kit/api/v1/metadata.proto.sk/#metadata) | Metadata contains the object metadata for this resource. |
 | `options` | [.gloo.solo.io.RouteOptions](../../../../gloo/api/v1/options.proto.sk/#routeoptions) | Route options. See Route for delegation behavior. |
+| `targetRef` | [.core.skv2.solo.io.PolicyTargetReference](../../../../../../skv2/api/core/v1/core.proto.sk/#policytargetreference) | When using Kubernetes Gateway API mode, targetRef can be used to attach this RouteOption to a gateway.networking.k8s.io/HTTPRoute object. The `options` specified will then be used for all `Rules` in the `HTTPRoute`. |
 
 
 

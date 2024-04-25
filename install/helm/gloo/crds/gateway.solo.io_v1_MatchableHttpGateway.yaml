@@ -1220,6 +1220,11 @@ spec:
                             type: boolean
                           enableXRatelimitHeaders:
                             type: boolean
+                          grpcService:
+                            properties:
+                              authority:
+                                type: string
+                            type: object
                           rateLimitBeforeAuth:
                             type: boolean
                           ratelimitServerRef:
@@ -1234,6 +1239,9 @@ spec:
                         type: object
                       router:
                         properties:
+                          dynamicStats:
+                            nullable: true
+                            type: boolean
                           suppressEnvoyHeaders:
                             nullable: true
                             type: boolean
@@ -1241,6 +1249,36 @@ spec:
                       sanitizeClusterHeader:
                         nullable: true
                         type: boolean
+                      tap:
+                        properties:
+                          sinks:
+                            items:
+                              properties:
+                                grpcService:
+                                  properties:
+                                    tapServer:
+                                      properties:
+                                        name:
+                                          type: string
+                                        namespace:
+                                          type: string
+                                      type: object
+                                  type: object
+                                httpService:
+                                  properties:
+                                    tapServer:
+                                      properties:
+                                        name:
+                                          type: string
+                                        namespace:
+                                          type: string
+                                      type: object
+                                    timeout:
+                                      type: string
+                                  type: object
+                              type: object
+                            type: array
+                        type: object
                       waf:
                         properties:
                           auditLogging:

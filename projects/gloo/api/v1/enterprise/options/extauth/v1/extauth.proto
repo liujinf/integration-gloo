@@ -254,10 +254,14 @@ message AuthPlugin {
     google.protobuf.Struct config = 4;
 }
 
+// This is the legacy/simple basic auth config. It supports the APR and SHA-1 hashing algorithms.
+//
+// When using basic auth, requests can pass only one `Authorization` header. You cannot use basic auth config in
+// conjunction with other auth configs that rely on the `Authorization` header as well. In case of such a conflict,
+// use a different type of auth config or configure a different header, such as `X-Auth`.
 message BasicAuth {
     string realm = 1;
 
-    // This is the legacy/simple basic auth config. It supports the APR hashing algorithm and an inline userlist.
     // If 'apr' is defined, 'encryption' and 'user_source' must not be defined or the config will fail validation
     message Apr {
         // Message to store the salt and salted hashed password for a user
@@ -740,6 +744,9 @@ message OidcAuthorizationCode {
     IdentityToken identity_token = 24;
 
     // Optional: Map a single claim from an OAuth2 access token to a header in the request to the upstream destination.
+    // Gloo Mesh products only: Note that if you want to clear the route cache to force the proxy to recalculate the
+    // routing destination after adding the claims, you must create an additional JwtPolicy or TransformationPolicy,
+    // and configure the `clearRouteCache` or `recalculateRoutingDestination` options.
     message AccessToken {
 
         // A list of claims to be mapped from the JWT token received by ext-auth-service to an upstream destination
@@ -770,7 +777,7 @@ message OidcAuthorizationCode {
         message PrivateKeyJwt{
             // Signing key for the JWT used to authenticate the client
             core.solo.io.ResourceRef signing_key_ref = 1;
-            // Amount of time for which the JWT is valid. No maximmum is enforced, but different IDPs may impose limits on how far in 
+            // Amount of time for which the JWT is valid. No maximmum is enforced, but different IDPs may impose limits on how far in
             // the future the expiration time is allowed to be. If omitted, default is 5s.
             google.protobuf.Duration valid_for = 2;
         }
@@ -785,6 +792,37 @@ message OidcAuthorizationCode {
     }
 
     ClientAuthentication client_authentication = 25;
+
+    oneof Provider {
+        Default default = 26;
+        Azure azure = 27;
+    }
+
+    // No-op, represents default OIDC behavior
+    message Default {}
+
+    // For apps in Microsoft Azure, configure Microsoft Entra ID as the OpenID Connect (OIDC) provider.
+    // This way, you can enable distibuted claims and caching for when users are members of more than 200 groups.
+    message Azure {
+        // The client ID for the ExtAuthService app that is registered in MS Entra,
+        // to access the Microsoft Graph API to retrieve distributed claims.
+        // This app is NOT the app that you want to configure external auth for.
+        string client_id = 1;
+
+        // The tenant ID represents the MS Entra organization ID where the ExtAuthService app is registered.
+        // This tenant ID may or may not be the same as in the top level `OidcAuthorizationCodeConfig`,
+        // depending on how your Azure account is provisioned.
+        string tenant_id = 2;
+
+        // The client secret of the ExtAuthService app that is registered with MS Entra to communciate with the MS Graph API.
+        core.solo.io.ResourceRef client_secret = 3;
+
+        // Redis connection details to cache MS Entera claims.
+        // This way, you avoid performance issues of accessing the Microsoft Graph API too many times.
+        // Note that this setting does NOT turn on Redis caching for the user session.
+        // To turn on Redis user session caching, use the `userSessionConfig` field.
+        RedisOptions claims_caching_options = 4;
+    }
 }
 
 message PlainOAuth2 {
@@ -1199,16 +1237,19 @@ message OpaAuthOptions {
     // By default, this is set to false and all fields are evaluated by OPA.
     bool fast_input_conversion = 1;
 
-    // Set to true to return the reason for an OPA policy decision, based on the logic in your Rego rules. 
-    // This way, you can use the reason in subsequent filters, such as transformation policies.
-    // When using OpaAuth, this `returnDecisionReason` field must be the second parameter of the query. 
-    // When using OpaServerAuth, the entire document will be returned as metadata.
-    // The `allowed` field on the document is used to make the policy decision.
-    // The entry will be in the returned DynamicMetadata in the CheckResponse with the structure
-    // `envoy.filters.http.ext_authz:
-    //   -> name of the auth step`, such as `spec.configs[i].name
-    //       -> reason`.
-    // If set to false, the response is allowed or denied based on the Rego rules without returning the reason.
+    // DEPRECATED: It's recommended to use the `dynamic_metadata` field within Rego policies to specify the decision reason. To learn more about this approach, see the [OPA Envoy Plugin docs](https://github.com/open-policy-agent/opa/blob/c12463c/docs/content/envoy-primer.md#example-policy-with-additional-controls).
+    //
+    // When `returnDecisionReason` is set to true, the decision reason is stored in the Envoy Dynamic Metadata and has the following properties:<ul>
+    // <li>`body` - a textual explanation of the decision</li>
+    // <li>`allowed` - whether the request was allowed or rejected</li></ul>
+    //
+    // When using OpaAuth, the `body` field must be the second parameter of the query.
+    //
+    // Both the OpaAuth and OpaServerAuth approaches use the `allowed` and `body` values from the OPA response in the decision reason.
+    // You can find the `body` and `allowed` fields in the Envoy Filter Dynamic Metadata under the `envoy.filters.http.ext_authz.<authentication_step_name>.reason` section.
+    //
+    // If, however, `returnDecisionReason` is set to false, OPA's decision to allow or reject a request is made according to the Rego policy rules, and no explanation is provided.
+    // Despite of this, the `dynamic_metadata` field can still be used to convey any necessary information to the Envoy Dynamic Metadata, including the decision reason.
     bool return_decision_reason = 2;
 }
 
@@ -1221,12 +1262,12 @@ message OpaServerAuth {
     // The rule in your Rego policy bundle used to query the OPA data API. Supports querying subfields with a `/`. For more information, see the [OPA docs for the Data API](https://www.openpolicyagent.org/docs/latest/rest-api/#data-api).
     string rule_name = 2;
 
-    // The address of the OPA server to query, in the format `ADDRESS:PORT`. 
-    // For OPA servers within the cluster, the address is the pod's service address, 
-    // such as `default.svc.cluster.local:8181`. For OPA servers outside the cluster, 
-    // the server must be accessible to the cluster, such as through an ExternalService. 
-    // If you do not have your own OPA server instance, omit this field. 
-    // When the external auth service has the OPA server sidecar enabled, the OPA server 
+    // The address of the OPA server to query, in the format `ADDRESS:PORT`.
+    // For OPA servers within the cluster, the address is the pod's service address,
+    // such as `default.svc.cluster.local:8181`. For OPA servers outside the cluster,
+    // the server must be accessible to the cluster, such as through an ExternalService.
+    // If you do not have your own OPA server instance, omit this field.
+    // When the external auth service has the OPA server sidecar enabled, the OPA server
     // sidecar will be used instead.
     string server_addr = 3;
 
@@ -1307,6 +1348,33 @@ message PassThroughAuth {
     bool failure_mode_allow = 5;
 }
 
+// Configuration defining an exponential back off strategy.
+message BackoffStrategy {
+    // The base interval to be used for the next back off computation.
+    // Defaults to 1000 milliseconds
+    google.protobuf.Duration base_interval = 1;
+
+    // Specifies the maximum delay between retries.
+    // Defaults to 10 times the base interval.
+    google.protobuf.Duration max_interval = 2;
+}
+
+
+// The message specifies the retry policy of the external gRPC service when unable to initally connect.
+message RetryPolicy {
+
+    // Specifies the allowed number of retries. This parameter is optional and
+    // defaults to 1.
+    google.protobuf.UInt32Value num_retries = 1;
+
+    oneof strategy {
+        // Specifies parameters that control the backoff strategy.
+        // This parameter is optional, in which case the default base interval is 1000 milliseconds. The
+        // default maximum interval is 10 times the base interval.
+        BackoffStrategy retry_back_off = 2;
+    }
+}
+
 // Authorizes requests by querying a custom extauth grpc server
 // Assumes that the server implements the envoy external authorization spec:
 // https://github.com/envoyproxy/envoy/blob/ae1ed1fa74f096dabe8dd5b19fc70333621b0309/api/envoy/service/auth/v3/external_auth.proto#L29
@@ -1320,6 +1388,10 @@ message PassThroughGrpc {
 
     // TLS config for the Grpc passthrough, if not configured the connection will use insecure.
     PassThroughGrpcTLSConfig tlsConfig =3;
+
+    // Indicates the retry policy for re-establishing the gRPC stream.
+    // This field is optional and failed calls will not retry unless configured.
+    RetryPolicy retry_policy = 4;
 }
 // TLS configuration for the extauth grpc passthrough connection
 message PassThroughGrpcTLSConfig {
@@ -1459,10 +1531,10 @@ message ExtAuthConfig {
                 Sha1 sha1 = 2;
             }
         }
-    
+
         // Hashing algorithm to use for password hashing.
         EncryptionType encryption = 2;
-    
+
         // To authenticate a user we need the salt and hashed password. The username is expected to be the key in a map of Users.
         message User {
             string salt = 1;
@@ -1643,7 +1715,7 @@ message ExtAuthConfig {
         message PkJwtClientAuthenticationConfig{
             // Signing key for the JWT used for client authentication
             string signing_key = 1 [(extproto.sensitive) = true];
-            // Amount of time for which the JWT is valid. No maximmum is enforced, but different IDPs may impose limits on how far in 
+            // Amount of time for which the JWT is valid. No maximmum is enforced, but different IDPs may impose limits on how far in
             // the future the expiration time is allowed to be. Defaults in 5s in front end, but expected to be set explictly here
             google.protobuf.Duration valid_for = 2;
         }
@@ -1680,6 +1752,37 @@ message ExtAuthConfig {
         message IdentityToken {
             // A list of claims to be mapped from the JWT token received by ext-auth-service to an upstream destination
             repeated ClaimToHeader claims_to_headers = 1;
+        }
+
+        oneof Provider {
+            Default default = 26;
+            Azure azure = 27;
+        }
+
+        // No-op, represents default OIDC behavior
+        message Default {}
+
+        // For apps in Microsoft Azure, configure Microsoft Entra ID as the OpenID Connect (OIDC) provider.
+        // This way, you can enable distibuted claims and caching for when users are members of more than 200 groups.
+        message Azure {
+            // The client ID for the ExtAuthService app that is registered in MS Entra,
+            // to access the Microsoft Graph API to retrieve distributed claims.
+            // This app is NOT the app that you want to configure external auth for.
+            string client_id = 1;
+
+            // The tenant ID represents the MS Entra organization ID where the ExtAuthService app is registered.
+            // This tenant ID may or may not be the same as in the top level `OidcAuthorizationCodeConfig`,
+            // depending on how your Azure account is provisioned.
+            string tenant_id = 2;
+
+            // The client secret of the ExtAuthService app that is registered with MS Entra to communciate with the MS Graph API.
+            string client_secret = 3 [(extproto.sensitive) = true];
+
+            // Redis connection details to cache MS Entera claims.
+            // This way, you avoid performance issues of accessing the Microsoft Graph API too many times.
+            // Note that this setting does NOT turn on Redis caching for the user session.
+            // To turn on Redis user session caching, use the `userSessionConfig` field.
+            RedisOptions claims_caching_options = 4;
         }
     }
 

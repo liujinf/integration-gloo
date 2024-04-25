@@ -110,6 +110,12 @@ apis:
   core.skv2.solo.io.ObjectSelector:
     relativepath: reference/api/github.com/solo-io/skv2/api/core/v1/core.proto.sk/#ObjectSelector
     package: core.skv2.solo.io
+  core.skv2.solo.io.PolicyTargetReference:
+    relativepath: reference/api/github.com/solo-io/skv2/api/core/v1/core.proto.sk/#PolicyTargetReference
+    package: core.skv2.solo.io
+  core.skv2.solo.io.PolicyTargetReferenceWithSectionName:
+    relativepath: reference/api/github.com/solo-io/skv2/api/core/v1/core.proto.sk/#PolicyTargetReferenceWithSectionName
+    package: core.skv2.solo.io
   core.skv2.solo.io.Status:
     relativepath: reference/api/github.com/solo-io/skv2/api/core/v1/core.proto.sk/#Status
     package: core.skv2.solo.io
@@ -227,6 +233,9 @@ apis:
   enterprise.gloo.solo.io.AutoMapFromMetadata:
     relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/extauth/v1/extauth.proto.sk/#AutoMapFromMetadata
     package: enterprise.gloo.solo.io
+  enterprise.gloo.solo.io.BackoffStrategy:
+    relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/extauth/v1/extauth.proto.sk/#BackoffStrategy
+    package: enterprise.gloo.solo.io
   enterprise.gloo.solo.io.BasicAuth:
     relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/extauth/v1/extauth.proto.sk/#BasicAuth
     package: enterprise.gloo.solo.io
@@ -322,6 +331,9 @@ apis:
     package: enterprise.gloo.solo.io
   enterprise.gloo.solo.io.RedisOptions:
     relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/extauth/v1/extauth.proto.sk/#RedisOptions
+    package: enterprise.gloo.solo.io
+  enterprise.gloo.solo.io.RetryPolicy:
+    relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/extauth/v1/extauth.proto.sk/#RetryPolicy
     package: enterprise.gloo.solo.io
   enterprise.gloo.solo.io.SecretRefList:
     relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/extauth/v1/extauth.proto.sk/#SecretRefList
@@ -578,6 +590,12 @@ apis:
   envoy.config.resolver.stitching.v2.StitchingResolver:
     relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/external/envoy/extensions/graphql/stitching.proto.sk/#StitchingResolver
     package: envoy.config.resolver.stitching.v2
+  envoy.config.tap.output_sink.v3.GrpcOutputSink:
+    relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/external/envoy/config/tap/output_sink/v3/grpc_output_sink.proto.sk/#GrpcOutputSink
+    package: envoy.config.tap.output_sink.v3
+  envoy.config.tap.output_sink.v3.HttpOutputSink:
+    relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/external/envoy/config/tap/output_sink/v3/http_output_sink.proto.sk/#HttpOutputSink
+    package: envoy.config.tap.output_sink.v3
   envoy.config.transformer.xslt.v2.XsltTransformation:
     relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/external/envoy/extensions/transformers/xslt/xslt_transformer.proto.sk/#XsltTransformation
     package: envoy.config.transformer.xslt.v2
@@ -793,6 +811,9 @@ apis:
     package: gloo.solo.io
   gloo.solo.io.Kubernetes:
     relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/grpc/version/version.proto.sk/#Kubernetes
+    package: gloo.solo.io
+  gloo.solo.io.KubernetesClusterVersion:
+    relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/grpc/version/version.proto.sk/#KubernetesClusterVersion
     package: gloo.solo.io
   gloo.solo.io.KubernetesServiceDestination:
     relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/proxy.proto.sk/#KubernetesServiceDestination
@@ -1343,6 +1364,12 @@ apis:
   ratelimit.api.solo.io.Descriptor:
     relativepath: reference/api/github.com/solo-io/solo-apis/api/rate-limiter/v1alpha1/ratelimit.proto.sk/#Descriptor
     package: ratelimit.api.solo.io
+  ratelimit.api.solo.io.MetaData:
+    relativepath: reference/api/github.com/solo-io/solo-apis/api/rate-limiter/v1alpha1/ratelimit.proto.sk/#MetaData
+    package: ratelimit.api.solo.io
+  ratelimit.api.solo.io.Override:
+    relativepath: reference/api/github.com/solo-io/solo-apis/api/rate-limiter/v1alpha1/ratelimit.proto.sk/#Override
+    package: ratelimit.api.solo.io
   ratelimit.api.solo.io.RateLimit:
     relativepath: reference/api/github.com/solo-io/solo-apis/api/rate-limiter/v1alpha1/ratelimit.proto.sk/#RateLimit
     package: ratelimit.api.solo.io
@@ -1364,6 +1391,9 @@ apis:
   ratelimit.api.solo.io.SimpleDescriptor:
     relativepath: reference/api/github.com/solo-io/solo-apis/api/rate-limiter/v1alpha1/ratelimit.proto.sk/#SimpleDescriptor
     package: ratelimit.api.solo.io
+  ratelimit.options.gloo.solo.io.GrpcService:
+    relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/ratelimit/ratelimit.proto.sk/#GrpcService
+    package: ratelimit.options.gloo.solo.io
   ratelimit.options.gloo.solo.io.IngressRateLimit:
     relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/ratelimit/ratelimit.proto.sk/#IngressRateLimit
     package: ratelimit.options.gloo.solo.io
@@ -1874,6 +1904,18 @@ apis:
   stats.options.gloo.solo.io.VirtualCluster:
     relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/options/stats/stats.proto.sk/#VirtualCluster
     package: stats.options.gloo.solo.io
+  tap.options.gloo.solo.io.GrpcService:
+    relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/tap/tap.proto.sk/#GrpcService
+    package: tap.options.gloo.solo.io
+  tap.options.gloo.solo.io.HttpService:
+    relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/tap/tap.proto.sk/#HttpService
+    package: tap.options.gloo.solo.io
+  tap.options.gloo.solo.io.Sink:
+    relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/tap/tap.proto.sk/#Sink
+    package: tap.options.gloo.solo.io
+  tap.options.gloo.solo.io.Tap:
+    relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/tap/tap.proto.sk/#Tap
+    package: tap.options.gloo.solo.io
   tcp.options.gloo.solo.io.HeaderValue:
     relativepath: reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/options/tcp/tcp.proto.sk/#HeaderValue
     package: tcp.options.gloo.solo.io

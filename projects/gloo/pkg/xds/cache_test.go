@@ -3,38 +3,72 @@ package xds_test
 import (
 	"fmt"
 
-	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
+	"github.com/solo-io/gloo/projects/gloo/pkg/utils"
 	"github.com/solo-io/gloo/projects/gloo/pkg/xds"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 var _ = Describe("Cache", func() {
 
-	It("NodeRoleHasher generates the correct ID", func() {
-		nodeRoleHasher := xds.NewNodeRoleHasher()
-		node := &envoy_config_core_v3.Node{}
-		Expect(nodeRoleHasher.ID(node)).To(Equal(xds.FallbackNodeCacheKey),
-			"Should return %s if the role field in the node metadata is not present", xds.FallbackNodeCacheKey)
-
-		role := "role"
-		node.Metadata = &structpb.Struct{
-			Fields: map[string]*structpb.Value{
-				role: structpb.NewStringValue(role),
-			},
-		}
-		Expect(nodeRoleHasher.ID(node)).To(Equal(role), "Should return the role field in the node metadata")
+	It("SnapshotCacheKeys returns the keys formatted correctly", func() {
+		owner, namespace1, namespace2, name1, name2 := "owner", "namespace1", "namespace2", "name1", "name2"
+		p1 := v1.NewProxy(namespace1, name1)
+		p1.Metadata.Labels = map[string]string{utils.ProxyTypeKey: owner}
+		p2 := v1.NewProxy(namespace2, name2)
+		p2.Metadata.Labels = map[string]string{utils.ProxyTypeKey: owner}
+		proxies := []*v1.Proxy{p1, p2}
+		// legacy proxies are formatted as namespace~name
+		expectedKeys := []string{fmt.Sprintf("%v~%v", namespace1, name1), fmt.Sprintf("%v~%v", namespace2, name2)}
+		actualKeys := xds.SnapshotCacheKeys(proxies)
+		Expect(actualKeys).To(BeEquivalentTo(expectedKeys))
 	})
 
 	It("SnapshotCacheKeys returns the keys formatted correctly", func() {
 		namespace1, namespace2, name1, name2 := "namespace1", "namespace2", "name1", "name2"
-		proxies := []*v1.Proxy{
-			v1.NewProxy(namespace1, name1),
-			v1.NewProxy(namespace2, name2),
-		}
+		p1 := v1.NewProxy(namespace1, name1)
+		p2 := v1.NewProxy(namespace2, name2)
+		proxies := []*v1.Proxy{p1, p2}
+		// missing owner is correctly formatted with legacy format: namespace~name
 		expectedKeys := []string{fmt.Sprintf("%v~%v", namespace1, name1), fmt.Sprintf("%v~%v", namespace2, name2)}
+		actualKeys := xds.SnapshotCacheKeys(proxies)
+		Expect(actualKeys).To(BeEquivalentTo(expectedKeys))
+	})
+
+	It("Gloo Gateway SnapshotCacheKeys uses owner label", func() {
+		owner, namespace1, namespace2, name1, name2 := utils.GatewayApiProxyValue, "namespace1", "namespace2", "name1", "name2"
+		// default gloo-system namespace is used for namespace
+		p1 := v1.NewProxy(namespace1, name1)
+		p1.Metadata.Labels = map[string]string{
+			utils.ProxyTypeKey: owner,
+		}
+		p2 := v1.NewProxy(namespace2, name2)
+		p2.Metadata.Labels = map[string]string{
+			utils.ProxyTypeKey: owner,
+		}
+		proxies := []*v1.Proxy{p1, p2}
+		expectedKeys := []string{fmt.Sprintf("%v~%v~%v", owner, namespace1, name1), fmt.Sprintf("%v~%v~%v", owner, namespace2, name2)}
+		actualKeys := xds.SnapshotCacheKeys(proxies)
+		Expect(actualKeys).To(BeEquivalentTo(expectedKeys))
+	})
+
+	It("Gloo Gateway SnapshotCacheKeys use namespace label", func() {
+		namespace1, namespace2, name1, name2 := "namespace1", "namespace2", "name1", "name2"
+		p1 := v1.NewProxy(defaults.GlooSystem, name1)
+		// proxy metadata is different
+		p1.Metadata.Labels = map[string]string{
+			utils.ProxyTypeKey:        utils.GatewayApiProxyValue,
+			utils.GatewayNamespaceKey: namespace1,
+		}
+		p2 := v1.NewProxy(defaults.GlooSystem, name2)
+		p2.Metadata.Labels = map[string]string{
+			utils.ProxyTypeKey:        utils.GatewayApiProxyValue,
+			utils.GatewayNamespaceKey: namespace2,
+		}
+		proxies := []*v1.Proxy{p1, p2}
+		expectedKeys := []string{fmt.Sprintf("%v~%v~%v", utils.GatewayApiProxyValue, namespace1, name1), fmt.Sprintf("%v~%v~%v", utils.GatewayApiProxyValue, namespace2, name2)}
 		actualKeys := xds.SnapshotCacheKeys(proxies)
 		Expect(actualKeys).To(BeEquivalentTo(expectedKeys))
 	})

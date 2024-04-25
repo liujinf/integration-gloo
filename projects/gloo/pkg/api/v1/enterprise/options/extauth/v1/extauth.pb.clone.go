@@ -896,6 +896,34 @@ func (m *OidcAuthorizationCode) Clone() proto.Message {
 		target.ClientAuthentication = proto.Clone(m.GetClientAuthentication()).(*OidcAuthorizationCode_ClientAuthentication)
 	}
 
+	switch m.Provider.(type) {
+
+	case *OidcAuthorizationCode_Default_:
+
+		if h, ok := interface{}(m.GetDefault()).(clone.Cloner); ok {
+			target.Provider = &OidcAuthorizationCode_Default_{
+				Default: h.Clone().(*OidcAuthorizationCode_Default),
+			}
+		} else {
+			target.Provider = &OidcAuthorizationCode_Default_{
+				Default: proto.Clone(m.GetDefault()).(*OidcAuthorizationCode_Default),
+			}
+		}
+
+	case *OidcAuthorizationCode_Azure_:
+
+		if h, ok := interface{}(m.GetAzure()).(clone.Cloner); ok {
+			target.Provider = &OidcAuthorizationCode_Azure_{
+				Azure: h.Clone().(*OidcAuthorizationCode_Azure),
+			}
+		} else {
+			target.Provider = &OidcAuthorizationCode_Azure_{
+				Azure: proto.Clone(m.GetAzure()).(*OidcAuthorizationCode_Azure),
+			}
+		}
+
+	}
+
 	return target
 }
 
@@ -1580,6 +1608,62 @@ func (m *PassThroughAuth) Clone() proto.Message {
 }
 
 // Clone function
+func (m *BackoffStrategy) Clone() proto.Message {
+	var target *BackoffStrategy
+	if m == nil {
+		return target
+	}
+	target = &BackoffStrategy{}
+
+	if h, ok := interface{}(m.GetBaseInterval()).(clone.Cloner); ok {
+		target.BaseInterval = h.Clone().(*github_com_golang_protobuf_ptypes_duration.Duration)
+	} else {
+		target.BaseInterval = proto.Clone(m.GetBaseInterval()).(*github_com_golang_protobuf_ptypes_duration.Duration)
+	}
+
+	if h, ok := interface{}(m.GetMaxInterval()).(clone.Cloner); ok {
+		target.MaxInterval = h.Clone().(*github_com_golang_protobuf_ptypes_duration.Duration)
+	} else {
+		target.MaxInterval = proto.Clone(m.GetMaxInterval()).(*github_com_golang_protobuf_ptypes_duration.Duration)
+	}
+
+	return target
+}
+
+// Clone function
+func (m *RetryPolicy) Clone() proto.Message {
+	var target *RetryPolicy
+	if m == nil {
+		return target
+	}
+	target = &RetryPolicy{}
+
+	if h, ok := interface{}(m.GetNumRetries()).(clone.Cloner); ok {
+		target.NumRetries = h.Clone().(*github_com_golang_protobuf_ptypes_wrappers.UInt32Value)
+	} else {
+		target.NumRetries = proto.Clone(m.GetNumRetries()).(*github_com_golang_protobuf_ptypes_wrappers.UInt32Value)
+	}
+
+	switch m.Strategy.(type) {
+
+	case *RetryPolicy_RetryBackOff:
+
+		if h, ok := interface{}(m.GetRetryBackOff()).(clone.Cloner); ok {
+			target.Strategy = &RetryPolicy_RetryBackOff{
+				RetryBackOff: h.Clone().(*BackoffStrategy),
+			}
+		} else {
+			target.Strategy = &RetryPolicy_RetryBackOff{
+				RetryBackOff: proto.Clone(m.GetRetryBackOff()).(*BackoffStrategy),
+			}
+		}
+
+	}
+
+	return target
+}
+
+// Clone function
 func (m *PassThroughGrpc) Clone() proto.Message {
 	var target *PassThroughGrpc
 	if m == nil {
@@ -1599,6 +1683,12 @@ func (m *PassThroughGrpc) Clone() proto.Message {
 		target.TlsConfig = h.Clone().(*PassThroughGrpcTLSConfig)
 	} else {
 		target.TlsConfig = proto.Clone(m.GetTlsConfig()).(*PassThroughGrpcTLSConfig)
+	}
+
+	if h, ok := interface{}(m.GetRetryPolicy()).(clone.Cloner); ok {
+		target.RetryPolicy = h.Clone().(*RetryPolicy)
+	} else {
+		target.RetryPolicy = proto.Clone(m.GetRetryPolicy()).(*RetryPolicy)
 	}
 
 	return target
@@ -2465,6 +2555,44 @@ func (m *OidcAuthorizationCode_ClientAuthentication) Clone() proto.Message {
 }
 
 // Clone function
+func (m *OidcAuthorizationCode_Default) Clone() proto.Message {
+	var target *OidcAuthorizationCode_Default
+	if m == nil {
+		return target
+	}
+	target = &OidcAuthorizationCode_Default{}
+
+	return target
+}
+
+// Clone function
+func (m *OidcAuthorizationCode_Azure) Clone() proto.Message {
+	var target *OidcAuthorizationCode_Azure
+	if m == nil {
+		return target
+	}
+	target = &OidcAuthorizationCode_Azure{}
+
+	target.ClientId = m.GetClientId()
+
+	target.TenantId = m.GetTenantId()
+
+	if h, ok := interface{}(m.GetClientSecret()).(clone.Cloner); ok {
+		target.ClientSecret = h.Clone().(*github_com_solo_io_solo_kit_pkg_api_v1_resources_core.ResourceRef)
+	} else {
+		target.ClientSecret = proto.Clone(m.GetClientSecret()).(*github_com_solo_io_solo_kit_pkg_api_v1_resources_core.ResourceRef)
+	}
+
+	if h, ok := interface{}(m.GetClaimsCachingOptions()).(clone.Cloner); ok {
+		target.ClaimsCachingOptions = h.Clone().(*RedisOptions)
+	} else {
+		target.ClaimsCachingOptions = proto.Clone(m.GetClaimsCachingOptions()).(*RedisOptions)
+	}
+
+	return target
+}
+
+// Clone function
 func (m *OidcAuthorizationCode_ClientAuthentication_ClientSecret) Clone() proto.Message {
 	var target *OidcAuthorizationCode_ClientAuthentication_ClientSecret
 	if m == nil {
@@ -3039,6 +3167,34 @@ func (m *ExtAuthConfig_OidcAuthorizationCodeConfig) Clone() proto.Message {
 		target.IdentityToken = h.Clone().(*ExtAuthConfig_OidcAuthorizationCodeConfig_IdentityToken)
 	} else {
 		target.IdentityToken = proto.Clone(m.GetIdentityToken()).(*ExtAuthConfig_OidcAuthorizationCodeConfig_IdentityToken)
+	}
+
+	switch m.Provider.(type) {
+
+	case *ExtAuthConfig_OidcAuthorizationCodeConfig_Default_:
+
+		if h, ok := interface{}(m.GetDefault()).(clone.Cloner); ok {
+			target.Provider = &ExtAuthConfig_OidcAuthorizationCodeConfig_Default_{
+				Default: h.Clone().(*ExtAuthConfig_OidcAuthorizationCodeConfig_Default),
+			}
+		} else {
+			target.Provider = &ExtAuthConfig_OidcAuthorizationCodeConfig_Default_{
+				Default: proto.Clone(m.GetDefault()).(*ExtAuthConfig_OidcAuthorizationCodeConfig_Default),
+			}
+		}
+
+	case *ExtAuthConfig_OidcAuthorizationCodeConfig_Azure_:
+
+		if h, ok := interface{}(m.GetAzure()).(clone.Cloner); ok {
+			target.Provider = &ExtAuthConfig_OidcAuthorizationCodeConfig_Azure_{
+				Azure: h.Clone().(*ExtAuthConfig_OidcAuthorizationCodeConfig_Azure),
+			}
+		} else {
+			target.Provider = &ExtAuthConfig_OidcAuthorizationCodeConfig_Azure_{
+				Azure: proto.Clone(m.GetAzure()).(*ExtAuthConfig_OidcAuthorizationCodeConfig_Azure),
+			}
+		}
+
 	}
 
 	return target
@@ -3837,6 +3993,40 @@ func (m *ExtAuthConfig_OidcAuthorizationCodeConfig_IdentityToken) Clone() proto.
 			}
 
 		}
+	}
+
+	return target
+}
+
+// Clone function
+func (m *ExtAuthConfig_OidcAuthorizationCodeConfig_Default) Clone() proto.Message {
+	var target *ExtAuthConfig_OidcAuthorizationCodeConfig_Default
+	if m == nil {
+		return target
+	}
+	target = &ExtAuthConfig_OidcAuthorizationCodeConfig_Default{}
+
+	return target
+}
+
+// Clone function
+func (m *ExtAuthConfig_OidcAuthorizationCodeConfig_Azure) Clone() proto.Message {
+	var target *ExtAuthConfig_OidcAuthorizationCodeConfig_Azure
+	if m == nil {
+		return target
+	}
+	target = &ExtAuthConfig_OidcAuthorizationCodeConfig_Azure{}
+
+	target.ClientId = m.GetClientId()
+
+	target.TenantId = m.GetTenantId()
+
+	target.ClientSecret = m.GetClientSecret()
+
+	if h, ok := interface{}(m.GetClaimsCachingOptions()).(clone.Cloner); ok {
+		target.ClaimsCachingOptions = h.Clone().(*RedisOptions)
+	} else {
+		target.ClaimsCachingOptions = proto.Clone(m.GetClaimsCachingOptions()).(*RedisOptions)
 	}
 
 	return target

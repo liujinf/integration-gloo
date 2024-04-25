@@ -1,11 +1,12 @@
 package glooctl_test
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/solo-io/gloo/projects/gateway/pkg/defaults"
+	"github.com/solo-io/gloo/test/kube2e/helper"
 	"github.com/solo-io/go-utils/testutils/exec"
-	"github.com/solo-io/k8s-utils/testutils/helper"
 	"github.com/solo-io/skv2/codegen/util"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
 
@@ -20,7 +21,7 @@ var (
 	petstoreCurlOpts = helper.CurlOpts{
 		Protocol:          "http",
 		Path:              "/api/pets",
-		Method:            "GET",
+		Method:            http.MethodGet,
 		Host:              defaults.GatewayProxyName,
 		Service:           defaults.GatewayProxyName,
 		Verbose:           true,
@@ -36,8 +37,14 @@ var (
 
 var _ = Describe("Istio", Ordered, func() {
 
+	BeforeEach(func() {
+		// These tests are known to be inconsistent, and cause toil in our CI pipeline
+		// https://github.com/solo-io/solo-projects/issues/6048 tracks the work to re-enable these tests
+		Skip("These tests are inconsistent. Temporarily disabling")
+	})
+
 	// Tests for: `glooctl istio [..]`
-	// These tests assume that Gloo and Istio are pre-instaled in the cluster
+	// These tests assume that Gloo and Istio are pre-installed in the cluster
 
 	BeforeAll(func() {
 		err := exec.RunCommand(testHelper.RootDir, false, "kubectl", "apply", "-f", petstoreYaml)
@@ -65,7 +72,7 @@ var _ = Describe("Istio", Ordered, func() {
 				Ctx: ctx,
 			})
 			g.Expect(err).NotTo(HaveOccurred(), "should be able to list virtual services")
-			g.Expect(virtualServices).To(HaveLen(0), "should have no virtual services")
+			g.Expect(virtualServices).To(BeEmpty(), "should have no virtual services")
 		}, 10*time.Second, 1*time.Second).ShouldNot(HaveOccurred())
 	})
 

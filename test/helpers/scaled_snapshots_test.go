@@ -14,14 +14,14 @@ var _ = Describe("ScaledSnapshotBuilder", func() {
 		It("generates a snapshot with the expected number of endpoints", func() {
 			snap := helpers.NewScaledSnapshotBuilder().WithEndpointCount(10).Build()
 			Expect(snap.Endpoints).To(HaveLen(10))
-			Expect(snap.Upstreams).To(HaveLen(0))
+			Expect(snap.Upstreams).To(BeEmpty())
 		})
 	})
 
 	When("with upstreams", func() {
 		It("generates a snapshot with the expected number of upstreams", func() {
 			snap := helpers.NewScaledSnapshotBuilder().WithUpstreamCount(10).Build()
-			Expect(snap.Endpoints).To(HaveLen(0))
+			Expect(snap.Endpoints).To(BeEmpty())
 			Expect(snap.Upstreams).To(HaveLen(10))
 		})
 	})
@@ -47,7 +47,7 @@ var _ = Describe("ScaledSnapshotBuilder", func() {
 					WithUpstreamBuilder(helpers.NewUpstreamBuilder().WithUniqueSni()).Build()
 				Expect(snap.Upstreams).To(HaveLen(10))
 				foundSNI := map[string]bool{}
-				for i := 0; i < len(snap.Upstreams); i++ {
+				for i := range len(snap.Upstreams) {
 					Expect(snap.Upstreams[i].SslConfig).NotTo(BeNil())
 					_, ok := foundSNI[snap.Upstreams[i].SslConfig.Sni]
 					Expect(ok).To(BeFalse())

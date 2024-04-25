@@ -18,7 +18,6 @@ import (
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/cors"
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/hcm"
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/protocol_upgrade"
-	routerV1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/router"
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/ssl"
 	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
@@ -131,8 +130,8 @@ var _ = Describe("Listener Subsystem", func() {
 				HttpFilterChains: []*v1.AggregateListener_HttpFilterChain{},
 			},
 			func(listener *envoy_config_listener_v3.Listener, routeConfigs []*envoy_config_route_v3.RouteConfiguration) {
-				ExpectWithOffset(1, listener.GetFilterChains()).To(HaveLen(0))
-				ExpectWithOffset(1, routeConfigs).To(HaveLen(0))
+				ExpectWithOffset(1, listener.GetFilterChains()).To(BeEmpty())
+				ExpectWithOffset(1, routeConfigs).To(BeEmpty())
 			},
 		),
 		Entry(
@@ -173,48 +172,6 @@ var _ = Describe("Listener Subsystem", func() {
 				ExpectWithOffset(1, routeConfigs).To(HaveLen(1))
 				routeConfig := routeConfigs[0]
 				ExpectWithOffset(1, routeConfig.GetName()).To(Equal(hcmRouteConfigName))
-			},
-		),
-		Entry(
-			"Add suppress envoy headers to the router",
-			&v1.AggregateListener{
-				HttpResources: &v1.AggregateListener_HttpResources{
-					HttpOptions: map[string]*v1.HttpListenerOptions{
-						"http-options-ref": {
-							HttpConnectionManagerSettings: &hcm.HttpConnectionManagerSettings{},
-							Router: &routerV1.Router{
-								SuppressEnvoyHeaders: &wrappers.BoolValue{
-									Value: true,
-								},
-							},
-						},
-					},
-					VirtualHosts: map[string]*v1.VirtualHost{
-						"vhost-ref": {
-							Name: "virtual-host",
-						},
-					},
-				},
-				HttpFilterChains: []*v1.AggregateListener_HttpFilterChain{{
-					Matcher:         nil,
-					HttpOptionsRef:  "http-options-ref",
-					VirtualHostRefs: []string{"vhost-ref"},
-				}},
-			},
-			func(listener *envoy_config_listener_v3.Listener, routeConfigs []*envoy_config_route_v3.RouteConfiguration) {
-				By("Should be able to add and translate the router to an envoy config")
-				filterChain := listener.GetFilterChains()[0]
-				hcmFilter := filterChain.GetFilters()[0]
-				_, err := sslutils.AnyToMessage(hcmFilter.GetConfigType().(*envoy_config_listener_v3.Filter_TypedConfig).TypedConfig)
-				Expect(err).NotTo(HaveOccurred())
-
-				hcm := &envoy_http_connection_manager_v3.HttpConnectionManager{}
-				err = translator.ParseTypedConfig(hcmFilter, hcm)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(hcm.HttpFilters).To(HaveLen(2))
-
-				routeFilter := hcm.GetHttpFilters()[1]
-				Expect(routeFilter).To(MatchRegexp("suppress_envoy_headers:true"))
 			},
 		),
 		Entry(
@@ -589,7 +546,7 @@ var _ = Describe("Listener Subsystem", func() {
 			li := listenerTranslator.ComputeListener(params)
 			_ = routeConfigurationTranslator.ComputeRouteConfiguration(params)
 
-			Expect(len(li.GetFilterChains())).To(BeZero())
+			Expect(li.GetFilterChains()).To(BeEmpty())
 
 		})
 	})

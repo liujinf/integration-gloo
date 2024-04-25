@@ -6,19 +6,20 @@ import (
 	"fmt"
 	"net/http"
 
-	syncerstats "github.com/solo-io/gloo/projects/gloo/pkg/syncer/stats"
-	"github.com/solo-io/go-utils/hashutils"
-	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/types"
-	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
-
 	"github.com/gorilla/mux"
 	"github.com/solo-io/gloo/pkg/utils/syncutil"
+	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	v1snap "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/gloosnapshot"
 	"github.com/solo-io/gloo/projects/gloo/pkg/plugins"
+	syncerstats "github.com/solo-io/gloo/projects/gloo/pkg/syncer/stats"
+	"github.com/solo-io/gloo/projects/gloo/pkg/utils"
 	"github.com/solo-io/gloo/projects/gloo/pkg/xds"
 	"github.com/solo-io/go-utils/contextutils"
+	"github.com/solo-io/go-utils/hashutils"
 	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/cache"
 	envoycache "github.com/solo-io/solo-kit/pkg/api/v1/control-plane/cache"
+	"github.com/solo-io/solo-kit/pkg/api/v1/control-plane/types"
+	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 	"github.com/solo-io/solo-kit/pkg/api/v2/reporter"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/stats/view"
@@ -66,13 +67,13 @@ var (
 	)
 )
 
-func measureResource(ctx context.Context, resource string, len int) {
+func measureResource(ctx context.Context, resource string, length int) {
 	if ctxWithTags, err := tag.New(ctx, tag.Insert(resourceNameKey, resource)); err == nil {
-		stats.Record(ctxWithTags, envoySnapshotOut.M(int64(len)))
+		stats.Record(ctxWithTags, envoySnapshotOut.M(int64(length)))
 	}
 }
 
-// syncEnvoy will translate, sanatize, and set the snapshot for each of the proxies, all while merging all the reports into allReports.
+// syncEnvoy will translate, sanitize, and set the snapshot for each of the proxies, all while merging all the reports into allReports.
 func (s *translatorSyncer) syncEnvoy(ctx context.Context, snap *v1snap.ApiSnapshot, allReports reporter.ResourceReports) {
 	ctx, span := trace.StartSpan(ctx, "gloo.syncer.Sync")
 	defer span.End()
@@ -121,7 +122,8 @@ func (s *translatorSyncer) syncEnvoy(ctx context.Context, snap *v1snap.ApiSnapsh
 	}
 	for _, proxy := range snap.Proxies {
 		proxyCtx := ctx
-		if ctxWithTags, err := tag.New(proxyCtx, tag.Insert(syncerstats.ProxyNameKey, proxy.GetMetadata().Ref().Key())); err == nil {
+		metaKey := GetKeyFromProxyMeta(proxy)
+		if ctxWithTags, err := tag.New(proxyCtx, tag.Insert(syncerstats.ProxyNameKey, metaKey)); err == nil {
 			proxyCtx = ctxWithTags
 		}
 
@@ -211,4 +213,18 @@ func prettify(original interface{}) string {
 	}
 
 	return string(b)
+}
+
+func GetKeyFromProxyMeta(proxy *gloov1.Proxy) string {
+	meta := proxy.GetMetadata()
+	metaKey := meta.Ref().Key()
+	labels := proxy.GetMetadata().GetLabels()
+	if labels != nil && labels[utils.ProxyTypeKey] == utils.GatewayApiProxyValue {
+		proxyNamespace := labels[utils.GatewayNamespaceKey]
+		if proxyNamespace != "" {
+			meta.Namespace = proxyNamespace
+			metaKey = meta.Ref().Key()
+		}
+	}
+	return metaKey
 }

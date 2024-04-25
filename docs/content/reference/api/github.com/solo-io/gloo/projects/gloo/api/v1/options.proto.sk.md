@@ -48,17 +48,19 @@ to be usable by Gloo. (plugins currently need to be compiled into Gloo)
 "socketOptions": []solo.io.envoy.api.v2.core.SocketOption
 "proxyProtocol": .proxy_protocol.options.gloo.solo.io.ProxyProtocol
 "connectionBalanceConfig": .gloo.solo.io.ConnectionBalanceConfig
+"listenerAccessLoggingService": .als.options.gloo.solo.io.AccessLoggingService
 
 ```
 
 | Field | Type | Description |
 | ----- | ---- | ----------- | 
-| `accessLoggingService` | [.als.options.gloo.solo.io.AccessLoggingService](../options/als/als.proto.sk/#accessloggingservice) |  |
+| `accessLoggingService` | [.als.options.gloo.solo.io.AccessLoggingService](../options/als/als.proto.sk/#accessloggingservice) | Configuration for access logging in a filter like the HttpConnectionManager. |
 | `extensions` | [.gloo.solo.io.Extensions](../extensions.proto.sk/#extensions) | Extensions will be passed along from Listeners, Gateways, VirtualServices, Routes, and Route tables to the underlying Proxy, making them useful for controllers, validation tools, etc. which interact with kubernetes yaml. Some sample use cases: * controllers, deployment pipelines, helm charts, etc. which wish to use extensions as a kind of opaque metadata. * In the future, Gloo may support gRPC-based plugins which communicate with the Gloo translator out-of-process. Opaque Extensions enables development of out-of-process plugins without requiring recompiling & redeploying Gloo's API. |
 | `perConnectionBufferLimitBytes` | [.google.protobuf.UInt32Value](https://developers.google.com/protocol-buffers/docs/reference/csharp/class/google/protobuf/well-known-types/u-int-32-value) | Soft limit on size of the listener's new connection read and write buffers. If unspecified, defaults to 1MiB For more info, check out the [Envoy docs](https://www.envoyproxy.io/docs/envoy/v1.14.1/api-v2/api/v2/listener.proto). |
 | `socketOptions` | [[]solo.io.envoy.api.v2.core.SocketOption](../../../../../../solo-kit/api/external/envoy/api/v2/core/socket_option.proto.sk/#socketoption) | Additional socket options that may not be present in Envoy source code or precompiled binaries. |
 | `proxyProtocol` | [.proxy_protocol.options.gloo.solo.io.ProxyProtocol](../options/proxy_protocol/proxy_protocol.proto.sk/#proxyprotocol) | Enable ProxyProtocol support for this listener. |
 | `connectionBalanceConfig` | [.gloo.solo.io.ConnectionBalanceConfig](../options.proto.sk/#connectionbalanceconfig) | Configuration for listener connection balancing. |
+| `listenerAccessLoggingService` | [.als.options.gloo.solo.io.AccessLoggingService](../options/als/als.proto.sk/#accessloggingservice) | If enabled this sets up an early access logging service for the listener. Added initially to support listener level logging for HTTP listeners. For more info see https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/listener/v3/listener.proto#envoy-v3-api-field-config-listener-v3-listener-access-log. |
 
 
 
@@ -152,6 +154,7 @@ Optional, feature-specific configuration that lives on http listeners
 "networkLocalRatelimit": .local_ratelimit.options.gloo.solo.io.TokenBucket
 "httpLocalRatelimit": .local_ratelimit.options.gloo.solo.io.Settings
 "router": .gloo.solo.io.Router
+"tap": .tap.options.gloo.solo.io.Tap
 
 ```
 
@@ -181,6 +184,7 @@ Optional, feature-specific configuration that lives on http listeners
 | `networkLocalRatelimit` | [.local_ratelimit.options.gloo.solo.io.TokenBucket](../options/local_ratelimit/local_ratelimit.proto.sk/#tokenbucket) | NetworkLocalRatelimit can be used to rate limit the connections per gateway at the L4 layer and works pre-auth. It uses envoy's own local rate limit filter to do so, without the need for an external rate limit server to be set up. |
 | `httpLocalRatelimit` | [.local_ratelimit.options.gloo.solo.io.Settings](../options/local_ratelimit/local_ratelimit.proto.sk/#settings) | HttpLocalRatelimit can be used to rate limit the number of requests per gateway and works pre-auth. Unlike the NetworkLocalRatelimit, this works as part of the HCM (ie: L7 layer). All virtual host and routes that are part of this gateway will share this rate limit unless explicity configured with another limit. It uses envoy's own local rate limit filter to do so, without the need for an external rate limit server to be set up. |
 | `router` | [.gloo.solo.io.Router](../options/router/router.proto.sk/#router) | Router is an extension of the envoy http filters Maps to https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/http/router/v3/router.proto. |
+| `tap` | [.tap.options.gloo.solo.io.Tap](../enterprise/options/tap/tap.proto.sk/#tap) | Enterprise only: Tap filter settings (experimental). |
 
 
 

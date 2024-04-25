@@ -2,6 +2,11 @@ namespace:
   create: false
 k8s:
   clusterName: cluster.local
+
+# Default values for the Gloo Gateway - Kubernetes Gateway API integration
+kubeGateway:
+  enabled: true
+
 settings:
   # if this is set to false, default settings will be created by pods upon boot
   create: true
@@ -23,6 +28,7 @@ settings:
         httpPort: 8080
         httpsPort: 8443
         replicas: 1
+        runAsUser: 10101
         service:
           type: LoadBalancer
           extraAnnotations: {}
@@ -106,7 +112,7 @@ gateway:
     # When adding the --wait && --wait-for-jobs flag in helm, sometimes the job can complete and be deleted before helm can check if it has finished (for instance, while helm is waiting on a deployment).
     # So set this to a higher value where it should still be around after all the other resources are ready
     ttlSecondsAfterFinished: 300
-    timeout: 600
+    timeout: 120
   cleanupJob:
     enabled: true
     image:
@@ -167,6 +173,7 @@ gatewayProxies:
     healthyPanicThreshold: 50
     tcpKeepaliveTimeSeconds: 60
     disableCoreDumps: false
+    disableExtauthSidecar: false
     # intentionally unset, so we default to the gloo service address. if set, this overrides the derived gloo service address
     # xdsServiceAddress: xds-relay.default.svc.cluster.local
     # intentionally unset, so we default to the gloo service port. if set, this overrides .Values.gloo.deployment.xdsPort
@@ -198,6 +205,7 @@ ingressProxy:
     httpPort: 8080
     httpsPort: 8443
     replicas: 1
+    runAsUser: 10101
   service:
     type: LoadBalancer
     extraAnnotations: {}
@@ -210,7 +218,6 @@ global:
   image:
     registry: quay.io/solo-io
     pullPolicy: IfNotPresent
-    extended: false
   glooRbac:
     create: true
     namespaced: false
@@ -225,11 +232,13 @@ global:
     sds:
       image:
         repository: sds
+      logLevel: info
     istioProxy:
       image:
         repository: proxyv2
         registry: docker.io/istio
         tag: 1.18.2
+      logLevel: warning
     envoy:
       image:
         repository: gloo-envoy-wrapper
@@ -240,6 +249,8 @@ global:
     whitelistDiscovery: false
     disableAutoinjection: false
     enableIstioSidecarOnGateway: false
+    appendXForwardedHost: true
+    enableAutoMtls: false
   # AddEnterpriseSettings and extauthCustomYaml control differences in the settings manifest between open source and enterprise
   AddEnterpriseSettings: false
   extauthCustomYaml: true

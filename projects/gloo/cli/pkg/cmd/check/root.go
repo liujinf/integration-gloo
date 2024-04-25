@@ -6,6 +6,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/solo-io/gloo/pkg/utils/kubeutils"
+
+	"github.com/solo-io/gloo/projects/gloo/pkg/utils"
+
 	"github.com/hashicorp/go-multierror"
 	"github.com/rotisserie/eris"
 	gatewayv1 "github.com/solo-io/gloo/projects/gateway/pkg/api/v1"
@@ -28,6 +32,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/discovery"
 )
 
 var (
@@ -35,7 +40,7 @@ var (
 		return eris.Errorf("%s CRD has not been registered", crdName)
 	}
 
-	printer printers.P
+	// printer printers.P
 )
 
 // contains method
@@ -54,14 +59,29 @@ func RootCmd(opts *options.Options, optionsFunc ...cliutils.OptionsFunc) *cobra.
 		Short: constants.CHECK_COMMAND.Short,
 		Long:  "usage: glooctl check [-o FORMAT]",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithCancel(opts.Top.Ctx)
+
+			if opts.Check.CheckTimeout != 0 {
+				ctx, cancel = context.WithTimeout(opts.Top.Ctx, opts.Check.CheckTimeout)
+			}
+			defer cancel()
 
 			if !opts.Top.Output.IsTable() && !opts.Top.Output.IsJSON() {
 				return errors.New("Invalid output type. Only table (default) and json are supported.")
 			}
 
-			printer = printers.P{OutputType: opts.Top.Output}
+			printer := printers.P{OutputType: opts.Top.Output}
 			printer.CheckResult = printer.NewCheckResult()
-			err := CheckResources(opts)
+
+			// TODO add back the v2 check (probably better to pass in as a flag rather than try to infer it)
+			// var err error
+			// call v2 check if k8s gateway crds are detected, otherwise call v1 check
+			// isV2 := detectCrdsV2(opts.Top.KubeContext)
+			// if isV2 {
+			// 	err = v2.Check(ctx, printer, opts)
+			// } else {
+			err := CheckResources(ctx, printer, opts)
+			// }
 
 			if err != nil {
 				// Not returning error here because this shouldn't propagate as a standard CLI error, which prints usage.
@@ -72,7 +92,10 @@ func RootCmd(opts *options.Options, optionsFunc ...cliutils.OptionsFunc) *cobra.
 				printer.AppendMessage("No problems detected.")
 			}
 
-			CheckMulticlusterResources(opts)
+			// TODO add back the v2 check
+			// if !isV2 {
+			CheckMulticlusterResources(ctx, printer, opts)
+			// }
 
 			if opts.Top.Output.IsJSON() {
 				printer.PrintChecks(new(bytes.Buffer))
@@ -91,15 +114,9 @@ func RootCmd(opts *options.Options, optionsFunc ...cliutils.OptionsFunc) *cobra.
 	cliutils.ApplyOptions(cmd, optionsFunc)
 	return cmd
 }
-func CheckResources(opts *options.Options) error {
+
+func CheckResources(ctx context.Context, printer printers.P, opts *options.Options) error {
 	var multiErr *multierror.Error
-
-	ctx, cancel := context.WithCancel(opts.Top.Ctx)
-
-	if opts.Check.CheckTimeout != 0 {
-		ctx, cancel = context.WithTimeout(opts.Top.Ctx, opts.Check.CheckTimeout)
-	}
-	defer cancel()
 
 	err := checkConnection(ctx, opts)
 	if err != nil {
@@ -110,14 +127,14 @@ func CheckResources(opts *options.Options) error {
 	var deployments *appsv1.DeploymentList
 	deploymentsIncluded := doesNotContain(opts.Top.CheckName, "deployments")
 	if deploymentsIncluded {
-		deployments, err = getAndCheckDeployments(ctx, opts)
+		deployments, err = getAndCheckDeployments(ctx, printer, opts)
 		if err != nil {
 			multiErr = multierror.Append(multiErr, err)
 		}
 	}
 
 	if included := doesNotContain(opts.Top.CheckName, "pods"); included {
-		err := checkPods(ctx, opts)
+		err := checkPods(ctx, printer, opts)
 		if err != nil {
 			multiErr = multierror.Append(multiErr, err)
 		}
@@ -152,14 +169,14 @@ func CheckResources(opts *options.Options) error {
 
 	var knownUpstreams []string
 	if included := doesNotContain(opts.Top.CheckName, "upstreams"); included {
-		knownUpstreams, err = checkUpstreams(ctx, opts, namespaces)
+		knownUpstreams, err = checkUpstreams(ctx, printer, opts, namespaces)
 		if err != nil {
 			multiErr = multierror.Append(multiErr, err)
 		}
 	}
 
 	if included := doesNotContain(opts.Top.CheckName, "upstreamgroup"); included {
-		err := checkUpstreamGroups(ctx, opts, namespaces)
+		err := checkUpstreamGroups(ctx, printer, opts, namespaces)
 		if err != nil {
 			multiErr = multierror.Append(multiErr, err)
 		}
@@ -167,7 +184,7 @@ func CheckResources(opts *options.Options) error {
 
 	var knownAuthConfigs []string
 	if included := doesNotContain(opts.Top.CheckName, "auth-configs"); included {
-		knownAuthConfigs, err = checkAuthConfigs(ctx, opts, namespaces)
+		knownAuthConfigs, err = checkAuthConfigs(ctx, printer, opts, namespaces)
 		if err != nil {
 			multiErr = multierror.Append(multiErr, err)
 		}
@@ -175,52 +192,52 @@ func CheckResources(opts *options.Options) error {
 
 	var knownRateLimitConfigs []string
 	if included := doesNotContain(opts.Top.CheckName, "rate-limit-configs"); included {
-		knownRateLimitConfigs, err = checkRateLimitConfigs(ctx, opts, namespaces)
+		knownRateLimitConfigs, err = checkRateLimitConfigs(ctx, printer, opts, namespaces)
 		if err != nil {
 			multiErr = multierror.Append(multiErr, err)
 		}
 	}
 
-	knownVirtualHostOptions, err := checkVirtualHostOptions(ctx, opts, namespaces)
+	knownVirtualHostOptions, err := checkVirtualHostOptions(ctx, printer, opts, namespaces)
 	if err != nil {
 		multiErr = multierror.Append(multiErr, err)
 	}
 
-	knownRouteOptions, err := checkRouteOptions(ctx, opts, namespaces)
+	knownRouteOptions, err := checkRouteOptions(ctx, printer, opts, namespaces)
 	if err != nil {
 		multiErr = multierror.Append(multiErr, err)
 	}
 
 	if included := doesNotContain(opts.Top.CheckName, "secrets"); included {
-		err := checkSecrets(ctx, opts, namespaces)
+		err := checkSecrets(ctx, printer, opts, namespaces)
 		if err != nil {
 			multiErr = multierror.Append(multiErr, err)
 		}
 	}
 
 	if included := doesNotContain(opts.Top.CheckName, "virtual-services"); included {
-		err = checkVirtualServices(ctx, opts, namespaces, knownUpstreams, knownAuthConfigs, knownRateLimitConfigs, knownVirtualHostOptions, knownRouteOptions)
+		err = checkVirtualServices(ctx, printer, opts, namespaces, knownUpstreams, knownAuthConfigs, knownRateLimitConfigs, knownVirtualHostOptions, knownRouteOptions)
 		if err != nil {
 			multiErr = multierror.Append(multiErr, err)
 		}
 	}
 
 	if included := doesNotContain(opts.Top.CheckName, "gateways"); included {
-		err := checkGateways(ctx, opts, namespaces)
+		err := checkGateways(ctx, printer, opts, namespaces)
 		if err != nil {
 			multiErr = multierror.Append(multiErr, err)
 		}
 	}
 
 	if included := doesNotContain(opts.Top.CheckName, "proxies"); included {
-		err := checkProxies(ctx, opts, namespaces, opts.Metadata.GetNamespace(), deployments, deploymentsIncluded, settings)
+		err := checkProxies(ctx, printer, opts, namespaces, opts.Metadata.GetNamespace(), deployments, deploymentsIncluded, settings)
 		if err != nil {
 			multiErr = multierror.Append(multiErr, err)
 		}
 	}
 
 	if included := doesNotContain(opts.Top.CheckName, "xds-metrics"); included {
-		err = checkXdsMetrics(ctx, opts, deployments)
+		err = checkXdsMetrics(ctx, printer, opts, deployments)
 		if err != nil {
 			multiErr = multierror.Append(multiErr, err)
 		}
@@ -235,7 +252,7 @@ func CheckResources(opts *options.Options) error {
 	return multiErr.ErrorOrNil()
 }
 
-func getAndCheckDeployments(ctx context.Context, opts *options.Options) (*appsv1.DeploymentList, error) {
+func getAndCheckDeployments(ctx context.Context, printer printers.P, opts *options.Options) (*appsv1.DeploymentList, error) {
 	printer.AppendCheck("Checking deployments... ")
 	client, err := helpers.GetKubernetesClient(opts.Top.KubeContext)
 	if err != nil {
@@ -312,7 +329,7 @@ func getAndCheckDeployments(ctx context.Context, opts *options.Options) (*appsv1
 	return deployments, nil
 }
 
-func checkPods(ctx context.Context, opts *options.Options) error {
+func checkPods(ctx context.Context, printer printers.P, opts *options.Options) error {
 	printer.AppendCheck("Checking pods... ")
 	client, err := helpers.GetKubernetesClient(opts.Top.KubeContext)
 	if err != nil {
@@ -387,7 +404,7 @@ func getNamespaces(ctx context.Context, settings *v1.Settings) ([]string, error)
 	return helpers.GetNamespaces(ctx)
 }
 
-func checkUpstreams(ctx context.Context, opts *options.Options, namespaces []string) ([]string, error) {
+func checkUpstreams(ctx context.Context, printer printers.P, _ *options.Options, namespaces []string) ([]string, error) {
 	printer.AppendCheck("Checking upstreams... ")
 	var knownUpstreams []string
 	var multiErr *multierror.Error
@@ -432,7 +449,7 @@ func checkUpstreams(ctx context.Context, opts *options.Options, namespaces []str
 	return knownUpstreams, nil
 }
 
-func checkUpstreamGroups(ctx context.Context, opts *options.Options, namespaces []string) error {
+func checkUpstreamGroups(ctx context.Context, printer printers.P, _ *options.Options, namespaces []string) error {
 	printer.AppendCheck("Checking upstream groups... ")
 	var multiErr *multierror.Error
 	for _, ns := range namespaces {
@@ -478,7 +495,7 @@ func checkUpstreamGroups(ctx context.Context, opts *options.Options, namespaces 
 	return nil
 }
 
-func checkAuthConfigs(ctx context.Context, opts *options.Options, namespaces []string) ([]string, error) {
+func checkAuthConfigs(ctx context.Context, printer printers.P, _ *options.Options, namespaces []string) ([]string, error) {
 	printer.AppendCheck("Checking auth configs... ")
 	var knownAuthConfigs []string
 	var multiErr *multierror.Error
@@ -523,7 +540,7 @@ func checkAuthConfigs(ctx context.Context, opts *options.Options, namespaces []s
 	return knownAuthConfigs, nil
 }
 
-func checkRateLimitConfigs(ctx context.Context, opts *options.Options, namespaces []string) ([]string, error) {
+func checkRateLimitConfigs(ctx context.Context, printer printers.P, _ *options.Options, namespaces []string) ([]string, error) {
 	printer.AppendCheck("Checking rate limit configs... ")
 	var knownConfigs []string
 	var multiErr *multierror.Error
@@ -563,7 +580,7 @@ func checkRateLimitConfigs(ctx context.Context, opts *options.Options, namespace
 	return knownConfigs, nil
 }
 
-func checkVirtualHostOptions(ctx context.Context, opts *options.Options, namespaces []string) ([]string, error) {
+func checkVirtualHostOptions(ctx context.Context, printer printers.P, _ *options.Options, namespaces []string) ([]string, error) {
 	printer.AppendCheck("Checking VirtualHostOptions... ")
 	var knownVhOpts []string
 	var multiErr *multierror.Error
@@ -611,7 +628,7 @@ func checkVirtualHostOptions(ctx context.Context, opts *options.Options, namespa
 	return knownVhOpts, nil
 }
 
-func checkRouteOptions(ctx context.Context, opts *options.Options, namespaces []string) ([]string, error) {
+func checkRouteOptions(ctx context.Context, printer printers.P, _ *options.Options, namespaces []string) ([]string, error) {
 	printer.AppendCheck("Checking RouteOptions... ")
 	var knownRouteOpts []string
 	var multiErr *multierror.Error
@@ -659,7 +676,7 @@ func checkRouteOptions(ctx context.Context, opts *options.Options, namespaces []
 	return knownRouteOpts, nil
 }
 
-func checkVirtualServices(ctx context.Context, opts *options.Options, namespaces, knownUpstreams, knownAuthConfigs, knownRateLimitConfigs, knownVirtualHostOptions, knownRouteOptions []string) error {
+func checkVirtualServices(ctx context.Context, printer printers.P, _ *options.Options, namespaces, knownUpstreams, knownAuthConfigs, knownRateLimitConfigs, knownVirtualHostOptions, knownRouteOptions []string) error {
 	printer.AppendCheck("Checking virtual services... ")
 	var multiErr *multierror.Error
 
@@ -800,7 +817,7 @@ func checkVirtualServices(ctx context.Context, opts *options.Options, namespaces
 	return nil
 }
 
-func checkGateways(ctx context.Context, opts *options.Options, namespaces []string) error {
+func checkGateways(ctx context.Context, printer printers.P, _ *options.Options, namespaces []string) error {
 	printer.AppendCheck("Checking gateways... ")
 	var multiErr *multierror.Error
 	for _, ns := range namespaces {
@@ -845,7 +862,7 @@ func checkGateways(ctx context.Context, opts *options.Options, namespaces []stri
 	return nil
 }
 
-func checkProxies(ctx context.Context, opts *options.Options, namespaces []string, glooNamespace string, deployments *appsv1.DeploymentList, deploymentsIncluded bool, settings *v1.Settings) error {
+func checkProxies(ctx context.Context, printer printers.P, opts *options.Options, namespaces []string, glooNamespace string, deployments *appsv1.DeploymentList, deploymentsIncluded bool, settings *v1.Settings) error {
 	printer.AppendCheck("Checking proxies... ")
 	if !deploymentsIncluded {
 		printer.AppendStatus("proxies", "Skipping proxies because deployments were excluded")
@@ -878,8 +895,18 @@ func checkProxies(ctx context.Context, opts *options.Options, namespaces []strin
 					}
 				}
 			} else {
-				errMessage := fmt.Sprintf("Found proxy with no status: %s\n", renderMetadata(proxy.GetMetadata()))
-				multiErr = multierror.Append(multiErr, errors.New(errMessage))
+				// Proxy has no status. We want to warn users that something is causing the Proxy to not be processed by the ControlPlane
+				translatorValue := utils.GetTranslatorValue(proxy.GetMetadata())
+				if translatorValue == utils.GatewayApiProxyValue {
+					// This proxy was created by the k8s Gateway translation
+					// That feature does not yet support propagating statuses onto the Proxy CR, so we ignore it
+
+				} else {
+					// This proxy was created by the Edge Gateway translation
+					// That feature does support propagating statuses on the Proxy CR, so if a status is not there, we should error
+					errMessage := fmt.Sprintf("Found proxy with no status: %s\n", renderMetadata(proxy.GetMetadata()))
+					multiErr = multierror.Append(multiErr, errors.New(errMessage))
+				}
 			}
 		}
 	}
@@ -901,7 +928,7 @@ func checkProxies(ctx context.Context, opts *options.Options, namespaces []strin
 	return nil
 }
 
-func checkSecrets(ctx context.Context, opts *options.Options, namespaces []string) error {
+func checkSecrets(ctx context.Context, printer printers.P, _ *options.Options, namespaces []string) error {
 	printer.AppendCheck("Checking secrets... ")
 	var multiErr *multierror.Error
 	client, err := helpers.GetSecretClient(ctx, namespaces)
@@ -970,4 +997,30 @@ func isCrdNotFoundErr(crd crd.Crd, err error) bool {
 		}
 		return false
 	}
+}
+
+// copied from projects/gloo/cli/pkg/cmd/install/v2/install.go (TODO: dedupe/clean up)
+func detectCrdsV2(kubeContext string) bool {
+	cfg, err := kubeutils.GetRestConfigWithKubeContext(kubeContext)
+	if err != nil {
+		return false
+	}
+	discClient, err := discovery.NewDiscoveryClientForConfig(cfg)
+	if err != nil {
+		return false
+	}
+
+	groups, err := discClient.ServerGroups()
+	if err != nil {
+		return false
+	}
+
+	// Check if gateway group exists
+	for _, group := range groups.Groups {
+		if group.Name == "gateway.networking.k8s.io" {
+			return true
+		}
+	}
+
+	return false
 }

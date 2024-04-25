@@ -13,13 +13,14 @@ import (
 	"github.com/rotisserie/eris"
 	"github.com/solo-io/gloo/projects/gateway/pkg/utils"
 	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	glooutils "github.com/solo-io/gloo/projects/gloo/pkg/utils"
 	v1alpha1 "github.com/solo-io/gloo/projects/knative/pkg/api/external/knative"
 	v1 "github.com/solo-io/gloo/projects/knative/pkg/api/v1"
 	"github.com/solo-io/go-utils/contextutils"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
-	v1machinery "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	knativev1alpha1 "knative.dev/networking/pkg/apis/networking/v1alpha1"
 	knativeclient "knative.dev/networking/pkg/client/clientset/versioned/typed/networking/v1alpha1"
 )
@@ -116,7 +117,7 @@ func (s *translatorSyncer) Sync(ctx context.Context, snap *v1.TranslatorSnapshot
 	}
 
 	labels := map[string]string{
-		"created_by": "gloo-knative-translator",
+		glooutils.ProxyTypeKey: glooutils.KnativeProxyValue,
 	}
 
 	var desiredResources gloov1.ProxyList
@@ -211,7 +212,7 @@ func (s *translatorSyncer) markIngressesReady(ctx context.Context, ingresses v1a
 		updatedIngresses = append(updatedIngresses, &ci)
 	}
 	for _, ingress := range updatedIngresses {
-		if _, err := s.ingressClient.Ingresses(ingress.Namespace).UpdateStatus(ctx, ingress, v1machinery.UpdateOptions{}); err != nil {
+		if _, err := s.ingressClient.Ingresses(ingress.Namespace).UpdateStatus(ctx, ingress, metav1.UpdateOptions{}); err != nil {
 			contextutils.LoggerFrom(ctx).Errorf("failed to update Ingress %v status with error %v", ingress.Name, err)
 		}
 	}

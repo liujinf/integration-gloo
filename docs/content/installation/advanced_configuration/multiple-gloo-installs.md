@@ -18,7 +18,9 @@ When using the default installation, Gloo Edge will watch all namespaces for Kub
 
 Gloo Edge can be configured to only watch specific namespaces, meaning Gloo Edge will not see services and CRDs in any namespaces other than those provided in the {{< protobuf name="gloo.solo.io.Settings" display="watchNamespaces setting">}}.
 
-By leveraging this option, we can install Gloo Edge to as many namespaces we need, ensuring that the `watchNamespaces` do not overlap.
+Additionally, Gloo reads configuration for the Gateway custom resource only in the namespace that the gateway controller is deployed by default. For Gateway configuration in other namespaces, such as to support multiple gateways, enable the {{< protobuf name="gloo.solo.io.Settings" display="GatewayOptions.readGatewaysFromAllNamespaces setting">}}. 
+
+By leveraging these options, we can install Gloo Edge to as many namespaces we need, ensuring that the `watchNamespaces` do not overlap.
 
 {{% notice note %}}
 `watchNamespaces` can be shared between Gloo Edge instances, so long as any Virtual Services are not written to a shared namespace. When this happens, both Gloo Edge instances will attempt to apply the same routing config, which can cause domain conflicts.
@@ -30,20 +32,32 @@ Currently, installing Gloo Edge with specific `watchNamespaces` requires install
 
 ## Installing Namespace-Scoped Gloo Edge with Helm
 
-In this section we'll deploy Gloo Edge twice, each instance to a different namespace, with two different Helm value files. For Gloo Edge Enterprise users, we have included a settings for the Grafana RBAC configuration. Gloo Edge Open Source users can safely remove those settings.
+In this section we'll deploy Gloo Edge twice, each instance to a different namespace, with two different Helm value files. 
+
+For Gloo Edge Enterprise users, you often use Gloo with the enterprise observability tools, Grafana and Prometheus. However, you cannot use the same observability instance for multiple Gloo instances. You can disable the observability tool for additional Gloo instances, or create separate observability tool instances by using name and RBAC overrides, as shown in the following examples.
+
+For Gloo Edge Open Source users, remove the [Grafana]({{% versioned_link_path fromRoot="/guides/observability/grafana/" %}}) and [Prometheus]({{% versioned_link_path fromRoot="/guides/observability/prometheus/" %}}) settings from the examples. Grafana and Prometheus are enterprise-only features.
 
 Create a file named `gloo1-overrides.yaml` and paste the following inside:
 
-```shell
+```yaml
 settings:
   create: true
   writeNamespace: gloo1
   watchNamespaces:
   - default
   - gloo1
-grafana: # The grafana settings can be removed for Gloo Edge OSS
+gloo:
+  gateway:
+    readGatewaysFromAllNamespaces: true # Read Gateway config in all 'watchNamespaces'
+grafana: # Remove the grafana settings for Gloo Edge OSS
   rbac:
     namespaced: true
+prometheus: # Remove the prometheus settings for Gloo Edge OSS
+  kube-state-metrics:
+    fullnameOverride: glooe-prometheus-kube-state-metrics-1
+  server:
+    fullnameOverride: glooe-prometheus-server-1
 ```
 
 Now, let's install Gloo Edge. Review our [Kubernetes installation guide]({{% versioned_link_path fromRoot="/installation/gateway/kubernetes/" %}}) if you need a refresher.
@@ -108,9 +122,17 @@ settings:
   watchNamespaces:
   - default
   - gloo2
-grafana: # The grafana settings can be removed for Gloo Edge OSS
+gloo:
+  gateway:
+    readGatewaysFromAllNamespaces: true # Read Gateway config in all 'watchNamespaces'
+grafana: # Remove the grafana settings for Gloo Edge OSS
   rbac:
     namespaced: true
+prometheus: # Remove the prometheus settings for Gloo Edge OSS
+  kube-state-metrics:
+    fullnameOverride: glooe-prometheus-kube-state-metrics-2
+  server:
+    fullnameOverride: glooe-prometheus-server-2
 ```
 
 Now, let's install Gloo Edge for the second time. First create the second namespace:

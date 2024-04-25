@@ -454,6 +454,12 @@ func (m *GlooOptions) Clone() proto.Message {
 		target.TransformationEscapeCharacters = proto.Clone(m.GetTransformationEscapeCharacters()).(*github_com_golang_protobuf_ptypes_wrappers.BoolValue)
 	}
 
+	if h, ok := interface{}(m.GetIstioOptions()).(clone.Cloner); ok {
+		target.IstioOptions = h.Clone().(*GlooOptions_IstioOptions)
+	} else {
+		target.IstioOptions = proto.Clone(m.GetIstioOptions()).(*GlooOptions_IstioOptions)
+	}
+
 	return target
 }
 
@@ -699,6 +705,8 @@ func (m *Settings_VaultAwsAuth) Clone() proto.Message {
 	target.SecretAccessKey = m.GetSecretAccessKey()
 
 	target.SessionToken = m.GetSessionToken()
+
+	target.LeaseIncrement = m.GetLeaseIncrement()
 
 	return target
 }
@@ -1102,6 +1110,10 @@ func (m *Settings_ObservabilityOptions_GrafanaIntegration) Clone() proto.Message
 		target.DefaultDashboardFolderId = proto.Clone(m.GetDefaultDashboardFolderId()).(*github_com_golang_protobuf_ptypes_wrappers.UInt32Value)
 	}
 
+	target.DashboardPrefix = m.GetDashboardPrefix()
+
+	target.ExtraMetricQueryParameters = m.GetExtraMetricQueryParameters()
+
 	return target
 }
 
@@ -1189,6 +1201,29 @@ func (m *GlooOptions_InvalidConfigPolicy) Clone() proto.Message {
 	target.InvalidRouteResponseCode = m.GetInvalidRouteResponseCode()
 
 	target.InvalidRouteResponseBody = m.GetInvalidRouteResponseBody()
+
+	return target
+}
+
+// Clone function
+func (m *GlooOptions_IstioOptions) Clone() proto.Message {
+	var target *GlooOptions_IstioOptions
+	if m == nil {
+		return target
+	}
+	target = &GlooOptions_IstioOptions{}
+
+	if h, ok := interface{}(m.GetAppendXForwardedHost()).(clone.Cloner); ok {
+		target.AppendXForwardedHost = h.Clone().(*github_com_golang_protobuf_ptypes_wrappers.BoolValue)
+	} else {
+		target.AppendXForwardedHost = proto.Clone(m.GetAppendXForwardedHost()).(*github_com_golang_protobuf_ptypes_wrappers.BoolValue)
+	}
+
+	if h, ok := interface{}(m.GetEnableAutoMtls()).(clone.Cloner); ok {
+		target.EnableAutoMtls = h.Clone().(*github_com_golang_protobuf_ptypes_wrappers.BoolValue)
+	} else {
+		target.EnableAutoMtls = proto.Clone(m.GetEnableAutoMtls()).(*github_com_golang_protobuf_ptypes_wrappers.BoolValue)
+	}
 
 	return target
 }

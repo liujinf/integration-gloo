@@ -9,12 +9,13 @@ import (
 	"time"
 
 	"github.com/solo-io/gloo/test/ginkgo/parallel"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/solo-io/gloo/test/helpers"
+	"github.com/solo-io/gloo/test/kube2e/helper"
 	"github.com/solo-io/go-utils/log"
 	"github.com/solo-io/go-utils/testutils"
 	"github.com/solo-io/go-utils/testutils/exec"
-	"github.com/solo-io/k8s-utils/testutils/helper"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -56,7 +57,9 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 
-	skhelpers.RegisterPreFailHandler(helpers.KubeDumpOnFail(GinkgoWriter, "knative-serving", testHelper.InstallNamespace))
+	skhelpers.RegisterPreFailHandler(helpers.StandardGlooDumpOnFail(GinkgoWriter,
+		metav1.ObjectMeta{Namespace: "knative-serving"},
+		metav1.ObjectMeta{Namespace: testHelper.InstallNamespace}))
 	testHelper.Verbose = true
 
 	// Define helm overrides

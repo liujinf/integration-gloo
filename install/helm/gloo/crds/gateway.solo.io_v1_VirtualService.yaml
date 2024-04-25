@@ -820,6 +820,24 @@ spec:
                                         type: object
                                     type: object
                                   type: array
+                                limit:
+                                  properties:
+                                    dynamicMetadata:
+                                      properties:
+                                        metadataKey:
+                                          properties:
+                                            key:
+                                              type: string
+                                            path:
+                                              items:
+                                                properties:
+                                                  key:
+                                                    type: string
+                                                type: object
+                                              type: array
+                                          type: object
+                                      type: object
+                                  type: object
                                 setActions:
                                   items:
                                     properties:
@@ -1028,6 +1046,24 @@ spec:
                                         type: object
                                     type: object
                                   type: array
+                                limit:
+                                  properties:
+                                    dynamicMetadata:
+                                      properties:
+                                        metadataKey:
+                                          properties:
+                                            key:
+                                              type: string
+                                            path:
+                                              items:
+                                                properties:
+                                                  key:
+                                                    type: string
+                                                type: object
+                                              type: array
+                                          type: object
+                                      type: object
+                                  type: object
                                 setActions:
                                   items:
                                     properties:
@@ -1215,6 +1251,24 @@ spec:
                                         type: object
                                     type: object
                                   type: array
+                                limit:
+                                  properties:
+                                    dynamicMetadata:
+                                      properties:
+                                        metadataKey:
+                                          properties:
+                                            key:
+                                              type: string
+                                            path:
+                                              items:
+                                                properties:
+                                                  key:
+                                                    type: string
+                                                type: object
+                                              type: array
+                                          type: object
+                                      type: object
+                                  type: object
                                 setActions:
                                   items:
                                     properties:
@@ -1450,7 +1504,13 @@ spec:
                                                     type: object
                                                   header:
                                                     type: string
+                                                  mode:
+                                                    type: string
+                                                    x-kubernetes-int-or-string: true
                                                   regex:
+                                                    type: string
+                                                  replacementText:
+                                                    nullable: true
                                                     type: string
                                                   subgroup:
                                                     format: int32
@@ -1543,7 +1603,13 @@ spec:
                                                     type: object
                                                   header:
                                                     type: string
+                                                  mode:
+                                                    type: string
+                                                    x-kubernetes-int-or-string: true
                                                   regex:
+                                                    type: string
+                                                  replacementText:
+                                                    nullable: true
                                                     type: string
                                                   subgroup:
                                                     format: int32
@@ -1656,7 +1722,13 @@ spec:
                                                     type: object
                                                   header:
                                                     type: string
+                                                  mode:
+                                                    type: string
+                                                    x-kubernetes-int-or-string: true
                                                   regex:
+                                                    type: string
+                                                  replacementText:
+                                                    nullable: true
                                                     type: string
                                                   subgroup:
                                                     format: int32
@@ -1809,7 +1881,13 @@ spec:
                                                     type: object
                                                   header:
                                                     type: string
+                                                  mode:
+                                                    type: string
+                                                    x-kubernetes-int-or-string: true
                                                   regex:
+                                                    type: string
+                                                  replacementText:
+                                                    nullable: true
                                                     type: string
                                                   subgroup:
                                                     format: int32
@@ -1902,7 +1980,13 @@ spec:
                                                     type: object
                                                   header:
                                                     type: string
+                                                  mode:
+                                                    type: string
+                                                    x-kubernetes-int-or-string: true
                                                   regex:
+                                                    type: string
+                                                  replacementText:
+                                                    nullable: true
                                                     type: string
                                                   subgroup:
                                                     format: int32
@@ -2015,7 +2099,13 @@ spec:
                                                     type: object
                                                   header:
                                                     type: string
+                                                  mode:
+                                                    type: string
+                                                    x-kubernetes-int-or-string: true
                                                   regex:
+                                                    type: string
+                                                  replacementText:
+                                                    nullable: true
                                                     type: string
                                                   subgroup:
                                                     format: int32
@@ -2130,7 +2220,13 @@ spec:
                                           type: object
                                         header:
                                           type: string
+                                        mode:
+                                          type: string
+                                          x-kubernetes-int-or-string: true
                                         regex:
+                                          type: string
+                                        replacementText:
+                                          nullable: true
                                           type: string
                                         subgroup:
                                           format: int32
@@ -2223,7 +2319,13 @@ spec:
                                           type: object
                                         header:
                                           type: string
+                                        mode:
+                                          type: string
+                                          x-kubernetes-int-or-string: true
                                         regex:
+                                          type: string
+                                        replacementText:
+                                          nullable: true
                                           type: string
                                         subgroup:
                                           format: int32
@@ -3017,6 +3119,24 @@ spec:
                                               type: object
                                           type: object
                                         type: array
+                                      limit:
+                                        properties:
+                                          dynamicMetadata:
+                                            properties:
+                                              metadataKey:
+                                                properties:
+                                                  key:
+                                                    type: string
+                                                  path:
+                                                    items:
+                                                      properties:
+                                                        key:
+                                                          type: string
+                                                      type: object
+                                                    type: array
+                                                type: object
+                                            type: object
+                                        type: object
                                       setActions:
                                         items:
                                           properties:
@@ -3227,6 +3347,24 @@ spec:
                                               type: object
                                           type: object
                                         type: array
+                                      limit:
+                                        properties:
+                                          dynamicMetadata:
+                                            properties:
+                                              metadataKey:
+                                                properties:
+                                                  key:
+                                                    type: string
+                                                  path:
+                                                    items:
+                                                      properties:
+                                                        key:
+                                                          type: string
+                                                      type: object
+                                                    type: array
+                                                type: object
+                                            type: object
+                                        type: object
                                       setActions:
                                         items:
                                           properties:
@@ -3416,6 +3554,24 @@ spec:
                                               type: object
                                           type: object
                                         type: array
+                                      limit:
+                                        properties:
+                                          dynamicMetadata:
+                                            properties:
+                                              metadataKey:
+                                                properties:
+                                                  key:
+                                                    type: string
+                                                  path:
+                                                    items:
+                                                      properties:
+                                                        key:
+                                                          type: string
+                                                      type: object
+                                                    type: array
+                                                type: object
+                                            type: object
+                                        type: object
                                       setActions:
                                         items:
                                           properties:
@@ -3681,7 +3837,13 @@ spec:
                                                           type: object
                                                         header:
                                                           type: string
+                                                        mode:
+                                                          type: string
+                                                          x-kubernetes-int-or-string: true
                                                         regex:
+                                                          type: string
+                                                        replacementText:
+                                                          nullable: true
                                                           type: string
                                                         subgroup:
                                                           format: int32
@@ -3774,7 +3936,13 @@ spec:
                                                           type: object
                                                         header:
                                                           type: string
+                                                        mode:
+                                                          type: string
+                                                          x-kubernetes-int-or-string: true
                                                         regex:
+                                                          type: string
+                                                        replacementText:
+                                                          nullable: true
                                                           type: string
                                                         subgroup:
                                                           format: int32
@@ -3887,7 +4055,13 @@ spec:
                                                           type: object
                                                         header:
                                                           type: string
+                                                        mode:
+                                                          type: string
+                                                          x-kubernetes-int-or-string: true
                                                         regex:
+                                                          type: string
+                                                        replacementText:
+                                                          nullable: true
                                                           type: string
                                                         subgroup:
                                                           format: int32
@@ -4040,7 +4214,13 @@ spec:
                                                           type: object
                                                         header:
                                                           type: string
+                                                        mode:
+                                                          type: string
+                                                          x-kubernetes-int-or-string: true
                                                         regex:
+                                                          type: string
+                                                        replacementText:
+                                                          nullable: true
                                                           type: string
                                                         subgroup:
                                                           format: int32
@@ -4133,7 +4313,13 @@ spec:
                                                           type: object
                                                         header:
                                                           type: string
+                                                        mode:
+                                                          type: string
+                                                          x-kubernetes-int-or-string: true
                                                         regex:
+                                                          type: string
+                                                        replacementText:
+                                                          nullable: true
                                                           type: string
                                                         subgroup:
                                                           format: int32
@@ -4246,7 +4432,13 @@ spec:
                                                           type: object
                                                         header:
                                                           type: string
+                                                        mode:
+                                                          type: string
+                                                          x-kubernetes-int-or-string: true
                                                         regex:
+                                                          type: string
+                                                        replacementText:
+                                                          nullable: true
                                                           type: string
                                                         subgroup:
                                                           format: int32
@@ -4369,7 +4561,13 @@ spec:
                                                 type: object
                                               header:
                                                 type: string
+                                              mode:
+                                                type: string
+                                                x-kubernetes-int-or-string: true
                                               regex:
+                                                type: string
+                                              replacementText:
+                                                nullable: true
                                                 type: string
                                               subgroup:
                                                 format: int32
@@ -4462,7 +4660,13 @@ spec:
                                                 type: object
                                               header:
                                                 type: string
+                                              mode:
+                                                type: string
+                                                x-kubernetes-int-or-string: true
                                               regex:
+                                                type: string
+                                              replacementText:
+                                                nullable: true
                                                 type: string
                                               subgroup:
                                                 format: int32
@@ -4607,6 +4811,11 @@ spec:
                               type: boolean
                             pathRedirect:
                               type: string
+                            portRedirect:
+                              maximum: 4294967295
+                              minimum: 0
+                              nullable: true
+                              type: integer
                             prefixRewrite:
                               type: string
                             regexRewrite:
@@ -4755,7 +4964,13 @@ spec:
                                                               type: object
                                                             header:
                                                               type: string
+                                                            mode:
+                                                              type: string
+                                                              x-kubernetes-int-or-string: true
                                                             regex:
+                                                              type: string
+                                                            replacementText:
+                                                              nullable: true
                                                               type: string
                                                             subgroup:
                                                               format: int32
@@ -5068,7 +5283,13 @@ spec:
                                                                         type: object
                                                                       header:
                                                                         type: string
+                                                                      mode:
+                                                                        type: string
+                                                                        x-kubernetes-int-or-string: true
                                                                       regex:
+                                                                        type: string
+                                                                      replacementText:
+                                                                        nullable: true
                                                                         type: string
                                                                       subgroup:
                                                                         format: int32
@@ -5161,7 +5382,13 @@ spec:
                                                                         type: object
                                                                       header:
                                                                         type: string
+                                                                      mode:
+                                                                        type: string
+                                                                        x-kubernetes-int-or-string: true
                                                                       regex:
+                                                                        type: string
+                                                                      replacementText:
+                                                                        nullable: true
                                                                         type: string
                                                                       subgroup:
                                                                         format: int32
@@ -5274,7 +5501,13 @@ spec:
                                                                         type: object
                                                                       header:
                                                                         type: string
+                                                                      mode:
+                                                                        type: string
+                                                                        x-kubernetes-int-or-string: true
                                                                       regex:
+                                                                        type: string
+                                                                      replacementText:
+                                                                        nullable: true
                                                                         type: string
                                                                       subgroup:
                                                                         format: int32
@@ -5427,7 +5660,13 @@ spec:
                                                                         type: object
                                                                       header:
                                                                         type: string
+                                                                      mode:
+                                                                        type: string
+                                                                        x-kubernetes-int-or-string: true
                                                                       regex:
+                                                                        type: string
+                                                                      replacementText:
+                                                                        nullable: true
                                                                         type: string
                                                                       subgroup:
                                                                         format: int32
@@ -5520,7 +5759,13 @@ spec:
                                                                         type: object
                                                                       header:
                                                                         type: string
+                                                                      mode:
+                                                                        type: string
+                                                                        x-kubernetes-int-or-string: true
                                                                       regex:
+                                                                        type: string
+                                                                      replacementText:
+                                                                        nullable: true
                                                                         type: string
                                                                       subgroup:
                                                                         format: int32
@@ -5633,7 +5878,13 @@ spec:
                                                                         type: object
                                                                       header:
                                                                         type: string
+                                                                      mode:
+                                                                        type: string
+                                                                        x-kubernetes-int-or-string: true
                                                                       regex:
+                                                                        type: string
+                                                                      replacementText:
+                                                                        nullable: true
                                                                         type: string
                                                                       subgroup:
                                                                         format: int32
@@ -5734,7 +5985,13 @@ spec:
                                                               type: object
                                                             header:
                                                               type: string
+                                                            mode:
+                                                              type: string
+                                                              x-kubernetes-int-or-string: true
                                                             regex:
+                                                              type: string
+                                                            replacementText:
+                                                              nullable: true
                                                               type: string
                                                             subgroup:
                                                               format: int32
@@ -5827,7 +6084,13 @@ spec:
                                                               type: object
                                                             header:
                                                               type: string
+                                                            mode:
+                                                              type: string
+                                                              x-kubernetes-int-or-string: true
                                                             regex:
+                                                              type: string
+                                                            replacementText:
+                                                              nullable: true
                                                               type: string
                                                             subgroup:
                                                               format: int32
@@ -5993,7 +6256,13 @@ spec:
                                                     type: object
                                                   header:
                                                     type: string
+                                                  mode:
+                                                    type: string
+                                                    x-kubernetes-int-or-string: true
                                                   regex:
+                                                    type: string
+                                                  replacementText:
+                                                    nullable: true
                                                     type: string
                                                   subgroup:
                                                     format: int32

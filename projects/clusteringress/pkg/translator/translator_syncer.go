@@ -4,23 +4,24 @@ import (
 	"context"
 	"time"
 
-	v1machinery "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/rotisserie/eris"
+	"go.uber.org/zap/zapcore"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	knativev1alpha1 "knative.dev/networking/pkg/apis/networking/v1alpha1"
+	knativeclient "knative.dev/networking/pkg/client/clientset/versioned/typed/networking/v1alpha1"
+
+	"github.com/solo-io/go-utils/contextutils"
+	"github.com/solo-io/go-utils/hashutils"
+	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
+	"github.com/solo-io/solo-kit/pkg/api/v1/resources"
+	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 
 	"github.com/solo-io/gloo/pkg/utils/syncutil"
-	"github.com/solo-io/go-utils/hashutils"
-	"go.uber.org/zap/zapcore"
-
-	"github.com/rotisserie/eris"
 	v1alpha1 "github.com/solo-io/gloo/projects/clusteringress/pkg/api/external/knative"
 	v1 "github.com/solo-io/gloo/projects/clusteringress/pkg/api/v1"
 	"github.com/solo-io/gloo/projects/gateway/pkg/utils"
 	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
-	"github.com/solo-io/go-utils/contextutils"
-	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
-	"github.com/solo-io/solo-kit/pkg/api/v1/resources"
-	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
-	knativev1alpha1 "knative.dev/networking/pkg/apis/networking/v1alpha1"
-	knativeclient "knative.dev/networking/pkg/client/clientset/versioned/typed/networking/v1alpha1"
+	glooutils "github.com/solo-io/gloo/projects/gloo/pkg/utils"
 )
 
 type translatorSyncer struct {
@@ -36,7 +37,7 @@ type translatorSyncer struct {
 var (
 	// labels used to uniquely identify Proxies that are managed by the Gloo controllers
 	proxyLabelsToWrite = map[string]string{
-		"created_by": "gloo-knative",
+		glooutils.ProxyTypeKey: glooutils.KnativeProxyValue,
 	}
 
 	// Previously, proxies would be identified with:
@@ -51,7 +52,7 @@ var (
 	// This is only required for backwards compatibility.
 	// Once users have upgraded to a version with new labels, we can delete this code and read/write the same labels.
 	proxyLabelSelectorOptions = clients.ListOpts{
-		ExpressionSelector: "created_by in (gloo-knative, knative)",
+		ExpressionSelector: glooutils.GetTranslatorSelectorExpression(glooutils.KnativeProxyValue, "knative"),
 	}
 )
 
@@ -171,7 +172,7 @@ func (s *translatorSyncer) markClusterIngressesReady(ctx context.Context, cluste
 		updatedClusterIngresses = append(updatedClusterIngresses, &ci)
 	}
 	for _, ci := range updatedClusterIngresses {
-		if _, err := s.ingressClient.Ingresses(ci.Namespace).UpdateStatus(ctx, ci, v1machinery.UpdateOptions{}); err != nil {
+		if _, err := s.ingressClient.Ingresses(ci.Namespace).UpdateStatus(ctx, ci, metav1.UpdateOptions{}); err != nil {
 			contextutils.LoggerFrom(ctx).Errorf("failed to update ClusterIngress %v status with error %v", ci.Name, err)
 		}
 	}

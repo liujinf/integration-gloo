@@ -44,7 +44,30 @@ var _ = Describe("Plugin", func() {
 				HttpConnectionManagerSettings: hcmSettings,
 			},
 		}
-		listener := &v1.Listener{}
+		listener := &v1.Listener{
+			OpaqueMetadata: &v1.Listener_MetadataStatic{
+				MetadataStatic: &v1.SourceMetadata{
+					Sources: []*v1.SourceMetadata_SourceRef{
+						{
+							ResourceRef: &core.ResourceRef{
+								Name:      "delegate-1",
+								Namespace: "gloo-system",
+							},
+							ResourceKind:       "*v1.RouteTable",
+							ObservedGeneration: 0,
+						},
+						{
+							ResourceRef: &core.ResourceRef{
+								Name:      "gateway",
+								Namespace: "gloo-system",
+							},
+							ResourceKind:       "*v1.Gateway",
+							ObservedGeneration: 0,
+						},
+					},
+				},
+			},
+		}
 		return plugin.(plugins.HttpConnectionManagerPlugin).ProcessHcmNetworkFilter(pluginParams, listener, httpListener, cfg)
 	}
 
@@ -81,7 +104,7 @@ var _ = Describe("Plugin", func() {
 		}
 
 		err := processHcmNetworkFilter(cfg)
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 		expected := &envoyhttp.HttpConnectionManager{
 			Tracing: &envoyhttp.HttpConnectionManager_Tracing{
 				CustomTags: []*envoytracing.CustomTag{
@@ -144,7 +167,7 @@ var _ = Describe("Plugin", func() {
 		}
 
 		err := processHcmNetworkFilter(cfg)
-		Expect(err).To(BeNil())
+		Expect(err).NotTo(HaveOccurred())
 		expected := &envoyhttp.HttpConnectionManager{
 			Tracing: &envoyhttp.HttpConnectionManager_Tracing{
 				ClientSampling:  &envoy_type.Percent{Value: 100},
@@ -167,7 +190,7 @@ var _ = Describe("Plugin", func() {
 				},
 			}
 			err := processHcmNetworkFilter(cfg)
-			Expect(err).To(BeNil())
+			Expect(err).NotTo(HaveOccurred())
 			Expect(cfg.Tracing.Provider).To(BeNil())
 		})
 
@@ -196,7 +219,7 @@ var _ = Describe("Plugin", func() {
 					},
 				}
 				err := processHcmNetworkFilter(cfg)
-				Expect(err).NotTo(BeNil())
+				Expect(err).To(HaveOccurred())
 			})
 
 			It("references valid upstream", func() {
@@ -227,7 +250,7 @@ var _ = Describe("Plugin", func() {
 					},
 				}
 				err := processHcmNetworkFilter(cfg)
-				Expect(err).To(BeNil())
+				Expect(err).NotTo(HaveOccurred())
 
 				expectedEnvoyConfig := &envoytrace.ZipkinConfig{
 					CollectorCluster:         "valid_default",
@@ -267,7 +290,7 @@ var _ = Describe("Plugin", func() {
 					},
 				}
 				err := processHcmNetworkFilter(cfg)
-				Expect(err).To(BeNil())
+				Expect(err).NotTo(HaveOccurred())
 
 				expectedEnvoyConfig := &envoytrace.ZipkinConfig{
 					CollectorCluster:         "zipkin-cluster-name",
@@ -315,7 +338,7 @@ var _ = Describe("Plugin", func() {
 					},
 				}
 				err := processHcmNetworkFilter(cfg)
-				Expect(err).NotTo(BeNil())
+				Expect(err).To(HaveOccurred())
 			})
 
 			It("references valid upstream", func() {
@@ -342,7 +365,7 @@ var _ = Describe("Plugin", func() {
 					},
 				}
 				err := processHcmNetworkFilter(cfg)
-				Expect(err).To(BeNil())
+				Expect(err).NotTo(HaveOccurred())
 
 				expectedEnvoyConfig := &envoytrace.DatadogConfig{
 					CollectorCluster: "valid_default",
@@ -376,7 +399,7 @@ var _ = Describe("Plugin", func() {
 					},
 				}
 				err := processHcmNetworkFilter(cfg)
-				Expect(err).To(BeNil())
+				Expect(err).NotTo(HaveOccurred())
 
 				expectedEnvoyConfig := &envoytrace.DatadogConfig{
 					CollectorCluster: "datadog-cluster-name",
@@ -427,7 +450,7 @@ var _ = Describe("Plugin", func() {
 					},
 				}
 				err := processHcmNetworkFilter(cfg)
-				Expect(err).To(BeNil())
+				Expect(err).NotTo(HaveOccurred())
 
 				expectedEnvoyConfig := &envoytrace.OpenCensusConfig{
 					TraceConfig: &v12.TraceConfig{
@@ -505,7 +528,7 @@ var _ = Describe("Plugin", func() {
 					},
 				}
 				err := processHcmNetworkFilter(cfg)
-				Expect(err).To(BeNil())
+				Expect(err).NotTo(HaveOccurred())
 
 				expectedEnvoyConfig := &envoytrace.OpenCensusConfig{
 					TraceConfig: &v12.TraceConfig{
@@ -559,22 +582,23 @@ var _ = Describe("Plugin", func() {
 
 		Describe("when opentelemetry provider config", func() {
 			It("translates the plugin correctly", func() {
-
 				testClusterName := "test-cluster"
+				otelConfig := &envoytrace_gloo.OpenTelemetryConfig{
+					CollectorCluster: &envoytrace_gloo.OpenTelemetryConfig_ClusterName{
+						ClusterName: testClusterName,
+					},
+				}
+
 				cfg := &envoyhttp.HttpConnectionManager{}
 				hcmSettings = &hcm.HttpConnectionManagerSettings{
 					Tracing: &tracing.ListenerTracingSettings{
 						ProviderConfig: &tracing.ListenerTracingSettings_OpenTelemetryConfig{
-							OpenTelemetryConfig: &envoytrace_gloo.OpenTelemetryConfig{
-								CollectorCluster: &envoytrace_gloo.OpenTelemetryConfig_ClusterName{
-									ClusterName: testClusterName,
-								},
-							},
+							OpenTelemetryConfig: otelConfig,
 						},
 					},
 				}
 				err := processHcmNetworkFilter(cfg)
-				Expect(err).To(BeNil())
+				Expect(err).NotTo(HaveOccurred())
 
 				expectedEnvoyConfig := &envoytrace.OpenTelemetryConfig{
 					GrpcService: &envoy_config_core_v3.GrpcService{
@@ -584,6 +608,7 @@ var _ = Describe("Plugin", func() {
 							},
 						},
 					},
+					ServiceName: "gateway",
 				}
 				expectedEnvoyConfigMarshalled, _ := ptypes.MarshalAny(expectedEnvoyConfig)
 				expectedEnvoyTracingProvider := &envoytrace.Tracing_Http{
@@ -650,4 +675,5 @@ var _ = Describe("Plugin", func() {
 		Expect(outFull.Tracing.RandomSampling.Numerator / 10000).To(Equal(uint32(20)))
 		Expect(outFull.Tracing.OverallSampling.Numerator / 10000).To(Equal(uint32(30)))
 	})
+
 })

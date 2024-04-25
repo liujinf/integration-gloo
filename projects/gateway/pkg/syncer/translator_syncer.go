@@ -28,6 +28,7 @@ import (
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/compress"
 	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
 	gloov1snap "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/gloosnapshot"
+	glooutils "github.com/solo-io/gloo/projects/gloo/pkg/utils"
 	"github.com/solo-io/go-utils/contextutils"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
@@ -36,7 +37,6 @@ import (
 
 type TranslatorSyncer struct {
 	writeNamespace     string
-	reporter           reporter.Reporter
 	proxyReconciler    reconciler.ProxyReconciler
 	translator         translator.Translator
 	statusSyncer       statusSyncer
@@ -46,13 +46,13 @@ type TranslatorSyncer struct {
 var (
 	// labels used to uniquely identify Proxies that are managed by the Gloo controllers
 	proxyLabelsToWrite = map[string]string{
-		"created_by": "gloo-gateway-translator",
+		glooutils.ProxyTypeKey: glooutils.GlooEdgeProxyValue,
 	}
 
 	// Previously, proxies would be identified with:
 	//   created_by: gateway
 	// Now, proxies are identified with:
-	//   created_by: gloo-gateway-translator
+	//   created_by: gloo-gateway
 	//
 	// We need to ensure that users can successfully upgrade from versions
 	// where the previous labels were used, to versions with the new labels.
@@ -61,14 +61,14 @@ var (
 	// This is only required for backwards compatibility.
 	// Once users have upgraded to a version with new labels, we can delete this code and read/write the same labels.
 	proxyLabelSelectorOptions = clients.ListOpts{
-		ExpressionSelector: "created_by in (gloo-gateway-translator, gateway)",
+		Selector:           proxyLabelsToWrite,
+		ExpressionSelector: glooutils.GetTranslatorSelectorExpression(glooutils.GlooEdgeProxyValue, "gateway"),
 	}
 )
 
 func NewTranslatorSyncer(ctx context.Context, writeNamespace string, proxyWatcher gloov1.ProxyClient, proxyReconciler reconciler.ProxyReconciler, reporter reporter.StatusReporter, translator translator.Translator, statusClient resources.StatusClient, statusMetrics metrics.ConfigStatusMetrics, identity leaderelector.Identity) *TranslatorSyncer {
 	t := &TranslatorSyncer{
 		writeNamespace:  writeNamespace,
-		reporter:        reporter,
 		proxyReconciler: proxyReconciler,
 		translator:      translator,
 		statusSyncer:    newStatusSyncer(writeNamespace, proxyWatcher, reporter, statusClient, statusMetrics, identity),
@@ -306,7 +306,7 @@ func (s *statusSyncer) forceSync() {
 	s.syncNeeded <- struct{}{}
 }
 
-func (s *statusSyncer) syncStatusOnEmit(ctx context.Context) error {
+func (s *statusSyncer) syncStatusOnEmit(ctx context.Context) {
 	var retryChan <-chan time.Time
 
 	doSync := func() {
@@ -322,7 +322,7 @@ func (s *statusSyncer) syncStatusOnEmit(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return
 		case <-retryChan:
 			doSync()
 		case <-s.syncNeeded:

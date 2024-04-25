@@ -48,7 +48,7 @@ var _ = Describe("Route Configs", func() {
 			Expect(translator.ValidateRoutePath(strings.ToUpper(string(i)))).ToNot(HaveOccurred())
 		}
 		// digit
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			Expect(translator.ValidateRoutePath(strconv.Itoa(i))).ToNot(HaveOccurred())
 		}
 		unreservedChars := "-._~"
@@ -57,7 +57,7 @@ var _ = Describe("Route Configs", func() {
 		}
 		// sub-delims
 		subDelims := "!$&'()*+,;="
-		Expect(len(subDelims)).To(Equal(11))
+		Expect(subDelims).To(HaveLen(11))
 		for _, c := range subDelims {
 			Expect(translator.ValidateRoutePath(string(c))).ToNot(HaveOccurred())
 		}

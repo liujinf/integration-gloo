@@ -328,10 +328,9 @@ func constructTestOpts(ctx context.Context, runOptions *RunOptions, settings *gl
 		// The test author has configured the secret source to be Vault, instead of an in memory cache
 		// As a result, we need to construct a client to communicate with that vault instance
 		vaultSecretSource := settings.GetVaultSecretSource()
-
-		vaultClient, err := bootstrap_clients.VaultClientForSettings(vaultSecretSource)
+		vaultClient, err := bootstrap_clients.VaultClientForSettings(ctx, vaultSecretSource)
 		Expect(err).NotTo(HaveOccurred())
-		secretFactory = bootstrap_clients.NewVaultSecretClientFactory(bootstrap_clients.NoopVaultClientInitFunc(vaultClient), vaultSecretSource.GetPathPrefix(), vaultSecretSource.GetRootKey())
+		secretFactory = bootstrap_clients.NewVaultSecretClientFactory(ctx, bootstrap_clients.NoopVaultClientInitFunc(vaultClient), vaultSecretSource.GetPathPrefix(), vaultSecretSource.GetRootKey())
 	}
 
 	return bootstrap.Opts{
@@ -362,7 +361,7 @@ func constructTestOpts(ctx context.Context, runOptions *RunOptions, settings *gl
 		ControlPlane: setup.NewControlPlane(ctx, grpcServer, &net.TCPAddr{
 			IP:   net.IPv4zero,
 			Port: int(runOptions.ports.Gloo),
-		}, nil, true),
+		}, bootstrap.KubernetesControlPlaneConfig{}, nil, true),
 		ValidationServer: setup.NewValidationServer(ctx, grpcServerValidation, &net.TCPAddr{
 			IP:   net.IPv4zero,
 			Port: int(runOptions.ports.Validation),
@@ -378,6 +377,11 @@ func constructTestOpts(ctx context.Context, runOptions *RunOptions, settings *gl
 		GatewayControllerEnabled: settings.GetGateway().GetEnableGatewayController().GetValue(),
 		ValidationOpts:           validationOpts,
 		Identity:                 singlereplica.Identity(),
+		GlooGateway: bootstrap.GlooGateway{
+			// The K8s Gateway Integration depends on a functioning k8s cluster
+			// These tests are designed to be run in-memory, without a true cluster, so we disable the relevant controller
+			EnableK8sGatewayController: false,
+		},
 	}
 }
 

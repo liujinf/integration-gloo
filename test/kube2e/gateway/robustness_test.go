@@ -27,7 +27,7 @@ import (
 
 	testutils "github.com/solo-io/k8s-utils/testutils/kube"
 
-	"github.com/solo-io/k8s-utils/testutils/helper"
+	"github.com/solo-io/gloo/test/kube2e/helper"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 
@@ -242,7 +242,7 @@ var _ = Describe("Robustness tests", func() {
 			Eventually(func() []string {
 				initialEndpointIPs = endpointIPsForKubeService(resourceClientset.KubeClients(), appService)
 				return initialEndpointIPs
-			}, 20*time.Second, 1*time.Second).Should(Not(HaveLen(0)))
+			}, 20*time.Second, 1*time.Second).ShouldNot(BeEmpty())
 
 			By("force an update of the service endpoints")
 			scaleDeploymentTo(resourceClientset.KubeClients(), appDeployment, 0)
@@ -324,6 +324,16 @@ var _ = Describe("Robustness tests", func() {
 				}, "15s", "0.5s").Should(BeTrue())
 			})
 
+			// See helper.CurlOpts.Retries for explanation about why retries are useful
+			withBasicRetries := func(opts helper.CurlOpts) helper.CurlOpts {
+				opts.Retries = struct {
+					Retry        int
+					RetryDelay   int
+					RetryMaxTime int
+				}{Retry: 3, RetryDelay: 0, RetryMaxTime: 5}
+				return opts
+			}
+
 			firstRouteCurlOpts := func() helper.CurlOpts {
 				return helper.CurlOpts{
 					Protocol:          "http",
@@ -366,7 +376,7 @@ var _ = Describe("Robustness tests", func() {
 						return testHelper.Curl(firstRouteCurlOpts())
 					}, "30s", "1s").Should(ContainSubstring(validRouteResponse))
 					g.Consistently(func() (string, error) {
-						return testHelper.Curl(firstRouteCurlOpts())
+						return testHelper.Curl(withBasicRetries(firstRouteCurlOpts()))
 					}, "5s", "1s").Should(ContainSubstring(validRouteResponse))
 
 					// can no longer route to appName2 since its k8s service has been removed
@@ -377,10 +387,10 @@ var _ = Describe("Robustness tests", func() {
 						return testHelper.Curl(secondRouteCurlOpts())
 					}, "30s", "1s").Should(ContainSubstring(invalidRouteResponse))
 					g.Consistently(func() (string, error) {
-						return testHelper.Curl(secondRouteCurlOpts())
+						return testHelper.Curl(withBasicRetries(secondRouteCurlOpts()))
 					}, "5s", "1s").Should(ContainSubstring(invalidRouteResponse))
 
-				}, "30s")
+				}, "30s").Should(Succeed())
 			}
 
 			It("works", func() {

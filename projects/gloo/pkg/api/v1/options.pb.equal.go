@@ -113,6 +113,16 @@ func (m *ListenerOptions) Equal(that interface{}) bool {
 		}
 	}
 
+	if h, ok := interface{}(m.GetListenerAccessLoggingService()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetListenerAccessLoggingService()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetListenerAccessLoggingService(), target.GetListenerAccessLoggingService()) {
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -431,6 +441,16 @@ func (m *HttpListenerOptions) Equal(that interface{}) bool {
 		}
 	} else {
 		if !proto.Equal(m.GetRouter(), target.GetRouter()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetTap()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetTap()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetTap(), target.GetTap()) {
 			return false
 		}
 	}

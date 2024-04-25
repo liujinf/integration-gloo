@@ -13,6 +13,7 @@ import (
 	"github.com/solo-io/gloo/projects/gloo/cli/pkg/cmd/istio/sidecars"
 	"github.com/solo-io/gloo/projects/gloo/cli/pkg/cmd/options"
 	"github.com/solo-io/gloo/projects/gloo/cli/pkg/helpers"
+	"github.com/solo-io/gloo/projects/gloo/constants"
 	"github.com/solo-io/go-utils/cliutils"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -29,7 +30,6 @@ import (
 const (
 	thirdPartyJwt         = "third-party-jwt"
 	envoyDataKey          = "envoy.yaml"
-	sdsClusterName        = "gateway_proxy_sds"
 	gatewayProxyConfigMap = "gateway-proxy-envoy-config"
 	istioDefaultNS        = "istio-system"
 	loopbackAddr          = "127.0.0.1"
@@ -76,7 +76,7 @@ func Inject(opts *options.Options, optionsFunc ...cliutils.OptionsFunc) *cobra.C
 }
 
 // Add SDS & istio-proxy sidecars
-func istioInject(args []string, opts *options.Options) error {
+func istioInject(_ []string, opts *options.Options) error {
 	glooNS := opts.Metadata.GetNamespace()
 	istioNS := opts.Istio.Namespace
 	istioMetaMeshID := getIstioMetaMeshID(opts.Istio.IstioMetaMeshId)
@@ -166,7 +166,7 @@ func istioInject(args []string, opts *options.Options) error {
 
 // addSdsSidecar adds an SDS sidecar to the given deployment's containers
 func addSdsSidecar(ctx context.Context, deployment *appsv1.Deployment, glooNamespace string) error {
-	glooVersion, err := GetGlooVersion(ctx, glooNamespace)
+	glooVersion, err := GetGlooVersionWithoutV(ctx, glooNamespace)
 	if err != nil {
 		return ErrGlooVerUndetermined
 	}
@@ -306,12 +306,12 @@ func addSdsCluster(configMap *corev1.ConfigMap) error {
 
 func genGatewayProxyCluster() *envoy_config_cluster.Cluster {
 	return &envoy_config_cluster.Cluster{
-		Name:           sdsClusterName,
+		Name:           constants.SdsClusterName,
 		ConnectTimeout: &duration.Duration{Nanos: 250000000}, // 0.25s
 		// Add "http2_protocol_options: {}" in yaml to enable http2, needed for grpc.
 		Http2ProtocolOptions: &envoy_config_core_v3.Http2ProtocolOptions{},
 		LoadAssignment: &envoy_config_endpoint_v3.ClusterLoadAssignment{
-			ClusterName: sdsClusterName,
+			ClusterName: constants.SdsClusterName,
 			Endpoints: []*envoy_config_endpoint_v3.LocalityLbEndpoints{
 				{
 					LbEndpoints: []*envoy_config_endpoint_v3.LbEndpoint{

@@ -1,6 +1,8 @@
-FROM bitnami/kubectl:1.26.4 as kubectl
+ARG BASE_IMAGE
 
-FROM alpine:3.17.3
+FROM bitnami/kubectl:1.28.4 as kubectl
+
+FROM $BASE_IMAGE
 
 RUN apk upgrade --update-cache
 

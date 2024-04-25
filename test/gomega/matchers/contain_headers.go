@@ -20,6 +20,7 @@ func ContainHeaders(headers http.Header) types.GomegaMatcher {
 	}
 	headerMatchers := make([]types.GomegaMatcher, 0, len(headers))
 	for k, v := range headers {
+		//nolint:bodyclose // The caller of this matcher constructor should be responsible for ensuring the body close
 		headerMatchers = append(headerMatchers, gomega.WithTransform(transforms.WithHeaderValues(k), gomega.ContainElements(v)))
 	}
 	return gomega.And(headerMatchers...)
@@ -35,12 +36,13 @@ func ConsistOfHeaders(headers http.Header) types.GomegaMatcher {
 	}
 	headerMatchers := make([]types.GomegaMatcher, 0, len(headers))
 	for k, v := range headers {
+		//nolint:bodyclose // The caller of this matcher constructor should be responsible for ensuring the body close
 		headerMatchers = append(headerMatchers, gomega.WithTransform(transforms.WithHeaderValues(k), gomega.ConsistOf(v)))
 	}
 	return gomega.And(headerMatchers...)
 }
 
-// ContainHeaders produces a matcher that will only match if all provided header keys exist.
+// ContainHeaderKeys produces a matcher that will only match if all provided header keys exist.
 func ContainHeaderKeys(keys []string) types.GomegaMatcher {
 	if len(keys) == 0 {
 		// If no keys are defined, we create a matcher that always succeeds
@@ -50,6 +52,7 @@ func ContainHeaderKeys(keys []string) types.GomegaMatcher {
 	for i, key := range keys {
 		keys[i] = textproto.CanonicalMIMEHeaderKey(key)
 	}
+	//nolint:bodyclose // The caller of this matcher constructor should be responsible for ensuring the body close
 	matcher := gomega.WithTransform(transforms.WithHeaderKeys(), gomega.ContainElements(keys))
 	return gomega.And(matcher)
 }

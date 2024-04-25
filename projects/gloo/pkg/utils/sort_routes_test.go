@@ -1,10 +1,11 @@
-package utils
+package utils_test
 
 import (
 	"math/rand"
 	"time"
 
 	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/core/matchers"
+	"github.com/solo-io/gloo/projects/gloo/pkg/utils"
 	"github.com/solo-io/gloo/test/helpers"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -89,11 +90,11 @@ var _ = Describe("PathAsString", func() {
 	It("sorts the routes by longest path first", func() {
 		sortedRoutes := makeSortedRoutes()
 		expectedRoutes := makeSortedRoutes()
-		for count := 0; count < 100; count++ {
+		for range 100 {
 			rand.Shuffle(len(expectedRoutes), func(i, j int) {
 				expectedRoutes[i], expectedRoutes[j] = expectedRoutes[j], expectedRoutes[i]
 			})
-			SortRoutesByPath(expectedRoutes)
+			utils.SortRoutesByPath(expectedRoutes)
 			Expect(expectedRoutes).To(Equal(sortedRoutes))
 		}
 
@@ -106,7 +107,7 @@ var _ = Describe("PathAsString", func() {
 			makeUnSortedRoutesWrongLength(),
 			makeUnSortedRoutesWrongLengthPriority(),
 		} {
-			SortRoutesByPath(unsortedRoutes)
+			utils.SortRoutesByPath(unsortedRoutes)
 			Expect(unsortedRoutes).To(Equal(makeSortedRoutes()))
 		}
 	})
@@ -136,11 +137,11 @@ var _ = Describe("PathAsString", func() {
 	It("sorts the routes by longest matcher found on the route", func() {
 		sortedRoutes := makeSortedMultiMatcherRoutes()
 		expectedRoutes := makeSortedMultiMatcherRoutes()
-		for count := 0; count < 100; count++ {
+		for range 100 {
 			rand.Shuffle(len(expectedRoutes), func(i, j int) {
 				expectedRoutes[i], expectedRoutes[j] = expectedRoutes[j], expectedRoutes[i]
 			})
-			SortRoutesByPath(expectedRoutes)
+			utils.SortRoutesByPath(expectedRoutes)
 			Expect(expectedRoutes).To(Equal(sortedRoutes))
 		}
 
@@ -148,7 +149,7 @@ var _ = Describe("PathAsString", func() {
 			makeSortedMultiMatcherRoutes(),
 			makeMultiMatcherRoutesWrongPathPriority(),
 		} {
-			SortRoutesByPath(unsortedRoutes)
+			utils.SortRoutesByPath(unsortedRoutes)
 			Expect(unsortedRoutes).To(Equal(makeSortedMultiMatcherRoutes()))
 		}
 	})
@@ -162,7 +163,7 @@ var _ = Describe("PathAsString", func() {
 			{Matchers: []*matchers.Matcher{helpers.MakeMatcher(helpers.ExactPath, 10)}},
 			{Matchers: nil},
 		}
-		SortRoutesByPath(routes)
+		utils.SortRoutesByPath(routes)
 		Expect(routes).To(Equal(sortedRoutes))
 	})
 
@@ -229,7 +230,7 @@ var _ = Describe("PathAsString", func() {
 				},
 			},
 		}
-		SortRoutesByPath(routes)
+		utils.SortRoutesByPath(routes)
 		Expect(routes).To(Equal(sortedRoutes))
 	})
 })

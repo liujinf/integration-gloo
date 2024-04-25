@@ -4,16 +4,16 @@ import (
 	"context"
 	"time"
 
+	kubetestclients "github.com/solo-io/gloo/test/kubernetes/testutils/clients"
+
 	"github.com/solo-io/gloo/test/kube2e"
 
-	"github.com/solo-io/k8s-utils/testutils/helper"
+	"github.com/solo-io/gloo/test/kube2e/helper"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/solo-io/k8s-utils/kubeutils"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 )
 
@@ -31,18 +31,14 @@ var _ = Describe("Kube2e: Ingress", func() {
 	AfterEach(func() { cancel() })
 
 	It("works", func() {
-		cfg, err := kubeutils.GetConfig("", "")
-		Expect(err).NotTo(HaveOccurred())
-
-		kube, err := kubernetes.NewForConfig(cfg)
-		Expect(err).NotTo(HaveOccurred())
+		kube := kubetestclients.MustClientset()
 		kubeIngressClient := kube.NetworkingV1().Ingresses(testHelper.InstallNamespace)
 
 		backend := &networkingv1.IngressBackend{
 			Service: &networkingv1.IngressServiceBackend{
-				Name: helper.TestrunnerName,
+				Name: helper.TestServerName,
 				Port: networkingv1.ServiceBackendPort{
-					Number: helper.TestRunnerPort,
+					Number: helper.TestServerPort,
 				},
 			},
 		}
@@ -84,6 +80,6 @@ var _ = Describe("Kube2e: Ingress", func() {
 			Service:           ingressProxy,
 			Port:              ingressPort,
 			ConnectionTimeout: 1,
-		}, kube2e.GetSimpleTestRunnerHttpResponse(), 1, time.Minute*2, 1*time.Second)
+		}, kube2e.TestServerHttpResponse(), 1, time.Minute*2, 1*time.Second)
 	})
 })

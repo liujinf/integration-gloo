@@ -80,15 +80,11 @@ gloo:
         deployment:
           replicas: 2
       service:
-        kubeResourceOverride: # workaround for https://github.com/solo-io/gloo/issues/5297
-          spec:
-            ports:
-              - port: 443
-                protocol: TCP
-                name: https
-                targetPort: 8443
-            type: LoadBalancer
-      tcpKeepaliveTimeSeconds: 5s # send keep-alive probes after 5s to keep connection up
+        httpPort: 80
+        httpsFirst: true
+        httpsPort: 443
+        type: LoadBalancer
+      tcpKeepaliveTimeSeconds: 5 # send keep-alive probes after 5s to keep connection up
       gatewaySettings:
         customHttpsGateway: # using the default HTTPS Gateway
           virtualServiceSelector:
@@ -102,7 +98,7 @@ gloo:
         httpsPort: 443
         httpNodePort: 32080 # random port to be fixed in your private network
         type: NodePort
-      tcpKeepaliveTimeSeconds: 5s # send keep-alive probes after 5s to keep connection up
+      tcpKeepaliveTimeSeconds: 5 # send keep-alive probes after 5s to keep connection up
       gatewaySettings:
         customHttpGateway: # using the default HTTP Gateway
           virtualServiceSelector:

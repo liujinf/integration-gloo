@@ -596,6 +596,24 @@ spec:
                                     type: object
                                 type: object
                               type: array
+                            limit:
+                              properties:
+                                dynamicMetadata:
+                                  properties:
+                                    metadataKey:
+                                      properties:
+                                        key:
+                                          type: string
+                                        path:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                            type: object
+                                          type: array
+                                      type: object
+                                  type: object
+                              type: object
                             setActions:
                               items:
                                 properties:
@@ -806,6 +824,24 @@ spec:
                                     type: object
                                 type: object
                               type: array
+                            limit:
+                              properties:
+                                dynamicMetadata:
+                                  properties:
+                                    metadataKey:
+                                      properties:
+                                        key:
+                                          type: string
+                                        path:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                            type: object
+                                          type: array
+                                      type: object
+                                  type: object
+                              type: object
                             setActions:
                               items:
                                 properties:
@@ -995,6 +1031,24 @@ spec:
                                     type: object
                                 type: object
                               type: array
+                            limit:
+                              properties:
+                                dynamicMetadata:
+                                  properties:
+                                    metadataKey:
+                                      properties:
+                                        key:
+                                          type: string
+                                        path:
+                                          items:
+                                            properties:
+                                              key:
+                                                type: string
+                                            type: object
+                                          type: array
+                                      type: object
+                                  type: object
+                              type: object
                             setActions:
                               items:
                                 properties:
@@ -1260,7 +1314,13 @@ spec:
                                                 type: object
                                               header:
                                                 type: string
+                                              mode:
+                                                type: string
+                                                x-kubernetes-int-or-string: true
                                               regex:
+                                                type: string
+                                              replacementText:
+                                                nullable: true
                                                 type: string
                                               subgroup:
                                                 format: int32
@@ -1353,7 +1413,13 @@ spec:
                                                 type: object
                                               header:
                                                 type: string
+                                              mode:
+                                                type: string
+                                                x-kubernetes-int-or-string: true
                                               regex:
+                                                type: string
+                                              replacementText:
+                                                nullable: true
                                                 type: string
                                               subgroup:
                                                 format: int32
@@ -1466,7 +1532,13 @@ spec:
                                                 type: object
                                               header:
                                                 type: string
+                                              mode:
+                                                type: string
+                                                x-kubernetes-int-or-string: true
                                               regex:
+                                                type: string
+                                              replacementText:
+                                                nullable: true
                                                 type: string
                                               subgroup:
                                                 format: int32
@@ -1619,7 +1691,13 @@ spec:
                                                 type: object
                                               header:
                                                 type: string
+                                              mode:
+                                                type: string
+                                                x-kubernetes-int-or-string: true
                                               regex:
+                                                type: string
+                                              replacementText:
+                                                nullable: true
                                                 type: string
                                               subgroup:
                                                 format: int32
@@ -1712,7 +1790,13 @@ spec:
                                                 type: object
                                               header:
                                                 type: string
+                                              mode:
+                                                type: string
+                                                x-kubernetes-int-or-string: true
                                               regex:
+                                                type: string
+                                              replacementText:
+                                                nullable: true
                                                 type: string
                                               subgroup:
                                                 format: int32
@@ -1825,7 +1909,13 @@ spec:
                                                 type: object
                                               header:
                                                 type: string
+                                              mode:
+                                                type: string
+                                                x-kubernetes-int-or-string: true
                                               regex:
+                                                type: string
+                                              replacementText:
+                                                nullable: true
                                                 type: string
                                               subgroup:
                                                 format: int32
@@ -1948,7 +2038,13 @@ spec:
                                       type: object
                                     header:
                                       type: string
+                                    mode:
+                                      type: string
+                                      x-kubernetes-int-or-string: true
                                     regex:
+                                      type: string
+                                    replacementText:
+                                      nullable: true
                                       type: string
                                     subgroup:
                                       format: int32
@@ -2041,7 +2137,13 @@ spec:
                                       type: object
                                     header:
                                       type: string
+                                    mode:
+                                      type: string
+                                      x-kubernetes-int-or-string: true
                                     regex:
+                                      type: string
+                                    replacementText:
+                                      nullable: true
                                       type: string
                                     subgroup:
                                       format: int32
@@ -2165,6 +2267,18 @@ spec:
                           type: object
                         type: array
                     type: object
+                type: object
+              targetRef:
+                properties:
+                  group:
+                    type: string
+                  kind:
+                    type: string
+                  name:
+                    type: string
+                  namespace:
+                    nullable: true
+                    type: string
                 type: object
             type: object
           status:

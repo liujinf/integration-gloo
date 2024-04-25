@@ -631,6 +631,15 @@ spec:
                       replaceInvalidRoutes:
                         type: boolean
                     type: object
+                  istioOptions:
+                    properties:
+                      appendXForwardedHost:
+                        nullable: true
+                        type: boolean
+                      enableAutoMtls:
+                        nullable: true
+                        type: boolean
+                    type: object
                   logTransformationRequestResponseInfo:
                     nullable: true
                     type: boolean
@@ -795,11 +804,15 @@ spec:
                     type: object
                   grafanaIntegration:
                     properties:
+                      dashboardPrefix:
+                        type: string
                       defaultDashboardFolderId:
                         maximum: 4294967295
                         minimum: 0
                         nullable: true
                         type: integer
+                      extraMetricQueryParameters:
+                        type: string
                     type: object
                 type: object
               ratelimit:
@@ -841,6 +854,11 @@ spec:
                     type: boolean
                   enableXRatelimitHeaders:
                     type: boolean
+                  grpcService:
+                    properties:
+                      authority:
+                        type: string
+                    type: object
                   rateLimitBeforeAuth:
                     type: boolean
                   ratelimitServerRef:
@@ -884,6 +902,9 @@ spec:
                                   type: string
                                 iamServerIdHeader:
                                   type: string
+                                leaseIncrement:
+                                  format: int32
+                                  type: integer
                                 mountPath:
                                   type: string
                                 region:
@@ -970,6 +991,9 @@ spec:
                         type: string
                       iamServerIdHeader:
                         type: string
+                      leaseIncrement:
+                        format: int32
+                        type: integer
                       mountPath:
                         type: string
                       region:

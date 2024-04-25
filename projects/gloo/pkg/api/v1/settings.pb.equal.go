@@ -681,6 +681,16 @@ func (m *GlooOptions) Equal(that interface{}) bool {
 		}
 	}
 
+	if h, ok := interface{}(m.GetIstioOptions()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetIstioOptions()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetIstioOptions(), target.GetIstioOptions()) {
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -1144,6 +1154,10 @@ func (m *Settings_VaultAwsAuth) Equal(that interface{}) bool {
 	}
 
 	if strings.Compare(m.GetSessionToken(), target.GetSessionToken()) != 0 {
+		return false
+	}
+
+	if m.GetLeaseIncrement() != target.GetLeaseIncrement() {
 		return false
 	}
 
@@ -1897,6 +1911,14 @@ func (m *Settings_ObservabilityOptions_GrafanaIntegration) Equal(that interface{
 		}
 	}
 
+	if strings.Compare(m.GetDashboardPrefix(), target.GetDashboardPrefix()) != 0 {
+		return false
+	}
+
+	if strings.Compare(m.GetExtraMetricQueryParameters(), target.GetExtraMetricQueryParameters()) != 0 {
+		return false
+	}
+
 	return true
 }
 
@@ -2053,6 +2075,50 @@ func (m *GlooOptions_InvalidConfigPolicy) Equal(that interface{}) bool {
 
 	if strings.Compare(m.GetInvalidRouteResponseBody(), target.GetInvalidRouteResponseBody()) != 0 {
 		return false
+	}
+
+	return true
+}
+
+// Equal function
+func (m *GlooOptions_IstioOptions) Equal(that interface{}) bool {
+	if that == nil {
+		return m == nil
+	}
+
+	target, ok := that.(*GlooOptions_IstioOptions)
+	if !ok {
+		that2, ok := that.(GlooOptions_IstioOptions)
+		if ok {
+			target = &that2
+		} else {
+			return false
+		}
+	}
+	if target == nil {
+		return m == nil
+	} else if m == nil {
+		return false
+	}
+
+	if h, ok := interface{}(m.GetAppendXForwardedHost()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetAppendXForwardedHost()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetAppendXForwardedHost(), target.GetAppendXForwardedHost()) {
+			return false
+		}
+	}
+
+	if h, ok := interface{}(m.GetEnableAutoMtls()).(equality.Equalizer); ok {
+		if !h.Equal(target.GetEnableAutoMtls()) {
+			return false
+		}
+	} else {
+		if !proto.Equal(m.GetEnableAutoMtls(), target.GetEnableAutoMtls()) {
+			return false
+		}
 	}
 
 	return true

@@ -118,11 +118,7 @@ func (s *translatorSyncer) Sync(ctx context.Context, snap *v1snap.ApiSnapshot) e
 
 	// Execute the SyncerExtensions
 	// Each of these are responsible for updating a single entry in the SnapshotCache
-	for _, syncerExtension := range s.syncerExtensions {
-		intermediateReports := make(reporter.ResourceReports)
-		syncerExtension.Sync(ctx, snap, s.settings, s.xdsCache, intermediateReports)
-		reports.Merge(intermediateReports)
-	}
+	s.syncExtensions(ctx, snap, reports)
 
 	// Update resource status metrics
 	for resource, report := range reports {
@@ -143,6 +139,16 @@ func (s *translatorSyncer) Sync(ctx context.Context, snap *v1snap.ApiSnapshot) e
 	return multiErr.ErrorOrNil()
 }
 
+// syncExtensions executes each of the TranslatorSyncerExtensions
+// These are responsible for updating xDS cache entries
+func (s *translatorSyncer) syncExtensions(ctx context.Context, snap *v1snap.ApiSnapshot, reports reporter.ResourceReports) {
+	for _, syncerExtension := range s.syncerExtensions {
+		intermediateReports := make(reporter.ResourceReports)
+		syncerExtension.Sync(ctx, snap, s.settings, s.xdsCache, intermediateReports)
+		reports.Merge(intermediateReports)
+	}
+}
+
 func (s *translatorSyncer) translateProxies(ctx context.Context, snap *v1snap.ApiSnapshot) error {
 	var multiErr *multierror.Error
 	err := s.gatewaySyncer.Sync(ctx, snap)
@@ -157,7 +163,7 @@ func (s *translatorSyncer) translateProxies(ctx context.Context, snap *v1snap.Ap
 	return multiErr.ErrorOrNil()
 }
 
-func (s *statusSyncer) syncStatusOnEmit(ctx context.Context) error {
+func (s *statusSyncer) syncStatusOnEmit(ctx context.Context) {
 	var retryChan <-chan time.Time
 
 	doSync := func() {
@@ -173,7 +179,7 @@ func (s *statusSyncer) syncStatusOnEmit(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return
 		case <-retryChan:
 			doSync()
 		case <-s.syncNeeded:

@@ -23,10 +23,12 @@ import (
 	"google.golang.org/grpc"
 )
 
+var SyncNotCalledError = eris.New("proxy validation called before the validation server received its first sync of resources")
+
 type Validator interface {
 	v1snap.ApiSyncer
 	validation.GlooValidationServiceServer
-	ValidateGloo(ctx context.Context, proxy *v1.Proxy, resource resources.Resource, delete bool) ([]*GlooValidationReport, error)
+	ValidateGloo(ctx context.Context, proxy *v1.Proxy, resource resources.Resource, shouldDelete bool) ([]*GlooValidationReport, error)
 }
 
 // ValidatorConfig is used to configure the validator
@@ -179,7 +181,7 @@ func (s *validator) Validate(ctx context.Context, req *validation.GlooValidation
 	// we may receive a Validate call before a Sync has occurred
 	if s.latestSnapshot == nil {
 		s.lock.Unlock()
-		return nil, eris.New("proxy validation called before the validation server received its first sync of resources")
+		return nil, SyncNotCalledError
 	}
 	snapCopy := s.latestSnapshot.Clone() // cloning can mutate so we need a write lock
 	s.lock.Unlock()
@@ -203,18 +205,18 @@ func (s *validator) Validate(ctx context.Context, req *validation.GlooValidation
 // ValidateGloo replaces the functionality of Validate.  Validate is still a method that needs to be
 // exported because it is used as a gRPC service. A synced version of the snapshot is needed for
 // gloo validation.
-func (s *validator) ValidateGloo(ctx context.Context, proxy *v1.Proxy, resource resources.Resource, delete bool) ([]*GlooValidationReport, error) {
+func (s *validator) ValidateGloo(ctx context.Context, proxy *v1.Proxy, resource resources.Resource, shouldDelete bool) ([]*GlooValidationReport, error) {
 	// the gateway validator will call this function to validate Gloo resources.
 	s.lock.Lock()
 	// we may receive a Validate call before a Sync has occurred
 	if s.latestSnapshot == nil {
 		s.lock.Unlock()
-		return nil, eris.New("proxy validation called before the validation server received its first sync of resources")
+		return nil, SyncNotCalledError
 	}
 	snapCopy := s.latestSnapshot.Clone() // cloning can mutate so we need a write lock
 	s.lock.Unlock()
 	if resource != nil {
-		if delete {
+		if shouldDelete {
 			if err := snapCopy.RemoveFromResourceList(resource); err != nil {
 				return nil, err
 			}
@@ -225,7 +227,7 @@ func (s *validator) ValidateGloo(ctx context.Context, proxy *v1.Proxy, resource 
 		}
 	}
 
-	return s.validator.Validate(ctx, proxy, &snapCopy, delete), nil
+	return s.validator.Validate(ctx, proxy, &snapCopy, shouldDelete), nil
 }
 
 // updates the given snapshot with the resources from the request

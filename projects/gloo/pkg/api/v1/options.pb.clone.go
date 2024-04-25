@@ -89,6 +89,8 @@ import (
 
 	github_com_solo_io_gloo_projects_gloo_pkg_api_v1_options_stats "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/stats"
 
+	github_com_solo_io_gloo_projects_gloo_pkg_api_v1_options_tap "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/tap"
+
 	github_com_solo_io_gloo_projects_gloo_pkg_api_v1_options_tcp "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/tcp"
 
 	github_com_solo_io_gloo_projects_gloo_pkg_api_v1_options_tracing "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/tracing"
@@ -160,6 +162,12 @@ func (m *ListenerOptions) Clone() proto.Message {
 		target.ConnectionBalanceConfig = h.Clone().(*ConnectionBalanceConfig)
 	} else {
 		target.ConnectionBalanceConfig = proto.Clone(m.GetConnectionBalanceConfig()).(*ConnectionBalanceConfig)
+	}
+
+	if h, ok := interface{}(m.GetListenerAccessLoggingService()).(clone.Cloner); ok {
+		target.ListenerAccessLoggingService = h.Clone().(*github_com_solo_io_gloo_projects_gloo_pkg_api_v1_options_als.AccessLoggingService)
+	} else {
+		target.ListenerAccessLoggingService = proto.Clone(m.GetListenerAccessLoggingService()).(*github_com_solo_io_gloo_projects_gloo_pkg_api_v1_options_als.AccessLoggingService)
 	}
 
 	return target
@@ -343,6 +351,12 @@ func (m *HttpListenerOptions) Clone() proto.Message {
 		target.Router = h.Clone().(*github_com_solo_io_gloo_projects_gloo_pkg_api_v1_options_router.Router)
 	} else {
 		target.Router = proto.Clone(m.GetRouter()).(*github_com_solo_io_gloo_projects_gloo_pkg_api_v1_options_router.Router)
+	}
+
+	if h, ok := interface{}(m.GetTap()).(clone.Cloner); ok {
+		target.Tap = h.Clone().(*github_com_solo_io_gloo_projects_gloo_pkg_api_v1_options_tap.Tap)
+	} else {
+		target.Tap = proto.Clone(m.GetTap()).(*github_com_solo_io_gloo_projects_gloo_pkg_api_v1_options_tap.Tap)
 	}
 
 	switch m.ExtProcConfig.(type) {

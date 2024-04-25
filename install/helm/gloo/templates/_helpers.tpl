@@ -1,5 +1,14 @@
 {{/* vim: set filetype=mustache: */}}
 
+{{- /*
+There can be cases when we do not want to overwrite an empty value on a resource when merged.
+Eg. To generate a proxy config, we mergeOverwrite it with the default gateway-proxy config.
+If we want to preserve the empty value of the gateway and not have them overwritten, we set it to `gloo.omitOverwrite`
+and call `gloo.util.mergeOverwriteWithOmit` when merging. This sets all fields with values equal to this back to empty after the overwrite
+*/ -}}
+{{- define "gloo.omitOverwrite" }}
+{{ printf "\n" }}{{/* This template is set to a new line. There may be scenarios where a field is initailly set to this value and the same field is appended to later on. Since this is just a new line, it won't cause rendering issues */}}
+{{ end -}}
 {{- define "gloo.roleKind" -}}
 {{- if .Values.global.glooRbac.namespaced -}}
 Role
@@ -17,19 +26,36 @@ ClusterRole
 {{- end -}}
 
 {{/*
-Expand the name of a container image, adding -fips to the name of the repo if configured.
+Expand the name of a container image by adding the digest, and the -fips / -distroless suffix if configured.
 */}}
 {{- define "gloo.image" -}}
+{{- $image := printf "%s/%s" .registry .repository -}}
 {{- if and .fips .fipsDigest -}}
 {{- /*
 In consideration of https://github.com/solo-io/gloo/issues/7326, we want the ability for -fips images to use their own digests,
 rather than falling back (incorrectly) onto the digests of non-fips images
 */ -}}
-{{ .registry }}/{{ .repository }}-fips:{{ .tag }}@{{ .fipsDigest }}
-{{- else -}}
-{{ .registry }}/{{ .repository }}{{ ternary "-fips" "" ( and (has .repository (list "gloo-ee" "extauth-ee" "gloo-ee-envoy-wrapper" "rate-limit-ee" "discovery-ee" )) (default false .fips)) }}:{{ .tag }}{{ ternary "-extended" "" (default false .extended) }}{{- if .digest -}}@{{ .digest }}{{- end -}}
-{{- end -}}
-{{- end -}}
+{{- $image = printf "%s-fips:%s@%s" $image .tag .fipsDigest -}}
+{{- else -}} {{- /* if and .fips .fipsDigest */ -}}
+{{- if or .fips (has .variant (list "fips" "fips-distroless")) -}}
+{{- $fipsSupportedImages := list "gloo-ee" "extauth-ee" "gloo-ee-envoy-wrapper" "rate-limit-ee" "discovery-ee" "sds-ee" -}}
+{{- if (has .repository $fipsSupportedImages) -}}
+{{- $image = printf "%s-fips" $image -}}
+{{- end -}}{{- /* if (has .repository $fipsSupportedImages) */ -}}
+{{- end -}}{{- /* if .fips */ -}}
+{{- $image = printf "%s:%s" $image .tag -}}
+{{- if has .variant (list "distroless" "fips-distroless") -}}
+{{- $distrolessSupportedImages := list "gloo" "gloo-envoy-wrapper" "discovery" "sds" "certgen" "kubectl" "access-logger" "ingress" "gloo-ee" "extauth-ee" "gloo-ee-envoy-wrapper" "rate-limit-ee" "discovery-ee" "sds-ee" "observability-ee" "caching-ee" -}}
+{{- if (has .repository $distrolessSupportedImages) -}}
+{{- $image = printf "%s-distroless" $image -}} {{- /* Add distroless suffix to the tag since it contains the same binaries in a different container */ -}}
+{{- end -}}{{- /* if (has .repository $distrolessSupportedImages) */ -}}
+{{- end -}}{{- /* if .distroless */ -}}
+{{- if .digest -}}
+{{- $image = printf "%s@%s" $image .digest -}}
+{{- end -}}{{- /* if .digest */ -}}
+{{- end -}}{{- /* if and .fips .fipsDigest */ -}}
+{{ $image }}
+{{- end -}}{{- /* define "gloo.image" */ -}}
 
 {{- define "gloo.pullSecret" -}}
 {{- if .pullSecret -}}
@@ -112,7 +138,7 @@ ttlSecondsAfterFinished: {{ . }}
 {{- end -}}
 {{- end -}}
 
-{{- /* 
+{{- /*
 This template is used to generate the gloo pod or container security context.
 It takes 2 values:
   .values - the securityContext passed from the user in values.yaml
@@ -209,7 +235,7 @@ Returns the unique Gateway namespaces as defined by the helm values.
 {{- end -}}
 
 
-{{/* 
+{{/*
 Generated the "operations" array for a resource for the ValidatingWebhookConfiguration
 Arguments are a resource name, and a list of resources for which to skip webhook validation for DELETEs
 This list is expected to come from `gateway.validation.webhook.skipDeleteValidationResources`
@@ -224,4 +250,16 @@ Otherwise it will generate ["Create", "Update", "Delete"]
   {{- $operations = append $operations "DELETE" -}}
 {{- end -}}
 {{ toJson  $operations -}}
+{{- end -}}
+
+{{- define "gloo.util.mergeOverwriteWithOmit" -}}
+{{- $resource := first . -}}
+{{- $overwrite := index . 1 -}}
+{{- $result := deepCopy $resource | mergeOverwrite (deepCopy $overwrite) -}}
+{{- range $key, $value := $result }}
+  {{- if eq (toString $value) "gloo.omitOverwrite" -}}
+    {{- $_ := unset $result $key }}
+  {{- end -}}
+{{- end -}}
+{{ toJson $result }}
 {{- end -}}

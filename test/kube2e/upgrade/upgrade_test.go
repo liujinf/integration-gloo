@@ -9,27 +9,30 @@ import (
 	"strings"
 	"time"
 
-	exec_utils "github.com/solo-io/go-utils/testutils/exec"
-	"github.com/solo-io/k8s-utils/kubeutils"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
+	"github.com/solo-io/gloo/pkg/utils/helmutils"
+
+	kubetestclients "github.com/solo-io/gloo/test/kubernetes/testutils/clients"
 
 	"github.com/solo-io/gloo/projects/gloo/cli/pkg/helpers"
+	exec_utils "github.com/solo-io/go-utils/testutils/exec"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/solo-io/gloo/projects/gloo/cli/pkg/cmd/version"
 	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
 	"github.com/solo-io/gloo/test/kube2e"
-	"github.com/solo-io/k8s-utils/testutils/helper"
+	"github.com/solo-io/gloo/test/kube2e/helper"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 )
 
 const namespace = defaults.GlooSystem
+
+var variant = os.Getenv("IMAGE_VARIANT")
 
 var _ = Describe("Kube2e: Upgrade Tests", func() {
 
@@ -96,15 +99,10 @@ var _ = Describe("Kube2e: Upgrade Tests", func() {
 	})
 
 	Context("Validation webhook upgrade tests", func() {
-		var cfg *rest.Config
-		var err error
 		var kubeClientset kubernetes.Interface
 
 		BeforeEach(func() {
-			cfg, err = kubeutils.GetConfig("", "")
-			Expect(err).NotTo(HaveOccurred())
-			kubeClientset, err = kubernetes.NewForConfig(cfg)
-			Expect(err).NotTo(HaveOccurred())
+			kubeClientset = kubetestclients.MustClientset()
 			strictValidation = true
 		})
 
@@ -159,7 +157,7 @@ func updateSettingsWithoutErrors(ctx context.Context, crdDir string, testHelper 
 	By("should start with the settings.invalidConfigPolicy.invalidRouteResponseCode=404")
 	client := helpers.MustSettingsClient(ctx)
 	settings, err := client.Read(testHelper.InstallNamespace, defaults.SettingsName, clients.ReadOpts{})
-	Expect(err).To(BeNil())
+	Expect(err).NotTo(HaveOccurred())
 	Expect(settings.GetGloo().GetInvalidConfigPolicy().GetInvalidRouteResponseCode()).To(Equal(uint32(404)))
 
 	upgradeGloo(testHelper, chartUri, targetReleasedVersion, crdDir, strictValidation, []string{
@@ -170,7 +168,7 @@ func updateSettingsWithoutErrors(ctx context.Context, crdDir string, testHelper 
 
 	By("should have updated to settings.invalidConfigPolicy.invalidRouteResponseCode=400")
 	settings, err = client.Read(testHelper.InstallNamespace, defaults.SettingsName, clients.ReadOpts{})
-	Expect(err).To(BeNil())
+	Expect(err).NotTo(HaveOccurred())
 	Expect(settings.GetGloo().GetInvalidConfigPolicy().GetInvalidRouteResponseCode()).To(Equal(uint32(400)))
 	Expect(settings.GetGateway().GetValidation().GetValidationServerGrpcMaxSizeBytes().GetValue()).To(Equal(int32(5000000)))
 }
@@ -216,7 +214,7 @@ func addSecondGatewayProxySeparateNamespaceTest(ctx context.Context, crdDir stri
 	// Ensures namespace is cleaned up before continuing
 	runAndCleanCommand("kubectl", "delete", "ns", externalNamespace)
 	Eventually(func() bool {
-		_, err := kube2e.MustKubeClient().CoreV1().Namespaces().Get(ctx, externalNamespace, metav1.GetOptions{})
+		_, err := kubetestclients.MustClientset().CoreV1().Namespaces().Get(ctx, externalNamespace, metav1.GetOptions{})
 		return apierrors.IsNotFound(err)
 	}, "60s", "1s").Should(BeTrue())
 }
@@ -249,8 +247,8 @@ func updateValidationWebhookTests(ctx context.Context, crdDir string, kubeClient
 // ===================================
 func getGlooServerVersion(ctx context.Context, namespace string) (v string) {
 	glooVersion, err := version.GetClientServerVersions(ctx, version.NewKube(namespace, ""))
-	Expect(err).To(BeNil())
-	Expect(len(glooVersion.GetServer())).To(Equal(1))
+	Expect(err).NotTo(HaveOccurred())
+	Expect(glooVersion.GetServer()).To(HaveLen(1))
 	for _, container := range glooVersion.GetServer()[0].GetKubernetes().GetContainers() {
 		if v == "" {
 			v = container.OssTag
@@ -270,8 +268,8 @@ func installGloo(testHelper *helper.SoloTestHelper, fromRelease string, strictVa
 	var args = []string{"install", testHelper.HelmChartName}
 
 	runAndCleanCommand("helm", "repo", "add", testHelper.HelmChartName,
-		"https://storage.googleapis.com/solo-public-helm", "--force-update")
-	args = append(args, "gloo/gloo",
+		helmutils.ChartRepositoryUrl, "--force-update")
+	args = append(args, helmutils.RemoteChartName,
 		"--version", fromRelease)
 
 	args = append(args, "-n", testHelper.InstallNamespace,
@@ -290,6 +288,9 @@ func installGloo(testHelper *helper.SoloTestHelper, fromRelease string, strictVa
 		"--values", helmValuesFile)
 	if strictValidation {
 		args = append(args, strictValidationArgs...)
+	}
+	if variant != "" {
+		args = append(args, "--set", "global.image.variant="+variant)
 	}
 
 	fmt.Printf("running helm with args: %v\n", args)
@@ -311,6 +312,13 @@ func upgradeCrds(crdDir string) {
 }
 
 func upgradeGloo(testHelper *helper.SoloTestHelper, chartUri string, targetReleasedVersion string, crdDir string, strictValidation bool, additionalArgs []string) {
+	// With the fix for custom readiness probe : https://github.com/solo-io/gloo/pull/8831
+	// The resource rollout job is not longer in a post hook and the job ttl has changed from 60 to 300
+	// As a consequence the job is not automatically cleaned as part of the hook deletion policy
+	// or within the time between installing gloo and upgrading it in the test.
+	// So we wait until the job ttl has expired to be cleaned up to ensure the upgrade passes
+	runAndCleanCommand("kubectl", "-n", defaults.GlooSystem, "wait", "--for=delete", "job", "gloo-resource-rollout", "--timeout=600s")
+
 	upgradeCrds(crdDir)
 
 	valueOverrideFile, cleanupFunc := getHelmUpgradeValuesOverrideFile()
@@ -336,6 +344,10 @@ func upgradeGloo(testHelper *helper.SoloTestHelper, chartUri string, targetRelea
 	if strictValidation {
 		args = append(args, strictValidationArgs...)
 	}
+	if variant != "" {
+		args = append(args, "--set", "global.image.variant="+variant)
+	}
+
 	args = append(args, additionalArgs...)
 
 	fmt.Printf("running helm with args: %v\n", args)
@@ -347,9 +359,9 @@ func upgradeGloo(testHelper *helper.SoloTestHelper, chartUri string, targetRelea
 
 func uninstallGloo(testHelper *helper.SoloTestHelper, ctx context.Context, cancel context.CancelFunc) {
 	Expect(testHelper).ToNot(BeNil())
-	err := testHelper.UninstallGloo()
+	err := testHelper.UninstallGlooAll()
 	Expect(err).NotTo(HaveOccurred())
-	_, err = kube2e.MustKubeClient().CoreV1().Namespaces().Get(ctx, testHelper.InstallNamespace, metav1.GetOptions{})
+	_, err = kubetestclients.MustClientset().CoreV1().Namespaces().Get(ctx, testHelper.InstallNamespace, metav1.GetOptions{})
 	Expect(apierrors.IsNotFound(err)).To(BeTrue())
 	cancel()
 }
@@ -411,7 +423,7 @@ func runAndCleanCommand(name string, arg ...string) []byte {
 			fmt.Println("ExitError: ", string(v.Stderr))
 		}
 	}
-	Expect(err).To(BeNil())
+	Expect(err).NotTo(HaveOccurred())
 	cmd.Process.Kill() // This is *almost certainly* the reason a namespace deletion was able to hang without alerting us
 	cmd.Process.Release()
 	return b
