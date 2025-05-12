@@ -35,6 +35,8 @@ func BuildArgs(options ...Option) []string {
 		retryMaxTime:      0,
 		ipv4Only:          false,
 		ipv6Only:          false,
+		cookie:            "",
+		cookieJar:         "",
 
 		additionalArgs: []string{},
 	}
@@ -62,6 +64,9 @@ type requestConfig struct {
 	caFile            string
 	path              string
 	queryParameters   map[string]string
+
+	cookie    string
+	cookieJar string
 
 	scheme string
 
@@ -129,9 +134,9 @@ func (c *requestConfig) generateArgs() []string {
 	var fullAddress string
 
 	if c.sni != "" {
-		sniResolution := fmt.Sprintf("%s:%d:%s", c.sni, c.port, c.host)
+		sniResolution := fmt.Sprintf("%s:%d:%s:%d", c.sni, c.port, c.host, c.port)
 		fullAddress = fmt.Sprintf("%s://%s:%d", c.scheme, c.sni, c.port)
-		args = append(args, "--resolve", sniResolution)
+		args = append(args, "--connect-to", sniResolution)
 	} else {
 		fullAddress = fmt.Sprintf("%v://%s:%v/%s", c.scheme, c.host, c.port, c.path)
 		if len(c.queryParameters) > 0 {
@@ -141,6 +146,14 @@ func (c *requestConfig) generateArgs() []string {
 			}
 			fullAddress = fmt.Sprintf("%s?%s", fullAddress, values.Encode())
 		}
+	}
+
+	if c.cookie != "" {
+		args = append(args, "--cookie", c.cookie)
+	}
+
+	if c.cookieJar != "" {
+		args = append(args, "--cookie-jar", c.cookieJar)
 	}
 
 	args = append(args, fullAddress)

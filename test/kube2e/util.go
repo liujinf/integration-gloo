@@ -1,3 +1,5 @@
+//go:build ignore
+
 package kube2e
 
 import (
@@ -11,21 +13,21 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	errors "github.com/rotisserie/eris"
-	"github.com/solo-io/gloo/projects/gloo/cli/pkg/cmd/check"
-	"github.com/solo-io/gloo/projects/gloo/cli/pkg/cmd/options"
-	clienthelpers "github.com/solo-io/gloo/projects/gloo/cli/pkg/helpers"
-	"github.com/solo-io/gloo/projects/gloo/cli/pkg/printers"
-	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
-	"github.com/solo-io/gloo/test/gomega/assertions"
-	"github.com/solo-io/gloo/test/kube2e/helper"
-	"github.com/solo-io/gloo/test/kube2e/upgrade"
-	"github.com/solo-io/gloo/test/testutils"
 	"github.com/solo-io/go-utils/stats"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 	"go.uber.org/zap/zapcore"
-	admissionregv1 "k8s.io/api/admissionregistration/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/cli/pkg/cmd/check"
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/cli/pkg/cmd/options"
+	clienthelpers "github.com/kgateway-dev/kgateway/v2/internal/gloo/cli/pkg/helpers"
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/cli/pkg/printers"
+	v1 "github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/api/v1"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
+	"github.com/kgateway-dev/kgateway/v2/test/gomega/assertions"
+	"github.com/kgateway-dev/kgateway/v2/test/kube2e/helper"
+	newhelper "github.com/kgateway-dev/kgateway/v2/test/kubernetes/testutils/helper"
+	"github.com/kgateway-dev/kgateway/v2/test/testutils"
 )
 
 const (
@@ -39,19 +41,19 @@ const (
 func GetHttpEchoImage() string {
 	httpEchoImage := "hashicorp/http-echo"
 	if runtime.GOARCH == "arm64" {
-		httpEchoImage = "gcr.io/solo-test-236622/http-echo"
+		httpEchoImage = "gcr.io/solo-test-236622/http-echo:0.2.4"
 	}
 	return httpEchoImage
 }
 
 // GlooctlCheckEventuallyHealthy will run up until proved timeoutInterval or until gloo is reported as healthy
-func GlooctlCheckEventuallyHealthy(offset int, testHelper *helper.SoloTestHelper, timeoutInterval string) {
+func GlooctlCheckEventuallyHealthy(offset int, namespace string, timeoutInterval string) {
 	EventuallyWithOffset(offset, func() error {
 		contextWithCancel, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		opts := &options.Options{
 			Metadata: core.Metadata{
-				Namespace: testHelper.InstallNamespace,
+				Namespace: namespace,
 			},
 			Top: options.Top{
 				Ctx: contextWithCancel,
@@ -75,6 +77,8 @@ func EventuallyReachesConsistentState(installNamespace string) {
 	}
 
 	// Gloo components are configured to log to the Info level by default
+	// Note that for new style e2e tests (i.e. package `test/kubernetes`) we run them with debug logging
+	// so failures can be appropriately triaged after the fact
 	logLevelAssertion := assertions.LogLevelAssertion(zapcore.InfoLevel)
 
 	// The emitter at some point should stabilize and not continue to increase the number of snapshots produced
@@ -152,16 +156,13 @@ func UpdateSettingsWithPropagationDelay(updateSettings func(settings *v1.Setting
 }
 
 func ToFile(content string) string {
-	f, err := os.CreateTemp("", "")
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	n, err := f.WriteString(content)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	ExpectWithOffset(1, n).To(Equal(len(content)))
-	_ = f.Close()
-	return f.Name()
+	fname, err := fsutils.ToTempFile(content)
+	Expect(err).ToNot(HaveOccurred())
+
+	return fname
 }
 
-// https://github.com/solo-io/gloo/issues/4043#issuecomment-772706604
+// https://github.com/kgateway-dev/kgateway/issues/4043#issuecomment-772706604
 // We should move tests away from using the testserver, and instead depend on EphemeralContainers.
 // The default response changed in later kube versions, which caused this value to change.
 // Ideally the test utilities used by Gloo are maintained in the Gloo repo, so I opted to move
@@ -187,12 +188,12 @@ func GetTestReleasedVersion(ctx context.Context, repoName string) string {
 	}
 
 	if releasedVersion == "LATEST" {
-		_, current, err := upgrade.GetUpgradeVersions(ctx, repoName)
+		_, current, err := newhelper.GetUpgradeVersions(ctx, repoName)
 		Expect(err).NotTo(HaveOccurred())
 		return current.String()
 	}
 
-	// Assume that releasedVersion is a valid version, for a previously released version of Gloo Edge
+	// Assume that releasedVersion is a valid version, for a previously released version of kgateway
 	return releasedVersion
 }
 func GetTestHelper(ctx context.Context, namespace string) (*helper.SoloTestHelper, error) {
@@ -200,9 +201,15 @@ func GetTestHelper(ctx context.Context, namespace string) (*helper.SoloTestHelpe
 	if err != nil {
 		return nil, err
 	}
+
+	rootDir := filepath.Join(cwd, "../../..")
+	return GetTestHelperForRootDir(ctx, rootDir, namespace)
+}
+
+func GetTestHelperForRootDir(ctx context.Context, rootDir, namespace string) (*helper.SoloTestHelper, error) {
 	if useVersion := GetTestReleasedVersion(ctx, "gloo"); useVersion != "" {
 		return helper.NewSoloTestHelper(func(defaults helper.TestConfig) helper.TestConfig {
-			defaults.RootDir = filepath.Join(cwd, "../../..")
+			defaults.RootDir = rootDir
 			defaults.HelmChartName = "gloo"
 			defaults.InstallNamespace = namespace
 			defaults.ReleasedVersion = useVersion
@@ -211,37 +218,11 @@ func GetTestHelper(ctx context.Context, namespace string) (*helper.SoloTestHelpe
 		})
 	} else {
 		return helper.NewSoloTestHelper(func(defaults helper.TestConfig) helper.TestConfig {
-			defaults.RootDir = filepath.Join(cwd, "../../..")
+			defaults.RootDir = rootDir
 			defaults.HelmChartName = "gloo"
 			defaults.InstallNamespace = namespace
 			defaults.Verbose = true
 			return defaults
 		})
 	}
-}
-
-func GetFailurePolicy(ctx context.Context, webhookName string) *admissionregv1.FailurePolicyType {
-	cfg := GetValidatingWebhookWithOffset(ctx, 2, webhookName)
-	ExpectWithOffset(1, cfg.Webhooks).To(HaveLen(1))
-	return cfg.Webhooks[0].FailurePolicy
-}
-
-func UpdateFailurePolicy(ctx context.Context, webhookName string, failurePolicy admissionregv1.FailurePolicyType) {
-	kubeClient := clienthelpers.MustKubeClient()
-	cfg := GetValidatingWebhookWithOffset(ctx, 2, webhookName)
-	ExpectWithOffset(1, cfg.Webhooks).To(HaveLen(1))
-	cfg.Webhooks[0].FailurePolicy = &failurePolicy
-
-	_, err := kubeClient.AdmissionregistrationV1().ValidatingWebhookConfigurations().Update(ctx, cfg, metav1.UpdateOptions{})
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-}
-func GetValidatingWebhook(ctx context.Context, webhookName string) *admissionregv1.ValidatingWebhookConfiguration {
-	return GetValidatingWebhookWithOffset(ctx, 1, webhookName)
-}
-
-func GetValidatingWebhookWithOffset(ctx context.Context, offset int, webhookName string) *admissionregv1.ValidatingWebhookConfiguration {
-	kubeClient := clienthelpers.MustKubeClient()
-	cfg, err := kubeClient.AdmissionregistrationV1().ValidatingWebhookConfigurations().Get(ctx, webhookName, metav1.GetOptions{})
-	ExpectWithOffset(offset, err).NotTo(HaveOccurred())
-	return cfg
 }

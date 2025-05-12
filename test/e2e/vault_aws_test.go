@@ -1,3 +1,5 @@
+//go:build ignore
+
 package e2e_test
 
 import (
@@ -6,17 +8,18 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
-	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/enterprise/options/extauth/v1"
-	bootstrap "github.com/solo-io/gloo/projects/gloo/pkg/bootstrap/clients"
-	"github.com/solo-io/gloo/projects/gloo/pkg/bootstrap/clients/vault"
-	"github.com/solo-io/gloo/test/e2e"
-	"github.com/solo-io/gloo/test/ginkgo/decorators"
-	"github.com/solo-io/gloo/test/gomega/assertions"
-	"github.com/solo-io/gloo/test/testutils"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 	"go.opencensus.io/stats/view"
+
+	gloov1 "github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/api/v1"
+	v1 "github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/api/v1/enterprise/options/extauth/v1"
+	bootstrap "github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/bootstrap/clients"
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/bootstrap/clients/vault"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/ginkgo/decorators"
+	"github.com/kgateway-dev/kgateway/v2/test/gomega/assertions"
+	"github.com/kgateway-dev/kgateway/v2/test/testutils"
 )
 
 const (
@@ -102,7 +105,7 @@ var _ = Describe("Vault Secret Store (AWS Auth)", decorators.Vault, func() {
 						LeaseIncrement:  5,
 					},
 				},
-				PathPrefix: bootstrap.DefaultPathPrefix,
+				PathPrefix: vault.DefaultPathPrefix,
 				RootKey:    bootstrap.DefaultRootKey,
 			}
 		})

@@ -1,0 +1,26 @@
+
+helm_installation_name: kgateway
+helm_values_files:
+- ./test/kubernetes/e2e/tests/manifests/common-recommendations.yaml
+helm_installation_namespace: kgateway-system
+
+enabled_providers:
+  - kgateway
+
+metal_lb: false
+
+providers:
+  kgateway:
+    context: _output/internal/kgateway
+    image: ghcr.io/kgateway-dev/kgateway
+    live_reload_deps:
+      - pkg
+      - internal
+    label: kgateway
+#    build_binary: GCFLAGS='all="-N -l"' make -B kgateway
+    build_binary:  make -B kgateway
+    binary_name: kgateway-linux-$ARCH
+    # debug_port: 50100
+    port_forwards:
+      - 9091
+    #  - 50100

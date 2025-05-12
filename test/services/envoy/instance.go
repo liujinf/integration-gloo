@@ -1,3 +1,5 @@
+//go:build ignore
+
 package envoy
 
 import (
@@ -10,10 +12,10 @@ import (
 
 	"github.com/solo-io/go-utils/threadsafe"
 
-	"github.com/solo-io/gloo/pkg/utils/envoyutils/admincli"
-	"github.com/solo-io/gloo/pkg/utils/requestutils/curl"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/envoyutils/admincli"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 
-	"github.com/solo-io/gloo/test/services"
+	"github.com/kgateway-dev/kgateway/v2/test/services"
 
 	"sync"
 	"text/template"
@@ -117,11 +119,11 @@ func (ei *Instance) RunWith(runConfig RunConfig) error {
 	})
 }
 
-func (ei *Instance) RunWithConfigFile(port int, configFile string) error {
+func (ei *Instance) RunWithConfigFile(ctx context.Context, port int, configFile string) error {
 	runConfig := RunConfig{
 		Role:    "gloo-system~gateway-proxy",
 		Port:    uint32(port),
-		Context: context.TODO(),
+		Context: ctx,
 	}
 	boostrapBuilder := &fileBootstrapBuilder{
 		file: configFile,
@@ -312,7 +314,7 @@ func (ei *Instance) Logs() (string, error) {
 func (ei *Instance) ConfigDump() (string, error) {
 	var outLocation threadsafe.Buffer
 
-	err := ei.AdminClient().ConfigDumpCmd(context.Background()).WithStdout(&outLocation).Run().Cause()
+	err := ei.AdminClient().ConfigDumpCmd(context.Background(), nil).WithStdout(&outLocation).Run().Cause()
 	if err != nil {
 		return "", err
 	}
@@ -321,11 +323,11 @@ func (ei *Instance) ConfigDump() (string, error) {
 }
 
 func (ei *Instance) StructuredConfigDump() (*adminv3.ConfigDump, error) {
-	return ei.AdminClient().GetConfigDump(context.Background())
+	return ei.AdminClient().GetConfigDump(context.Background(), nil)
 }
 
 func (ei *Instance) Statistics() (string, error) {
-	return ei.AdminClient().GetStats(context.Background())
+	return ei.AdminClient().GetStats(context.Background(), nil)
 }
 
 func (ei *Instance) AdminClient() *admincli.Client {

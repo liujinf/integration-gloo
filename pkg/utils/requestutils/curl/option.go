@@ -1,6 +1,7 @@
 package curl
 
 import (
+	"encoding/base64"
 	"net/http"
 	"strconv"
 	"strings"
@@ -181,6 +182,15 @@ func WithHostHeader(host string) Option {
 	}
 }
 
+// WithHeader returns the Option to configure a basic auth header for the curl request
+func WithBasicAuth(username string, password string) Option {
+	auth := username + ":" + password
+	basicAuth := base64.StdEncoding.EncodeToString([]byte(auth))
+	return func(config *requestConfig) {
+		WithHeader("Authorization", "Basic "+basicAuth)(config)
+	}
+}
+
 // WithHeader returns the Option to configure a header for the curl request
 // https://curl.se/docs/manpage.html#-H
 func WithHeader(key, value string) Option {
@@ -202,5 +212,17 @@ func WithScheme(scheme string) Option {
 func WithArgs(args []string) Option {
 	return func(config *requestConfig) {
 		config.additionalArgs = args
+	}
+}
+
+func WithCookie(cookie string) Option {
+	return func(config *requestConfig) {
+		config.cookie = cookie
+	}
+}
+
+func WithCookieJar(cookieJar string) Option {
+	return func(config *requestConfig) {
+		config.cookieJar = cookieJar
 	}
 }

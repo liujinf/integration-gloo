@@ -8,14 +8,11 @@ import (
 
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/gstruct"
-
 	"github.com/onsi/gomega/matchers"
 	"github.com/onsi/gomega/types"
 )
 
-var (
-	_ types.GomegaMatcher = new(HaveHttpResponseMatcher)
-)
+var _ types.GomegaMatcher = new(HaveHttpResponseMatcher)
 
 // HaveOkResponse expects a http response with a 200 status code
 func HaveOkResponse() types.GomegaMatcher {
@@ -55,6 +52,23 @@ func HaveOkResponseWithHeaders(headers map[string]interface{}) types.GomegaMatch
 	})
 }
 
+// HaveOkResponseWithoutHeaders expects a 200 response that does not contain the specified headers
+func HaveOkResponseWithoutHeaders(headerNames ...string) types.GomegaMatcher {
+	return HaveHttpResponse(&HttpResponse{
+		StatusCode: http.StatusOK,
+		Body:       gomega.BeEmpty(),
+		NotHeaders: headerNames,
+	})
+}
+
+// HaveOKResponseWithJSONContains expects a 200 response with a body that contains the provided JSON
+func HaveOKResponseWithJSONContains(jsonBody []byte) types.GomegaMatcher {
+	return HaveHttpResponse(&HttpResponse{
+		StatusCode: http.StatusOK,
+		Body:       JSONContains(jsonBody),
+	})
+}
+
 // HttpResponse defines the set of properties that we can validate from an http.Response
 type HttpResponse struct {
 	// StatusCode is the expected status code for an http.Response
@@ -68,21 +82,33 @@ type HttpResponse struct {
 	// Each header can be of type: {string, GomegaMatcher}
 	// Optional: If not provided, does not perform header validation
 	Headers map[string]interface{}
+	// NotHeaders is a list of headers that should not be present in the response
+	// Optional: If not provided, does not perform header absence validation
+	NotHeaders []string
 	// Custom is a generic matcher that can be applied to validate any other properties of an http.Response
 	// Optional: If not provided, does not perform additional validation
 	Custom types.GomegaMatcher
 }
 
-// HaveHttpResponse returns a GomegaMatcher which validates that an http.Response contains
-// particular expected properties (status, body..etc)
-// If an expected body isn't defined, we default to expecting an empty response
-func HaveHttpResponse(expected *HttpResponse) types.GomegaMatcher {
-	expectedBody := expected.Body
-	if expectedBody == nil {
-		// Default to an empty body
-		expectedBody = ""
+func (r *HttpResponse) String() string {
+	var bodyString string
+	switch bodyMatcher := r.Body.(type) {
+	case string:
+		bodyString = bodyMatcher
+	case []byte:
+		bodyString = string(bodyMatcher)
+	case types.GomegaMatcher:
+		bodyString = fmt.Sprintf("%#v", bodyMatcher)
 	}
 
+	return fmt.Sprintf("HttpResponse{StatusCode: %d, Body: %s, Headers: %v, NotHeaders: %v, Custom: %v}",
+		r.StatusCode, bodyString, r.Headers, r.NotHeaders, r.Custom)
+}
+
+// HaveHttpResponse returns a GomegaMatcher which validates that an http.Response contains
+// particular expected properties (status, body..etc)
+// If an expected body isn't specified, the body is not matched
+func HaveHttpResponse(expected *HttpResponse) types.GomegaMatcher {
 	expectedCustomMatcher := expected.Custom
 	if expected.Custom == nil {
 		// Default to an always accept matcher
@@ -95,13 +121,20 @@ func HaveHttpResponse(expected *HttpResponse) types.GomegaMatcher {
 			expected.StatusCode,
 		},
 	})
-	partialResponseMatchers = append(partialResponseMatchers, &matchers.HaveHTTPBodyMatcher{
-		Expected: expectedBody,
-	})
+	if expected.Body != nil {
+		partialResponseMatchers = append(partialResponseMatchers, &matchers.HaveHTTPBodyMatcher{
+			Expected: expected.Body,
+		})
+	}
 	for headerName, headerMatch := range expected.Headers {
 		partialResponseMatchers = append(partialResponseMatchers, &matchers.HaveHTTPHeaderWithValueMatcher{
 			Header: headerName,
 			Value:  headerMatch,
+		})
+	}
+	for _, headerName := range expected.NotHeaders {
+		partialResponseMatchers = append(partialResponseMatchers, &NotHaveHTTPHeaderMatcher{
+			Header: headerName,
 		})
 	}
 	partialResponseMatchers = append(partialResponseMatchers, expectedCustomMatcher)
@@ -150,6 +183,43 @@ func (m *HaveHttpResponseMatcher) NegatedFailureMessage(actual interface{}) (mes
 	return fmt.Sprintf("%s \n%s",
 		m.responseMatcher.NegatedFailureMessage(actual),
 		informativeComparison(m.Expected, actual))
+}
+
+// NotHaveHTTPHeaderMatcher is a matcher that checks if a header is not present in the HTTP response
+type NotHaveHTTPHeaderMatcher struct {
+	Header string
+}
+
+func (m *NotHaveHTTPHeaderMatcher) Match(actual interface{}) (success bool, err error) {
+	response, ok := actual.(*http.Response)
+	if !ok {
+		return false, fmt.Errorf("NotHaveHTTPHeaderMatcher expects an *http.Response, got %T", actual)
+	}
+
+	if response == nil {
+		return false, errors.New("NotHaveHTTPHeaderMatcher matcher requires a non-nil *http.Response")
+	}
+
+	_, headerExists := response.Header[http.CanonicalHeaderKey(m.Header)]
+	return !headerExists, nil
+}
+
+func (m *NotHaveHTTPHeaderMatcher) FailureMessage(actual interface{}) string {
+	response, ok := actual.(*http.Response)
+	if !ok || response == nil {
+		return fmt.Sprintf("Expected a valid *http.Response, got %T", actual)
+	}
+
+	return fmt.Sprintf("Expected HTTP response not to have header '%s', but it was present", m.Header)
+}
+
+func (m *NotHaveHTTPHeaderMatcher) NegatedFailureMessage(actual interface{}) string {
+	response, ok := actual.(*http.Response)
+	if !ok || response == nil {
+		return fmt.Sprintf("Expected a valid *http.Response, got %T", actual)
+	}
+
+	return fmt.Sprintf("Expected HTTP response to have header '%s', but it was not present", m.Header)
 }
 
 // informativeComparison returns a string which presents data to the user to help them understand why a failure occurred.

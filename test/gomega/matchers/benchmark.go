@@ -1,9 +1,11 @@
+//go:build ignore
+
 package matchers
 
 import (
 	"time"
 
-	"github.com/solo-io/gloo/test/gomega/transforms"
+	"github.com/kgateway-dev/kgateway/v2/test/gomega/transforms"
 
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"

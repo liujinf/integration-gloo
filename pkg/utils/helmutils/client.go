@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/solo-io/gloo/pkg/utils/cmdutils"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/cmdutils"
 )
 
 // Client is a utility for executing `helm` commands
@@ -54,9 +54,19 @@ func (c *Client) RunCommand(ctx context.Context, args ...string) error {
 	return c.Command(ctx, args...).Run().Cause()
 }
 
-func (c *Client) Install(ctx context.Context, extraArgs ...string) error {
+func (c *Client) Install(ctx context.Context, opts InstallOpts) error {
+	args := append([]string{"install"}, opts.all()...)
+	return c.RunCommand(ctx, args...)
+}
+
+func (c *Client) Uninstall(ctx context.Context, opts UninstallOpts) error {
+	args := append([]string{"uninstall"}, opts.all()...)
+	return c.RunCommand(ctx, args...)
+}
+
+func (c *Client) Delete(ctx context.Context, extraArgs ...string) error {
 	args := append([]string{
-		"install",
+		"delete",
 	}, extraArgs...)
 
 	return c.RunCommand(ctx, args...)
@@ -70,8 +80,4 @@ func (c *Client) AddRepository(ctx context.Context, chartName string, chartUrl s
 		chartUrl,
 	}, extraArgs...)
 	return c.RunCommand(ctx, args...)
-}
-
-func (c *Client) AddGlooRepository(ctx context.Context, extraArgs ...string) error {
-	return c.AddRepository(ctx, ChartName, ChartRepositoryUrl, extraArgs...)
 }

@@ -1,3 +1,5 @@
+//go:build ignore
+
 package gloo_test
 
 import (
@@ -11,14 +13,15 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
-	kubepluginapi "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/kubernetes"
-	"github.com/solo-io/gloo/projects/gloo/pkg/discovery"
-	kubeplugin "github.com/solo-io/gloo/projects/gloo/pkg/plugins/kubernetes"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
 	kubecache "github.com/solo-io/solo-kit/pkg/api/v1/clients/kube/cache"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	v1 "github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/api/v1"
+	kubepluginapi "github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/api/v1/options/kubernetes"
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/discovery"
+	kubeplugin "github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/plugins/kubernetes"
 
 	"k8s.io/client-go/kubernetes"
 )
@@ -151,7 +154,7 @@ var _ = Describe("Kubernetes Plugin", func() {
 	})
 
 	It("uses json keys when serializing", func() {
-		plug := kubeplugin.NewPlugin(kubeClient, kubeCoreCache).(discovery.DiscoveryPlugin)
+		plug := kubeplugin.NewPlugin(kubeClient, kubeCoreCache, nil).(discovery.DiscoveryPlugin)
 		upstreams, errs, err := plug.DiscoverUpstreams([]string{svcNamespace}, svcNamespace, clients.WatchOpts{
 			Ctx:         context.TODO(),
 			RefreshRate: time.Second,
@@ -187,7 +190,7 @@ var _ = Describe("Kubernetes Plugin", func() {
 				},
 			}
 		}
-		plug := kubeplugin.NewPlugin(kubeClient, kubeCoreCache).(discovery.DiscoveryPlugin)
+		plug := kubeplugin.NewPlugin(kubeClient, kubeCoreCache, nil).(discovery.DiscoveryPlugin)
 		endpoints, errs, err := plug.WatchEndpoints(
 			"",
 			v1.UpstreamList{makeUpstream("a"), makeUpstream("b"), makeUpstream("c")},

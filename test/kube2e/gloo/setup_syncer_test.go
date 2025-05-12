@@ -1,3 +1,5 @@
+//go:build ignore
+
 package gloo_test
 
 import (
@@ -6,29 +8,33 @@ import (
 	"sync"
 	"time"
 
-	"github.com/solo-io/gloo/pkg/utils/kubeutils"
-	"github.com/solo-io/gloo/pkg/utils/kubeutils/portforward"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils/portforward"
 
-	"github.com/solo-io/gloo/pkg/utils/settingsutil"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/settingsutil"
 
-	"github.com/solo-io/gloo/pkg/bootstrap/leaderelector"
-	"github.com/solo-io/gloo/pkg/bootstrap/leaderelector/singlereplica"
-	"github.com/solo-io/gloo/pkg/utils/setuputils"
-	"github.com/solo-io/gloo/projects/gloo/pkg/syncer/setup"
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/bootstrap"
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/syncer/setup"
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/xds"
+	"github.com/kgateway-dev/kgateway/v2/pkg/bootstrap/leaderelector"
+	"github.com/kgateway-dev/kgateway/v2/pkg/bootstrap/leaderelector/singlereplica"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/setuputils"
 
-	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
+
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/defaults"
 
 	"github.com/golang/protobuf/ptypes/wrappers"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/solo-io/gloo/projects/gloo/pkg/api/grpc/validation"
-	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
-	"github.com/solo-io/gloo/test/kube2e"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/kube"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients/memory"
 	"github.com/solo-io/solo-kit/pkg/utils/prototime"
 	"google.golang.org/grpc"
+
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/api/grpc/validation"
+	v1 "github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/api/v1"
+	"github.com/kgateway-dev/kgateway/v2/test/helpers"
+	"github.com/kgateway-dev/kgateway/v2/test/kube2e"
 )
 
 var _ = Describe("Setup Syncer", func() {
@@ -44,7 +50,8 @@ var _ = Describe("Setup Syncer", func() {
 	// In our tests we do not follow this pattern, and to avoid data races (that cause test failures)
 	// we ensure that only 1 SetupFunc is ever called at a time
 	newSynchronizedSetupFunc := func() setuputils.SetupFunc {
-		setupFunc := setup.NewSetupFunc()
+		setupOpts := bootstrap.NewSetupOpts(xds.NewAdsSnapshotCache(ctx), nil)
+		setupFunc := setup.NewSetupFunc(setupOpts)
 
 		var synchronizedSetupFunc setuputils.SetupFunc
 		synchronizedSetupFunc = func(setupCtx context.Context, kubeCache kube.SharedCache, inMemoryCache memory.InMemoryResourceCache, settings *v1.Settings, identity leaderelector.Identity) error {
@@ -114,8 +121,8 @@ var _ = Describe("Setup Syncer", func() {
 		})
 
 		It("restarts validation grpc server when settings change", func() {
-			portForwarder, err := kubeCli.StartPortForward(ctx,
-				portforward.WithDeployment(kubeutils.GlooDeploymentName, testHelper.InstallNamespace),
+			portForwarder, err := testHelper.StartPortForward(ctx,
+				portforward.WithDeployment(helpers.DefaultKgatewayDeploymentName, testHelper.InstallNamespace),
 				portforward.WithRemotePort(defaults.GlooValidationPort),
 			)
 			Expect(err).NotTo(HaveOccurred())

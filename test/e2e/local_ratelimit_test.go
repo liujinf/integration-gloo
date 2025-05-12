@@ -1,21 +1,24 @@
+//go:build ignore
+
 package e2e_test
 
 import (
 	"fmt"
 	"net/http"
 
-	v1 "github.com/solo-io/gloo/projects/gateway/pkg/api/v1"
-	gatewaydefaults "github.com/solo-io/gloo/projects/gateway/pkg/defaults"
-	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
-	gloo_matchers "github.com/solo-io/gloo/projects/gloo/pkg/api/v1/core/matchers"
-	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/enterprise/options/ratelimit"
-	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/local_ratelimit"
-	local_ratelimit_plugin "github.com/solo-io/gloo/projects/gloo/pkg/plugins/local_ratelimit"
-	"github.com/solo-io/gloo/test/e2e"
-	"github.com/solo-io/gloo/test/gomega/matchers"
-	"github.com/solo-io/gloo/test/testutils"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	v1 "github.com/kgateway-dev/kgateway/v2/internal/gateway/pkg/api/v1"
+	gatewaydefaults "github.com/kgateway-dev/kgateway/v2/internal/gateway/pkg/defaults"
+	gloov1 "github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/api/v1"
+	gloo_matchers "github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/api/v1/core/matchers"
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/api/v1/enterprise/options/ratelimit"
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/api/v1/options/local_ratelimit"
+	local_ratelimit_plugin "github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/plugins/local_ratelimit"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e"
+	"github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
+	"github.com/kgateway-dev/kgateway/v2/test/testutils"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -57,14 +60,13 @@ var _ = Describe("Local Rate Limit", func() {
 		expectNotRateLimitedWithOutXRateLimitHeader = func() {
 			response := expectNotRateLimited()
 			// Since the values of the x-rate-limit headers change with time, we only check the presence of these header keys and not match their value
-			ExpectWithOffset(1, response).ToNot(matchers.ContainHeaderKeys([]string{"x-ratelimit-reset", "x-ratelimit-limit", "x-ratelimit-remaining"}),
+			ExpectWithOffset(1, response).ToNot(matchers.ContainHeaderKeys([]string{"x-ratelimit-limit", "x-ratelimit-remaining"}),
 				"x-ratelimit headers should not be present for non rate limited requests")
 		}
 
 		expectNotRateLimitedWithXRateLimitHeader = func() {
 			response := expectNotRateLimited()
-			// Since the x-ratelimit-reset header value changes with time, we only check the presence of this header key and not match its value
-			ExpectWithOffset(2, response).To(matchers.ContainHeaderKeys([]string{"x-ratelimit-reset", "x-ratelimit-limit", "x-ratelimit-remaining"}),
+			ExpectWithOffset(2, response).To(matchers.ContainHeaderKeys([]string{"x-ratelimit-limit", "x-ratelimit-remaining"}),
 				"x-ratelimit headers should be present")
 		}
 
@@ -79,9 +81,6 @@ var _ = Describe("Local Rate Limit", func() {
 				"x-ratelimit-limit":     []string{fmt.Sprint(limit)},
 				"x-ratelimit-remaining": []string{"0"},
 			}), "x-ratelimit headers should be present")
-			// Since the x-ratelimit-reset header value changes with time, we only check the presence of this header key and not match its value
-			ExpectWithOffset(1, response).To(matchers.ContainHeaderKeys([]string{"x-ratelimit-reset"}),
-				"x-ratelimit headers should be present")
 			ExpectWithOffset(1, err).NotTo(HaveOccurred(), "There should be no error when rate limited")
 		}
 
@@ -143,7 +142,7 @@ var _ = Describe("Local Rate Limit", func() {
 		// [error][envoy_bug] [external/envoy/source/common/http/conn_manager_impl.cc:527] envoy bug failure: !local_close_reason.empty(). Details: Local Close Reason was not set!
 		// This has been fixed in envoy v1.27.0 but since we still use v1.26.gitx, this issue intermittently occurs.
 		// Since this bug doesn't affect the functionally of the ConnectionLimit filter (requests still do not cross the limit), we're adding FlakeAttempts until we move to a version of envoy with this fix.
-		// More info can be found here : https://github.com/solo-io/gloo/issues/8531
+		// More info can be found here : https://github.com/kgateway-dev/kgateway/issues/8531
 		It("Should rate limit at the l4 layer", FlakeAttempts(5), func() {
 			expectNotRateLimited := func() {
 				// We use a new client every time as TCP connections are cached and this needs to be avoided in order to test L4 rate limiting

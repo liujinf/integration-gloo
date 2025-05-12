@@ -1,30 +1,40 @@
+//go:build ignore
+
 package upgrade_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/solo-io/gloo/pkg/utils/helmutils"
+	"github.com/solo-io/skv2/codegen/util"
 
-	kubetestclients "github.com/solo-io/gloo/test/kubernetes/testutils/clients"
+	"github.com/kgateway-dev/kgateway/v2/pkg/cliutil"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/helmutils"
 
-	"github.com/solo-io/gloo/projects/gloo/cli/pkg/helpers"
+	kubetestclients "github.com/kgateway-dev/kgateway/v2/test/kubernetes/testutils/clients"
+
 	exec_utils "github.com/solo-io/go-utils/testutils/exec"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/cli/pkg/helpers"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/solo-io/gloo/projects/gloo/cli/pkg/cmd/version"
-	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
-	"github.com/solo-io/gloo/test/kube2e"
-	"github.com/solo-io/gloo/test/kube2e/helper"
+
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/cli/pkg/cmd/version"
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/defaults"
+	"github.com/kgateway-dev/kgateway/v2/test/kube2e"
+	"github.com/kgateway-dev/kgateway/v2/test/kube2e/helper"
+
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
@@ -52,6 +62,7 @@ var _ = Describe("Kube2e: Upgrade Tests", func() {
 		strictValidation = false
 		testHelper, err = kube2e.GetTestHelper(ctx, namespace)
 		Expect(err).NotTo(HaveOccurred())
+
 	})
 
 	AfterEach(func() {
@@ -240,6 +251,7 @@ func updateValidationWebhookTests(ctx context.Context, crdDir string, kubeClient
 	secret, err = secretClient.Get(ctx, "gateway-validation-certs", metav1.GetOptions{})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(webhookConfig.Webhooks[0].ClientConfig.CABundle).To(Equal(secret.Data[corev1.ServiceAccountRootCAKey]))
+
 }
 
 // ===================================
@@ -262,7 +274,7 @@ func getGlooServerVersion(ctx context.Context, namespace string) (v string) {
 func installGloo(testHelper *helper.SoloTestHelper, fromRelease string, strictValidation bool) {
 	cwd, err := os.Getwd()
 	Expect(err).NotTo(HaveOccurred(), "working dir could not be retrieved while installing gloo")
-	helmValuesFile := filepath.Join(cwd, "artifacts", "helm.yaml")
+	helmValuesFile := filepath.Join(cwd, "testdata", "helm.yaml")
 
 	// construct helm args
 	var args = []string{"install", testHelper.HelmChartName}
@@ -295,9 +307,20 @@ func installGloo(testHelper *helper.SoloTestHelper, fromRelease string, strictVa
 
 	fmt.Printf("running helm with args: %v\n", args)
 	runAndCleanCommand("helm", args...)
-
+	// we dont use the new install gloo so we need to spin this up here
+	testServer, err := helper.NewTestServer(testHelper.InstallNamespace)
+	if err != nil {
+		Expect(err).NotTo(HaveOccurred())
+	}
+	if err := testServer.DeployResources(5 * time.Minute); err != nil {
+		Expect(err).NotTo(HaveOccurred())
+	}
 	// Check that everything is OK
 	checkGlooHealthy(testHelper)
+
+	// install assets
+	preUpgradeDataSetup(testHelper)
+
 }
 
 // CRDs are applied to a cluster when performing a `helm install` operation
@@ -312,7 +335,7 @@ func upgradeCrds(crdDir string) {
 }
 
 func upgradeGloo(testHelper *helper.SoloTestHelper, chartUri string, targetReleasedVersion string, crdDir string, strictValidation bool, additionalArgs []string) {
-	// With the fix for custom readiness probe : https://github.com/solo-io/gloo/pull/8831
+	// With the fix for custom readiness probe : https://github.com/kgateway-dev/kgateway/pull/8831
 	// The resource rollout job is not longer in a post hook and the job ttl has changed from 60 to 300
 	// As a consequence the job is not automatically cleaned as part of the hook deletion policy
 	// or within the time between installing gloo and upgrading it in the test.
@@ -355,6 +378,8 @@ func upgradeGloo(testHelper *helper.SoloTestHelper, chartUri string, targetRelea
 
 	//Check that everything is OK
 	checkGlooHealthy(testHelper)
+
+	postUpgradeDataStep(testHelper)
 }
 
 func uninstallGloo(testHelper *helper.SoloTestHelper, ctx context.Context, cancel context.CancelFunc) {
@@ -392,13 +417,8 @@ gatewayProxies:
       # the new fields on the Gateway CR during the helm upgrade, and that it will pass validation)
       customHttpGateway:
         options:
-          dlp:
-            dlpRules:
-            - actions:
-              - actionType: KEYVALUE
-                keyValueAction:
-                  keyToMask: test
-                  name: test
+          buffer:
+            maxRequestBytes: 999999
 `))
 	Expect(err).NotTo(HaveOccurred())
 
@@ -414,13 +434,21 @@ var strictValidationArgs = []string{
 	"--set", "gateway.validation.alwaysAcceptResources=false",
 }
 
-func runAndCleanCommand(name string, arg ...string) []byte {
+func runAndCleanCommand(name string, args ...string) []byte {
+	return runWithSTDandCleanCommand(name, nil, args...)
+}
+
+func runWithSTDandCleanCommand(name string, stdin io.Reader, arg ...string) []byte {
 	cmd := exec.Command(name, arg...)
+	if stdin != nil {
+		cmd.Stdin = stdin
+	}
 	b, err := cmd.Output()
 	// for debugging in Cloud Build
 	if err != nil {
 		if v, ok := err.(*exec.ExitError); ok {
-			fmt.Println("ExitError: ", string(v.Stderr))
+			Expect(err).NotTo(HaveOccurred(), string(v.Stderr))
+
 		}
 	}
 	Expect(err).NotTo(HaveOccurred())
@@ -434,5 +462,65 @@ func checkGlooHealthy(testHelper *helper.SoloTestHelper) {
 	for _, deploymentName := range deploymentNames {
 		runAndCleanCommand("kubectl", "rollout", "status", "deployment", "-n", testHelper.InstallNamespace, deploymentName)
 	}
-	kube2e.GlooctlCheckEventuallyHealthy(2, testHelper, "90s")
+	kube2e.GlooctlCheckEventuallyHealthy(2, testHelper.InstallNamespace, "90s")
+}
+
+// ===================================
+// Resources for upgrade tests
+// ===================================
+// Sets up resources before upgrading
+
+// TODO(nfuden): either get this on testinstallation or entirely lift and shift the whole suite
+func preUpgradeDataSetup(testHelper *helper.SoloTestHelper) {
+
+	//hello world example
+	resDirPath := filepath.Join(util.MustGetThisDir(), "testdata", "petstorebase")
+	resourceFiles, err := os.ReadDir(resDirPath)
+	Expect(err).ToNot(HaveOccurred())
+	args := []string{"apply", "-f", "-"}
+	// Note that this is really unclean, its not ordered and not our current standard.
+	for _, toApplyFile := range resourceFiles {
+		toApplyF := filepath.Join(resDirPath, toApplyFile.Name())
+		raw, err := os.ReadFile(toApplyF)
+		Expect(err).ToNot(HaveOccurred())
+
+		toApply := []byte(os.ExpandEnv(string(raw)))
+
+		runWithSTDandCleanCommand("kubectl", bytes.NewBuffer(toApply), args...)
+	}
+
+	checkGlooHealthy(testHelper)
+
+	resVSDirPath := filepath.Join(util.MustGetThisDir(), "testdata", "petstorevs", "vs_preupgrade.yaml")
+	resourceVSFile, err := os.ReadFile(resVSDirPath)
+	Expect(err).ToNot(HaveOccurred())
+
+	runWithSTDandCleanCommand("kubectl", bytes.NewBuffer(resourceVSFile), args...)
+
+	portFwd, err := cliutil.PortForward(context.Background(), testHelper.InstallNamespace, "deploy/"+gatewayProxyName, "8080", "8080", false)
+	Expect(err).NotTo(HaveOccurred())
+	validatePetstoreTraffic(testHelper, "/all-pets")
+	portFwd.Close()
+	portFwd.WaitForStop()
+
+}
+
+func postUpgradeDataStep(testHelper *helper.SoloTestHelper) {
+
+	// Note that this is really unclean, its not ordered and not our current standard.
+	resVSDirPath := filepath.Join(util.MustGetThisDir(), "testdata", "petstorevs", "vs_postupgrade.yaml")
+	resourceVSFile, err := os.ReadFile(resVSDirPath)
+	Expect(err).ToNot(HaveOccurred())
+	args := []string{"apply", "-f", "-"}
+
+	runWithSTDandCleanCommand("kubectl", bytes.NewBuffer(resourceVSFile), args...)
+
+	checkGlooHealthy(testHelper)
+
+	portFwd, err := cliutil.PortForward(context.Background(), testHelper.InstallNamespace, "deploy/"+gatewayProxyName, "8080", "8080", false)
+	Expect(err).NotTo(HaveOccurred())
+	validatePetstoreTraffic(testHelper, "/some-pets")
+	portFwd.Close()
+	portFwd.WaitForStop()
+
 }

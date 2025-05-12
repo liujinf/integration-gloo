@@ -1,3 +1,5 @@
+//go:build ignore
+
 package gloo_test
 
 import (
@@ -5,19 +7,15 @@ import (
 	"net"
 	"strings"
 
-	kubetestclients "github.com/solo-io/gloo/test/kubernetes/testutils/clients"
+	kubetestclients "github.com/kgateway-dev/kgateway/v2/test/kubernetes/testutils/clients"
 
-	"github.com/solo-io/gloo/test/services/envoy"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/kgateway-dev/kgateway/v2/test/services/envoy"
 
 	"github.com/golang/protobuf/ptypes/wrappers"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	gatewaydefaults "github.com/solo-io/gloo/projects/gateway/pkg/defaults"
-	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
-	testhelpers "github.com/solo-io/gloo/test/helpers"
-	"github.com/solo-io/gloo/test/services"
-	"github.com/solo-io/gloo/test/v1helpers"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
@@ -25,6 +23,12 @@ import (
 	"github.com/solo-io/solo-kit/test/helpers"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+
+	gatewaydefaults "github.com/kgateway-dev/kgateway/v2/internal/gateway/pkg/defaults"
+	gloov1 "github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/api/v1"
+	testhelpers "github.com/kgateway-dev/kgateway/v2/test/helpers"
+	"github.com/kgateway-dev/kgateway/v2/test/services"
+	"github.com/kgateway-dev/kgateway/v2/test/v1helpers"
 )
 
 var _ = Describe("Happy path", func() {
@@ -157,7 +161,9 @@ var _ = Describe("Happy path", func() {
 				err := envoyInstance.RunWithRole(role, testClients.GlooPort)
 				Expect(err).NotTo(HaveOccurred())
 
-				testhelpers.EventuallyResourceAccepted(func() (resources.InputResource, error) {
+				// Upstreams no longer report status if they have not been translated at all to avoid conflicting with
+				// other syncers that have translated them, so we can only detect that the objects exist here
+				testhelpers.EventuallyResourceExists(func() (resources.Resource, error) {
 					return getUpstream()
 				}, "20s", ".5s")
 			})
@@ -239,9 +245,11 @@ var _ = Describe("Happy path", func() {
 			})
 
 			It("watch all namespaces", func() {
-				testhelpers.EventuallyResourceAccepted(func() (resources.InputResource, error) {
+				// Upstreams no longer report status if they have not been translated at all to avoid conflicting with
+				// other syncers that have translated them, so we can only detect that the objects exist here
+				testhelpers.EventuallyResourceExists(func() (resources.Resource, error) {
 					return getUpstream()
-				})
+				}, "20s", ".5s")
 
 				up, err := getUpstream()
 				Expect(err).NotTo(HaveOccurred())

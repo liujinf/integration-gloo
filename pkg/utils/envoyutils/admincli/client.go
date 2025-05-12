@@ -1,16 +1,26 @@
 package admincli
 
 import (
+	"archive/zip"
 	"context"
 	"fmt"
 	"io"
 	"net/http"
 
 	adminv3 "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
-	"github.com/solo-io/gloo/pkg/utils/cmdutils"
-	"github.com/solo-io/gloo/pkg/utils/protoutils"
-	"github.com/solo-io/gloo/pkg/utils/requestutils/curl"
+	clusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	listenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	"github.com/solo-io/go-utils/threadsafe"
+
+	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/cmdutils"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils/kubectl"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils/portforward"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/protoutils"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
+
+	// import for side effects; this is needed so we can unmarshal envoy types
+	_ "github.com/kgateway-dev/kgateway/v2/pkg/utils/filter_types"
 )
 
 const (
@@ -23,9 +33,13 @@ const (
 	HealthCheckPath    = "healthcheck"
 	LoggingPath        = "logging"
 	ServerInfoPath     = "server_info"
-
-	DefaultAdminPort = 19000
 )
+
+// DumpOptions should have flags for any kind of underlying optional
+// filtering or inclusion of Envoy dump data, such as including EDS, filters, etc.
+type DumpOptions struct {
+	ConfigIncludeEDS bool
+}
 
 // Client is a utility for executing requests against the Envoy Admin API
 // The Admin API handlers can be found here:
@@ -45,11 +59,43 @@ func NewClient() *Client {
 		curlOptions: []curl.Option{
 			curl.WithScheme("http"),
 			curl.WithHost("127.0.0.1"),
-			curl.WithPort(DefaultAdminPort),
+			curl.WithPort(int(wellknown.EnvoyAdminPort)),
 			// 3 retries, exponential back-off, 10 second max
 			curl.WithRetries(3, 0, 10),
 		},
 	}
+}
+
+// NewPortForwardedClient takes a pod selector like <podname> or `deployment/<podname`,
+// and returns a port-forwarded Envoy admin client pointing at that pod,
+// as well as a deferrable shutdown function.
+//
+// Designed to be used by tests and CLI from outside of a cluster where `kubectl` is present.
+// In all other cases, `NewClient` is preferred
+func NewPortForwardedClient(ctx context.Context, proxySelector, namespace string) (*Client, func(), error) {
+	selector := portforward.WithResourceSelector(proxySelector, namespace)
+
+	// 1. Open a port-forward to the Kubernetes Deployment, so that we can query the Envoy Admin API directly
+	portForwarder, err := kubectl.NewCli().StartPortForward(ctx,
+		selector,
+		portforward.WithRemotePort(int(wellknown.EnvoyAdminPort)))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// 2. Close the port-forward when we're done accessing data
+	deferFunc := func() {
+		portForwarder.Close()
+		portForwarder.WaitForStop()
+	}
+
+	// 3. Create a CLI that connects to the Envoy Admin API
+	adminCli := NewClient().
+		WithCurlOptions(
+			curl.WithHostPort(portForwarder.Address()),
+		)
+
+	return adminCli, deferFunc, err
 }
 
 // WithReceiver sets the io.Writer that will be used by default for the stdout and stderr
@@ -92,20 +138,28 @@ func (c *Client) RequestPathCmd(ctx context.Context, path string) cmdutils.Cmd {
 }
 
 // StatsCmd returns the cmdutils.Cmd that can be run to request data from the stats endpoint
-func (c *Client) StatsCmd(ctx context.Context) cmdutils.Cmd {
-	return c.RequestPathCmd(ctx, StatsPath)
+func (c *Client) StatsCmd(ctx context.Context, queryParams map[string]string) cmdutils.Cmd {
+	return c.Command(ctx,
+		curl.WithPath(StatsPath),
+		curl.WithQueryParameters(queryParams),
+	)
 }
 
 // GetStats returns the data that is available at the stats endpoint
-func (c *Client) GetStats(ctx context.Context) (string, error) {
+func (c *Client) GetStats(ctx context.Context, queryParams map[string]string) (string, error) {
 	var outLocation threadsafe.Buffer
 
-	err := c.StatsCmd(ctx).WithStdout(&outLocation).Run().Cause()
+	err := c.StatsCmd(ctx, queryParams).WithStdout(&outLocation).Run().Cause()
 	if err != nil {
 		return "", err
 	}
 
 	return outLocation.String(), nil
+}
+
+// ServerInfoCmd returns the cmdutils.Cmd that can be run to request data from the server_info endpoint
+func (c *Client) ServerInfoCmd(ctx context.Context) cmdutils.Cmd {
+	return c.RequestPathCmd(ctx, ServerInfoPath)
 }
 
 // ClustersCmd returns the cmdutils.Cmd that can be run to request data from the clusters endpoint
@@ -119,18 +173,21 @@ func (c *Client) ListenersCmd(ctx context.Context) cmdutils.Cmd {
 }
 
 // ConfigDumpCmd returns the cmdutils.Cmd that can be run to request data from the config_dump endpoint
-func (c *Client) ConfigDumpCmd(ctx context.Context) cmdutils.Cmd {
-	return c.RequestPathCmd(ctx, ConfigDumpPath)
+func (c *Client) ConfigDumpCmd(ctx context.Context, queryParams map[string]string) cmdutils.Cmd {
+	return c.Command(ctx,
+		curl.WithPath(ConfigDumpPath),
+		curl.WithQueryParameters(queryParams),
+	)
 }
 
 // GetConfigDump returns the structured data that is available at the config_dump endpoint
-func (c *Client) GetConfigDump(ctx context.Context) (*adminv3.ConfigDump, error) {
+func (c *Client) GetConfigDump(ctx context.Context, queryParams map[string]string) (*adminv3.ConfigDump, error) {
 	var (
 		cfgDump     adminv3.ConfigDump
 		outLocation threadsafe.Buffer
 	)
 
-	err := c.ConfigDumpCmd(ctx).WithStdout(&outLocation).Run().Cause()
+	err := c.ConfigDumpCmd(ctx, queryParams).WithStdout(&outLocation).Run().Cause()
 	if err != nil {
 		return nil, err
 	}
@@ -143,6 +200,18 @@ func (c *Client) GetConfigDump(ctx context.Context) (*adminv3.ConfigDump, error)
 	}
 
 	return &cfgDump, nil
+}
+
+// GetStaticClusters returns the map of static clusters available on a ConfigDump, indexed by their name
+func (c *Client) GetStaticClusters(ctx context.Context) (map[string]*clusterv3.Cluster, error) {
+	configDump, err := c.GetConfigDump(ctx, map[string]string{
+		"resource": "static_clusters",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return GetStaticClustersByName(configDump)
 }
 
 // ModifyRuntimeConfiguration passes the queryParameters to the runtime_modify endpoint
@@ -191,10 +260,7 @@ func (c *Client) GetServerInfo(ctx context.Context) (*adminv3.ServerInfo, error)
 		outLocation threadsafe.Buffer
 	)
 
-	err := c.RequestPathCmd(ctx, ServerInfoPath).
-		WithStdout(&outLocation).
-		Run().
-		Cause()
+	err := c.ServerInfoCmd(ctx).WithStdout(&outLocation).Run().Cause()
 	if err != nil {
 		return nil, err
 	}
@@ -204,4 +270,82 @@ func (c *Client) GetServerInfo(ctx context.Context) (*adminv3.ServerInfo, error)
 	}
 
 	return &serverInfo, nil
+}
+
+// GetSingleListenerFromDynamicListeners queries for a single, active dynamic listener in the envoy config dump
+// and returns it as an envoy v3.Listener. This helper will only work if the provided name_regex matches a single dynamic_listener
+// but will always use the first set of configs returned regardless
+func (c *Client) GetSingleListenerFromDynamicListeners(
+	ctx context.Context,
+	listenerNameRegex string,
+) (*listenerv3.Listener, error) {
+	queryParams := map[string]string{
+		"resource":   "dynamic_listeners",
+		"name_regex": listenerNameRegex,
+	}
+	cfgDump, err := c.GetConfigDump(ctx, queryParams)
+	if err != nil {
+		return nil, fmt.Errorf("could not get envoy config_dump from adminClient: %w", err)
+	}
+
+	configs := cfgDump.GetConfigs()
+
+	// if no dynamic listeners name matching listenerNameRegex or
+	// before envoy is full configured, dynamic listeners will be missing
+	// and envoy will return an empty object json object `{}`
+	if len(configs) == 0 {
+		return nil, fmt.Errorf("could not get config: config is empty")
+	}
+
+	listenerDump := adminv3.ListenersConfigDump_DynamicListener{}
+	err = configs[0].UnmarshalTo(&listenerDump)
+	if err != nil {
+		return nil, fmt.Errorf("could not unmarshal envoy config_dump: %w", err)
+	}
+
+	listener := listenerv3.Listener{}
+	err = listenerDump.GetActiveState().GetListener().UnmarshalTo(&listener)
+	if err != nil {
+		return nil, fmt.Errorf("could not unmarshal listener from listener dump: %w", err)
+	}
+	return &listener, nil
+}
+
+// WriteEnvoyDumpToZip will dump config, stats, clusters and listeners to zipfile in the current directory.
+// Useful for diagnostics or testing
+func (c *Client) WriteEnvoyDumpToZip(ctx context.Context, options DumpOptions, zip *zip.Writer) error {
+	configParams := make(map[string]string)
+	if options.ConfigIncludeEDS {
+		configParams["include_eds"] = "on"
+	}
+
+	// zip writer has the benefit of not requiring tmpdirs or file ops (all in mem)
+	// - but it can't support async writes, so do these sequentally
+	// Also don't join errors, we want to fast-fail
+	if err := c.ServerInfoCmd(ctx).WithStdout(fileInArchive(zip, "server_info.json")).Run().Cause(); err != nil {
+		return err
+	}
+	if err := c.ConfigDumpCmd(ctx, configParams).WithStdout(fileInArchive(zip, "config.json")).Run().Cause(); err != nil {
+		return err
+	}
+	if err := c.StatsCmd(ctx, nil).WithStdout(fileInArchive(zip, "stats.txt")).Run().Cause(); err != nil {
+		return err
+	}
+	if err := c.ClustersCmd(ctx).WithStdout(fileInArchive(zip, "clusters.txt")).Run().Cause(); err != nil {
+		return err
+	}
+	if err := c.ListenersCmd(ctx).WithStdout(fileInArchive(zip, "listeners.txt")).Run().Cause(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// fileInArchive creates a file at the given path within the archive, and returns the file object for writing.
+func fileInArchive(w *zip.Writer, path string) io.Writer {
+	f, err := w.Create(path)
+	if err != nil {
+		fmt.Printf("unable to create file: %f\n", err)
+	}
+	return f
 }

@@ -1,3 +1,5 @@
+//go:build ignore
+
 package gateway_test
 
 import (
@@ -7,20 +9,26 @@ import (
 	"testing"
 	"time"
 
-	kubetestclients "github.com/solo-io/gloo/test/kubernetes/testutils/clients"
+	"github.com/solo-io/skv2/codegen/util"
 
-	"github.com/solo-io/gloo/pkg/utils/kubeutils/kubectl"
+	"github.com/kgateway-dev/kgateway/v2/test/kubernetes/testutils/cluster"
 
-	kubeutils2 "github.com/solo-io/gloo/test/testutils"
+	kubetestclients "github.com/kgateway-dev/kgateway/v2/test/kubernetes/testutils/clients"
 
-	gatewaydefaults "github.com/solo-io/gloo/projects/gateway/pkg/defaults"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils/kubectl"
 
-	gloodefaults "github.com/solo-io/gloo/projects/gloo/pkg/defaults"
+	kubeutils2 "github.com/kgateway-dev/kgateway/v2/test/testutils"
 
-	"github.com/solo-io/gloo/test/helpers"
-	"github.com/solo-io/gloo/test/kube2e"
-	"github.com/solo-io/gloo/test/kube2e/helper"
+	gatewaydefaults "github.com/kgateway-dev/kgateway/v2/internal/gateway/pkg/defaults"
+
+	gloodefaults "github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/defaults"
+
 	skhelpers "github.com/solo-io/solo-kit/test/helpers"
+
+	"github.com/kgateway-dev/kgateway/v2/test/helpers"
+	"github.com/kgateway-dev/kgateway/v2/test/kube2e"
+	"github.com/kgateway-dev/kgateway/v2/test/kube2e/helper"
+	testruntime "github.com/kgateway-dev/kgateway/v2/test/kubernetes/testutils/runtime"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -61,7 +69,10 @@ func StartTestHelper() {
 
 	testHelper, err = kube2e.GetTestHelper(ctx, namespace)
 	Expect(err).NotTo(HaveOccurred())
-	skhelpers.RegisterPreFailHandler(helpers.StandardGlooDumpOnFail(GinkgoWriter, metav1.ObjectMeta{Namespace: testHelper.InstallNamespace}))
+
+	outDir := filepath.Join(util.GetModuleRoot(), "_output", "kube2e-artifacts")
+	namespaces := []string{testHelper.InstallNamespace}
+	skhelpers.RegisterPreFailHandler(helpers.StandardKgatewayDumpOnFail(GinkgoWriter, outDir, namespaces))
 
 	kubeCli = kubectl.NewCli().WithReceiver(GinkgoWriter)
 
@@ -70,7 +81,11 @@ func StartTestHelper() {
 		installGloo()
 	}
 
-	resourceClientset, err = kube2e.NewDefaultKubeResourceClientSet(ctx)
+	// We rely on the "new" kubernetes/e2e setup code, since it incorporates controller-runtime logging setup
+	runtimeContext := testruntime.NewContext()
+	clusterContext := cluster.MustKindContext(runtimeContext.ClusterName)
+
+	resourceClientset, err = kube2e.NewKubeResourceClientSet(ctx, clusterContext.RestConfig)
 	Expect(err).NotTo(HaveOccurred(), "can create kube resource client set")
 
 	snapshotWriter = helpers.NewSnapshotWriter(resourceClientset).WithWriteNamespace(testHelper.InstallNamespace)
@@ -92,7 +107,7 @@ func installGloo() {
 	Expect(err).NotTo(HaveOccurred())
 
 	// Check that everything is OK
-	kube2e.GlooctlCheckEventuallyHealthy(1, testHelper, "90s")
+	kube2e.GlooctlCheckEventuallyHealthy(1, testHelper.InstallNamespace, "90s")
 
 	// Ensure gloo reaches valid state and doesn't continually resync
 	// we can consider doing the same for leaking go-routines after resyncs

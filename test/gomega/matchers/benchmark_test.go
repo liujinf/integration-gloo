@@ -1,3 +1,5 @@
+//go:build ignore
+
 package matchers_test
 
 import (
@@ -6,7 +8,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/solo-io/gloo/test/gomega/matchers"
+
+	"github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 )
 
 var _ = Describe("Benchmark", func() {

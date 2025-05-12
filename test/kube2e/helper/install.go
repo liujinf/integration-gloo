@@ -1,3 +1,5 @@
+//go:build ignore
+
 package helper
 
 import (
@@ -18,6 +20,8 @@ import (
 	"github.com/solo-io/go-utils/log"
 	"github.com/solo-io/go-utils/testutils/exec"
 	"github.com/solo-io/k8s-utils/testutils/kube"
+
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils/kubectl"
 )
 
 const (
@@ -72,7 +76,7 @@ type TestConfig struct {
 	InstallNamespace string
 	// Name of the glooctl executable
 	GlooctlExecName string
-	// If provided, the licence key to install the enterprise version of Gloo
+	// If provided, the license key to install the enterprise version of Gloo
 	LicenseKey string
 	// Determines whether the test server pod gets deployed
 	DeployTestServer bool
@@ -88,6 +92,8 @@ type TestConfig struct {
 type SoloTestHelper struct {
 	*TestConfig
 	TestUpstreamServer
+	// The kubernetes helper
+	*kubectl.Cli
 }
 
 // NewSoloTestHelper is meant to provide a standard way of deploying Gloo/GlooE to a k8s cluster during tests.
@@ -149,6 +155,10 @@ func NewSoloTestHelper(configFunc TestConfigFunc) (*SoloTestHelper, error) {
 	}
 
 	return testHelper, nil
+}
+
+func (h *SoloTestHelper) SetKubeCli(cli *kubectl.Cli) {
+	h.Cli = cli
 }
 
 // Return the version of the Helm chart

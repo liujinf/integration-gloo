@@ -1,3 +1,5 @@
+//go:build ignore
+
 package helpers
 
 import (
@@ -23,7 +25,7 @@ func PatchResource(ctx context.Context, resourceRef *core.ResourceRef, mutator f
 // The mutator method must return the full object that will be persisted, any side effects from the mutator will be ignored
 func PatchResourceWithOffset(offset int, ctx context.Context, resourceRef *core.ResourceRef, mutator func(resource resources.Resource) resources.Resource, client clients.ResourceClient) error {
 	// There is a potential bug in our resource writing implementation that leads to test flakes
-	// https://github.com/solo-io/gloo/issues/7044
+	// https://github.com/kgateway-dev/kgateway/issues/7044
 	// This is a temporary solution to ensure that tests do not flake
 
 	var patchErr error

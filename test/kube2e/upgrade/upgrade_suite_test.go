@@ -1,3 +1,5 @@
+//go:build ignore
+
 package upgrade_test
 
 import (
@@ -6,18 +8,19 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/solo-io/gloo/pkg/utils/helmutils"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/helmutils"
 
 	. "github.com/onsi/gomega"
-	"github.com/solo-io/gloo/test/kube2e"
-	"github.com/solo-io/gloo/test/kube2e/upgrade"
 	"github.com/solo-io/go-utils/versionutils"
 	"github.com/solo-io/skv2/codegen/util"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/kgateway-dev/kgateway/v2/test/kube2e"
+	"github.com/kgateway-dev/kgateway/v2/test/kubernetes/testutils/helper"
 
 	. "github.com/onsi/ginkgo/v2"
-	"github.com/solo-io/gloo/test/helpers"
 	skhelpers "github.com/solo-io/solo-kit/test/helpers"
+
+	"github.com/kgateway-dev/kgateway/v2/test/helpers"
 )
 
 func TestUpgrade(t *testing.T) {
@@ -52,10 +55,9 @@ var _ = BeforeSuite(func() {
 	testHelper, err := kube2e.GetTestHelper(suiteCtx, namespace)
 	Expect(err).NotTo(HaveOccurred())
 
-	skhelpers.RegisterPreFailHandler(helpers.StandardGlooDumpOnFail(GinkgoWriter,
-		metav1.ObjectMeta{Namespace: "upgrade"},
-		metav1.ObjectMeta{Namespace: testHelper.InstallNamespace},
-		metav1.ObjectMeta{Namespace: "other-ns"}))
+	outDir := filepath.Join(util.GetModuleRoot(), "_output", "kube2e-artifacts")
+	namespaces := []string{"upgrade", testHelper.InstallNamespace, "other-ns"}
+	skhelpers.RegisterPreFailHandler(helpers.StandardKgatewayDumpOnFail(GinkgoWriter, outDir, namespaces))
 
 	crdDir = filepath.Join(util.GetModuleRoot(), "install", "helm", "gloo", "crds")
 	targetReleasedVersion = kube2e.GetTestReleasedVersion(suiteCtx, "gloo")
@@ -65,7 +67,7 @@ var _ = BeforeSuite(func() {
 		chartUri = filepath.Join(testHelper.RootDir, testHelper.TestAssetDir, testHelper.HelmChartName+"-"+testHelper.ChartVersion()+".tgz")
 	}
 
-	LastPatchPreviousMinorVersion, CurrentPatchMostRecentMinorVersion, err = upgrade.GetUpgradeVersions(suiteCtx, "gloo")
+	LastPatchPreviousMinorVersion, CurrentPatchMostRecentMinorVersion, err = helper.GetUpgradeVersions(suiteCtx, "gloo")
 	Expect(err).NotTo(HaveOccurred())
 
 	skipIfFirstMinorFunc = func() {}

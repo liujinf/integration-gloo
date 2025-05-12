@@ -1,3 +1,5 @@
+//go:build ignore
+
 package e2e_test
 
 import (
@@ -8,10 +10,11 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/solo-io/gloo/test/services/envoy"
+	"github.com/kgateway-dev/kgateway/v2/test/services/envoy"
 
-	"github.com/solo-io/gloo/test/helpers"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources"
+
+	"github.com/kgateway-dev/kgateway/v2/test/helpers"
 
 	"github.com/onsi/gomega/format"
 
@@ -19,20 +22,20 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
-	gatewayv1 "github.com/solo-io/gloo/projects/gateway/pkg/api/v1"
-	gwdefaults "github.com/solo-io/gloo/projects/gateway/pkg/defaults"
-	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/core/matchers"
-	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options"
-	"github.com/solo-io/gloo/projects/gloo/pkg/api/v1/options/grpc_json"
-	"github.com/solo-io/gloo/test/services"
-	"github.com/solo-io/gloo/test/v1helpers"
-	glootest "github.com/solo-io/gloo/test/v1helpers/test_grpc_service/glootest/protos"
 	"github.com/solo-io/solo-kit/pkg/api/v1/clients"
 	"github.com/solo-io/solo-kit/pkg/api/v1/resources/core"
 
-	gloov1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
-	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
-	testmatchers "github.com/solo-io/gloo/test/gomega/matchers"
+	gatewayv1 "github.com/kgateway-dev/kgateway/v2/internal/gateway/pkg/api/v1"
+	gwdefaults "github.com/kgateway-dev/kgateway/v2/internal/gateway/pkg/defaults"
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/api/v1/core/matchers"
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/api/v1/options"
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/api/v1/options/grpc_json"
+	"github.com/kgateway-dev/kgateway/v2/test/services"
+	"github.com/kgateway-dev/kgateway/v2/test/v1helpers"
+
+	gloov1 "github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/api/v1"
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/defaults"
+	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 )
 
 var _ = Describe("GRPC to JSON Transcoding Plugin - Envoy API", func() {
@@ -59,7 +62,7 @@ var _ = Describe("GRPC to JSON Transcoding Plugin - Envoy API", func() {
 			},
 			Settings: &gloov1.Settings{
 				Gloo: &gloov1.GlooOptions{
-					// https://github.com/solo-io/gloo/issues/8374
+					// https://github.com/kgateway-dev/kgateway/issues/8374
 					RemoveUnusedFilters: &wrappers.BoolValue{Value: false},
 				},
 			},
@@ -91,7 +94,7 @@ var _ = Describe("GRPC to JSON Transcoding Plugin - Envoy API", func() {
 		}
 		expectedResp := `{"str":"foo"}`
 		expectedFields := Fields{
-			"GRPCRequest": PointTo(Equal(glootest.TestRequest{Str: "foo"})),
+			"GRPCRequest": PointTo(MatchFields(IgnoreExtras, Fields{"Str": Equal("foo")})),
 		}
 		if shouldMatch {
 			EventuallyWithOffset(1, func(g Gomega) {

@@ -5,9 +5,10 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/solo-io/gloo/pkg/utils/envoyutils/admincli"
-	"github.com/solo-io/gloo/pkg/utils/requestutils/curl"
 	"github.com/solo-io/go-utils/threadsafe"
+
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/envoyutils/admincli"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 )
 
 var _ = Describe("Client", func() {
@@ -66,7 +67,7 @@ var _ = Describe("Client", func() {
 						curl.WithoutRetries(),
 					)
 
-				statsCmd := client.StatsCmd(ctx).
+				statsCmd := client.StatsCmd(ctx, nil).
 					WithStdout(&outLocation).
 					WithStderr(&errLocation)
 
@@ -74,7 +75,7 @@ var _ = Describe("Client", func() {
 				Expect(err).To(HaveOccurred(), "running the command should return an error")
 				Expect(defaultOutputLocation.Bytes()).To(BeEmpty(), "defaultOutputLocation should not be used")
 				Expect(outLocation.Bytes()).To(BeEmpty(), "failed request should not output to Stdout")
-				Expect(string(errLocation.Bytes())).To(ContainSubstring("Failed to connect to 127.0.0.1 port 1111"), "failed request should output to Stderr")
+				Expect(errLocation.String()).To(ContainSubstring("Failed to connect to 127.0.0.1 port 1111"), "failed request should output to Stderr")
 			})
 		})
 	})

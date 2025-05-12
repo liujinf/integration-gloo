@@ -1,3 +1,5 @@
+//go:build ignore
+
 package services
 
 import (
@@ -14,11 +16,12 @@ import (
 	errors "github.com/rotisserie/eris"
 
 	"github.com/onsi/gomega"
-	"github.com/solo-io/gloo/test/services/utils"
-	"github.com/solo-io/gloo/test/testutils"
 	"github.com/solo-io/solo-kit/pkg/utils/protoutils"
 
-	v1 "github.com/solo-io/gloo/projects/gloo/pkg/api/v1"
+	"github.com/kgateway-dev/kgateway/v2/test/services/utils"
+	"github.com/kgateway-dev/kgateway/v2/test/testutils"
+
+	v1 "github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/api/v1"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega/gexec"
@@ -28,9 +31,6 @@ const (
 	DefaultHost       = "127.0.0.1"
 	DefaultPort       = 8200
 	DefaultVaultToken = "root"
-
-	vaultDockerImage = "hashicorp/vault:1.13.3"
-	vaultBinaryName  = "vault"
 )
 
 type VaultFactory struct {
@@ -47,8 +47,8 @@ func NewVaultFactory() (*VaultFactory, error) {
 		return nil, err
 	}
 	binaryPath, err := utils.GetBinary(utils.GetBinaryParams{
-		Filename:    vaultBinaryName,
-		DockerImage: vaultDockerImage,
+		Filename:    testutils.VaultBinaryName,
+		DockerImage: testutils.VaultDockerImage,
 		DockerPath:  "/bin/vault",
 		EnvKey:      testutils.VaultBinary,
 		TmpDir:      tmpdir,

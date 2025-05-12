@@ -1,3 +1,5 @@
+//go:build ignore
+
 package assertions
 
 import (
@@ -12,18 +14,19 @@ import (
 
 	"k8s.io/utils/pointer"
 
-	"github.com/solo-io/gloo/projects/gloo/pkg/defaults"
-	"github.com/solo-io/gloo/test/gomega/matchers"
-	"github.com/solo-io/gloo/test/gomega/transforms"
+	"github.com/kgateway-dev/kgateway/v2/internal/gloo/pkg/defaults"
+	"github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
+	"github.com/kgateway-dev/kgateway/v2/test/gomega/transforms"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
-	"github.com/solo-io/gloo/pkg/cliutil"
 	"github.com/solo-io/go-utils/stats"
+
+	"github.com/kgateway-dev/kgateway/v2/pkg/cliutil"
 )
 
-// Gloo Edge exports statistics to provide details about how the system is behaving
+// Kgateway exports statistics to provide details about how the system is behaving
 // Most stats utilities are defined in: https://github.com/solo-io/go-utils/tree/main/stats
 // This file contains a set of assertions that can be performed by tests to ensure that recorded stats
 // match what we would expect
@@ -77,7 +80,6 @@ func EventuallyWithOffsetStatisticsMatchAssertions(offset int, statsPortFwd Stat
 		portForwarder.WaitForStop()
 	}()
 
-	By("Ensure port-forward is open before performing assertions")
 	statsRequest, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://localhost:%d/", statsPortFwd.LocalPort), nil)
 	ExpectWithOffset(offset+1, err).NotTo(HaveOccurred())
 	EventuallyWithOffset(offset+1, func(g Gomega) {
@@ -90,7 +92,6 @@ func EventuallyWithOffsetStatisticsMatchAssertions(offset int, statsPortFwd Stat
 		}))
 	}).Should(Succeed())
 
-	By("Perform the assertions while the port forward is open")
 	for _, assertion := range assertions {
 		assertion.WithOffset(offset + 1).ShouldNot(HaveOccurred())
 	}
